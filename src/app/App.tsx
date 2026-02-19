@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
+import BottomNav from './components/BottomNav';
 import ToastContainer from './components/ToastContainer';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -8,9 +10,17 @@ import Alerts from './pages/Alerts';
 import History from './pages/History';
 import Devices from './pages/Devices';
 import Settings from './pages/Settings';
+import Onboarding from './pages/Onboarding';
 
 function AppContent() {
   const { isAuthenticated, activePage } = useApp();
+
+  // Always show onboarding during testing — will switch to first-launch only later
+  const [showOnboarding, setShowOnboarding] = useState(true);
+
+  if (showOnboarding) {
+    return <Onboarding onComplete={() => setShowOnboarding(false)} />;
+  }
 
   if (!isAuthenticated) {
     return <Login />;
@@ -28,14 +38,21 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#F4F7FB', fontFamily: 'Inter, sans-serif' }}>
+    <div className="min-h-screen bg-background text-foreground">
+      {/* Sidebar — desktop only */}
       <Sidebar />
-      <div className="ml-60">
+
+      {/* Main content — full width on mobile, offset on desktop */}
+      <div className="md:ml-60 pb-20 md:pb-0">
         <TopBar />
-        <main className="p-6 lg:p-8">
+        <main className="p-4 md:p-6 lg:p-8">
           {renderPage()}
         </main>
       </div>
+
+      {/* Bottom nav — mobile only */}
+      <BottomNav />
+
       <ToastContainer />
     </div>
   );

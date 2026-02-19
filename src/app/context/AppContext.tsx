@@ -25,22 +25,52 @@ export interface Device {
   batteryLevel: number;
 }
 
-export interface Settings {
+// Per-device configurable settings (name, location, calibration offsets, individual thresholds)
+export interface DeviceConfig {
+  id: string;
+  name: string;
+  location: string;
+  tempOffset: number;       // calibration offset in °C, e.g. -0.5 or +1.2
+  humidOffset: number;      // calibration offset in %, e.g. -2 or +3
+  useCustomThresholds: boolean;
   warningTemperature: number;
   criticalTemperature: number;
   warningHumidity: number;
   criticalHumidity: number;
+}
+
+export interface Settings {
+  // Alert thresholds (global defaults)
+  warningTemperature: number;
+  criticalTemperature: number;
+  warningHumidity: number;
+  criticalHumidity: number;
+  // Notifications
   inAppNotifications: boolean;
   emailAlerts: boolean;
   smsAlerts: boolean;
   alertRepeatInterval: string;
   userPhone: string;
+  escalationContact: string;   // backup contact name/number
+  // Display
+  tempUnit: 'C' | 'F';
+  compactMode: boolean;
+  // Data & History
+  samplingInterval: string;   // '3s' | '10s' | '30s' | '1min'
+  dataRetention: string;      // '7d' | '30d' | '90d'
+  // Security
+  autoLogoutMinutes: number;  // 0 = never
 }
 
 export interface User {
   name: string;
   email: string;
   avatar: string;
+}
+
+export interface DeviceReading {
+  time: string;
+  temperature: number;
 }
 
 interface AppContextType {
@@ -53,7 +83,9 @@ interface AppContextType {
   alerts: Alert[];
   unreadAlertCount: number;
   sensorHistory: SensorReading[];
+  deviceReadings: Record<string, DeviceReading[]>;
   devices: Device[];
+  deviceConfigs: DeviceConfig[];
   settings: Settings;
   user: User;
   isAuthenticated: boolean;
@@ -67,6 +99,7 @@ interface AppContextType {
   resolveAlert: (id: string) => void;
   acknowledgeAllAlerts: () => void;
   updateSettings: (settings: Partial<Settings>) => void;
+  updateDeviceConfig: (id: string, config: Partial<DeviceConfig>) => void;
   login: (email: string, password: string) => boolean;
   logout: () => void;
   addToast: (toast: ToastMessage) => void;
@@ -92,6 +125,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [systemStatus, setSystemStatus] = useState<'cooling' | 'idle' | 'override'>('cooling');
   const [targetTemperature, setTargetTemperature] = useState(8);
   const [autoMode, setAutoMode] = useState(true);
+
   const [alerts, setAlerts] = useState<Alert[]>([
     {
       id: 'alert-init-1',
@@ -104,7 +138,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     {
       id: 'alert-init-2',
       severity: 'critical',
-      message: 'Critical: Temperature spike to 15.8°C detected — check cooling system',
+      message: 'Critical: Temperature spike to 15.8°C — check cooling system',
       deviceId: 'device-001',
       timestamp: new Date(Date.now() - 3600000),
       status: 'acknowledged',
@@ -118,8 +152,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       status: 'resolved',
     },
   ]);
+
   const [sensorHistory, setSensorHistory] = useState<SensorReading[]>([]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const generateDeviceReadings = (baseTemp: number, seed: number): DeviceReading[] => {
+    const readings: DeviceReading[] = [];
+    for (let i = 23; i >= 0; i--) {
+      const hour = new Date(Date.now() - i * 3600000);
+      const noise = Math.sin((i + seed) * 0.7) * 1.5 + (Math.random() - 0.5) * 0.8;
+      readings.push({
+        time: hour.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+        temperature: parseFloat((baseTemp + noise).toFixed(1)),
+      });
+    }
+    return readings;
+  };
+
+  const [deviceReadings] = useState<Record<string, DeviceReading[]>>({
+    'device-001': generateDeviceReadings(7.2, 1),
+    'device-002': generateDeviceReadings(11.5, 3),
+    'device-003': generateDeviceReadings(16.8, 5),
+  });
 
   const [user] = useState<User>({
     name: 'Kwame Mensah',
@@ -157,6 +211,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
   ]);
 
+  // Per-device configs — mirroring devices but editable
+  const [deviceConfigs, setDeviceConfigs] = useState<DeviceConfig[]>([
+    {
+      id: 'device-001',
+      name: 'Storage Unit A',
+      location: 'Kumasi Central Market',
+      tempOffset: 0,
+      humidOffset: 0,
+      useCustomThresholds: false,
+      warningTemperature: 10,
+      criticalTemperature: 15,
+      warningHumidity: 80,
+      criticalHumidity: 90,
+    },
+    {
+      id: 'device-002',
+      name: 'Storage Unit B',
+      location: 'Accra Wholesale Hub',
+      tempOffset: 0,
+      humidOffset: 0,
+      useCustomThresholds: false,
+      warningTemperature: 10,
+      criticalTemperature: 15,
+      warningHumidity: 80,
+      criticalHumidity: 90,
+    },
+    {
+      id: 'device-003',
+      name: 'Transport Unit C',
+      location: 'Tamale Distribution Center',
+      tempOffset: 0,
+      humidOffset: 0,
+      useCustomThresholds: false,
+      warningTemperature: 10,
+      criticalTemperature: 15,
+      warningHumidity: 80,
+      criticalHumidity: 90,
+    },
+  ]);
+
   const [settings, setSettings] = useState<Settings>({
     warningTemperature: 10,
     criticalTemperature: 15,
@@ -167,6 +261,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     smsAlerts: false,
     alertRepeatInterval: '15min',
     userPhone: '+233 20 123 4567',
+    escalationContact: '',
+    tempUnit: 'C',
+    compactMode: false,
+    samplingInterval: '3s',
+    dataRetention: '30d',
+    autoLogoutMinutes: 30,
   });
 
   const addToast = useCallback((toast: ToastMessage) => {
@@ -181,6 +281,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const dismissToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
+
+  // Compact mode effect — writes to html element
+  useEffect(() => {
+    document.documentElement.setAttribute('data-compact', settings.compactMode ? 'true' : 'false');
+  }, [settings.compactMode]);
 
   // Initialize historical data
   useEffect(() => {
@@ -228,25 +333,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [currentTemperature, currentHumidity, deviceStatus, systemStatus, targetTemperature, isAuthenticated]);
 
   const unreadAlertCount = alerts.filter(a => a.status === 'new').length;
-
   const startCooling = () => setSystemStatus('cooling');
   const stopCooling = () => setSystemStatus('idle');
 
-  const acknowledgeAlert = (id: string) => {
+  const acknowledgeAlert = (id: string) =>
     setAlerts(prev => prev.map(a => (a.id === id ? { ...a, status: 'acknowledged' as const } : a)));
-  };
 
-  const resolveAlert = (id: string) => {
+  const resolveAlert = (id: string) =>
     setAlerts(prev => prev.map(a => (a.id === id ? { ...a, status: 'resolved' as const } : a)));
-  };
 
-  const acknowledgeAllAlerts = () => {
+  const acknowledgeAllAlerts = () =>
     setAlerts(prev => prev.map(a => (a.status === 'new' ? { ...a, status: 'acknowledged' as const } : a)));
-  };
 
-  const updateSettings = (newSettings: Partial<Settings>) => {
+  const updateSettings = (newSettings: Partial<Settings>) =>
     setSettings(prev => ({ ...prev, ...newSettings }));
-  };
+
+  const updateDeviceConfig = (id: string, config: Partial<DeviceConfig>) =>
+    setDeviceConfigs(prev => prev.map(d => (d.id === id ? { ...d, ...config } : d)));
 
   const login = (email: string, password: string) => {
     if (email && password) {
@@ -274,7 +377,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         alerts,
         unreadAlertCount,
         sensorHistory,
+        deviceReadings,
         devices,
+        deviceConfigs,
         settings,
         user,
         isAuthenticated,
@@ -288,6 +393,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         resolveAlert,
         acknowledgeAllAlerts,
         updateSettings,
+        updateDeviceConfig,
         login,
         logout,
         addToast,

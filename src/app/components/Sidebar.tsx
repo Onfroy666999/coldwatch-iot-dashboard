@@ -14,7 +14,7 @@ export default function Sidebar() {
 
   return (
     <div
-      className="w-60 h-screen fixed left-0 top-0 flex flex-col z-50"
+      className="hidden md:flex w-60 h-screen fixed left-0 top-0 flex-col z-50"
       style={{ backgroundColor: '#1F3864' }}
     >
       {/* Logo */}

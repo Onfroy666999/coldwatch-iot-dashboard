@@ -198,8 +198,30 @@
       box-shadow: 0 0 0 8px rgba(192, 57, 43, 0);
     }
   }
+
+  @keyframes pulse-orange {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(230, 126, 34, 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(230, 126, 34, 0);
+    }
+  }
   
   .animate-pulse-red {
     animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
+
+  .animate-pulse-orange {
+    animation: pulse-orange 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
 }
+
+/* ── Compact Mode ── */
+[data-compact="true"] {
+  font-size: 14px;
+}
+
+[data-compact="true"] .compact-p { padding: 0.625rem !important; }
+[data-compact="true"] .compact-gap { gap: 0.5rem !important; }
+[data-compact="true"] .compact-card { padding: 0.875rem !important; }
