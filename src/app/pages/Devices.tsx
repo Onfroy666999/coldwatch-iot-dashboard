@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext';
 import type { Device } from '../context/AppContext';
 import { usePageLoading, DevicesSkeleton } from '../components/Skeleton';
 
-// ── Module-level helpers ──────────────────────────────────────────────────────
+// Module-level helpers 
 
 function timeAgo(d: Date) {
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
@@ -18,7 +18,7 @@ function timeAgo(d: Date) {
 const getBatteryColor = (level: number) =>
   level > 50 ? '#27AE60' : level > 20 ? '#E67E22' : '#C0392B';
 
-// ── Configure Bottom Sheet ────────────────────────────────────────────────────
+// Configure Bottom Sheet 
 
 function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => void }) {
   const { updateDevice, addToast } = useApp();
@@ -173,7 +173,7 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
   );
 }
 
-// ── Add Device Modal ──────────────────────────────────────────────────────────
+// Add Device Modal
 
 function AddDeviceModal({ onClose }: { onClose: () => void }) {
   const { addDevice, addToast } = useApp();

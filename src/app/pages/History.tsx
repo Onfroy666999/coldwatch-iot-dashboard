@@ -42,7 +42,7 @@ export default function History() {
   const warnHumid = selectedDevice?.useCustomThresholds ? selectedDevice.warningHumidity      : settings.warningHumidity;
   const critHumid = selectedDevice?.useCustomThresholds ? selectedDevice.criticalHumidity     : settings.criticalHumidity;
 
-  // ── Unit conversion ──────────────────────────────────────────────────────
+  // ── Unit conversion
   const isFahrenheit = settings.tempUnit === 'F';
   const toDisplay = (c: number) => isFahrenheit ? parseFloat((c * 9 / 5 + 32).toFixed(1)) : parseFloat(c.toFixed(1));
   const unitLabel = isFahrenheit ? '°F' : '°C';
@@ -62,7 +62,7 @@ export default function History() {
   const avgHumidity = historyData.length > 0
     ? (historyData.reduce((s, r) => s + r.humidity, 0) / historyData.length).toFixed(1) : '—';
 
-  // ── CSV export — respects user's temperature unit setting ────────────────
+  // CSV export — respects user's temperature unit setting 
   const handleExportCSV = () => {
     const headers = ['Timestamp', `Temperature (${unitLabel})`, 'Humidity (%)'];
     const csvContent = [
@@ -82,7 +82,7 @@ export default function History() {
     window.URL.revokeObjectURL(url);
   };
 
-  // ── JSON export ───────────────────────────────────────────────────────────
+  // JSON export
   const handleExportJSON = () => {
     const data = {
       device: selectedDevice ? { id: selectedDevice.id, name: selectedDevice.name, location: selectedDevice.location } : null,
@@ -117,7 +117,7 @@ export default function History() {
 
   const reversedHistory = historyData.slice().reverse();
 
-  // ── Empty state ──────────────────────────────────────────────────────────
+  // Empty state
   if (historyData.length === 0) {
     return (
       <div className="space-y-5">
@@ -366,7 +366,7 @@ export default function History() {
   );
 }
 
-// ── Device Selector — extracted so it renders in both empty and data states ──
+//  Device Selector — extracted so it renders in both empty and data states 
 function DeviceSelector({
   devices, selectedDeviceId, setSelectedDeviceId, selectedDevice,
 }: {
