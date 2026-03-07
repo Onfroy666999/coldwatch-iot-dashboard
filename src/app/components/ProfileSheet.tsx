@@ -46,7 +46,7 @@ export default function ProfileSheet({ onClose }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const isProfileDirty = name.trim() !== user.name || email.trim() !== user.email || profilePic !== (user.profilePicture || '') || role !== (user.role || 'other');
 
-  // ── Lock body scroll while sheet is open ──────────────────────────────────
+  // Lock body scroll while sheet is open 
   // Critical on iOS: the fixed app container (App.tsx) has overflow-y-auto on
   // <main>, which intercepts touch scroll events before they reach the sheet.
   // Locking overflow here forces iOS to route scroll gestures to the sheet instead.

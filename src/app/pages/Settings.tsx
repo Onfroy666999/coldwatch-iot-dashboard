@@ -9,7 +9,7 @@ import {
   Sliders, Phone, Mail, Clock, Trash2, AlertTriangle, ShieldCheck,
 } from 'lucide-react';
 
-// ── Shared primitives ─────────────────────────────────────────────────────────
+// Shared primitives 
 
 function Toggle({ value, onChange, label }: { value: boolean; onChange: () => void; label: string }) {
   return (
@@ -47,7 +47,7 @@ function ToggleRow({ label, description, value, onChange, border = true }: {
   );
 }
 
-// ── Sub-page shell ────────────────────────────────────────────────────────────
+//  Sub-page shell
 
 function SubPage({ title, icon, iconBg, iconColor, onBack, children }: {
   title: string;
@@ -83,7 +83,7 @@ function SubPage({ title, icon, iconBg, iconColor, onBack, children }: {
   );
 }
 
-// ── DeviceConfigCard ──────────────────────────────────────────────────────────
+// DeviceConfigCard 
 
 function DeviceConfigCard({ config, onUpdate, globalSettings }: {
   config: DeviceConfig;
@@ -194,7 +194,7 @@ function DeviceConfigCard({ config, onUpdate, globalSettings }: {
   );
 }
 
-// ── Sub-page content components ───────────────────────────────────────────────
+// Sub-page content components 
 
 type AppSettings = ReturnType<typeof useApp>['settings'];
 
@@ -450,7 +450,7 @@ function SecuritySub({ onBack, local, setLocal, save, user }: {
   );
 }
 
-// ── Main Settings page ────────────────────────────────────────────────────────
+// Main Settings page 
 
 type SubKey = 'display' | 'notifications' | 'thresholds' | 'devices' | 'data' | 'security';
 

@@ -25,7 +25,7 @@ export interface Alert {
   autoResolved?: boolean;      // true when system resolved without user input
 }
 
-// ── Unified Device interface ───────────────────────────────────────────────────
+// Unified Device interface
 export interface Device {
   id: string;
   name: string;
@@ -50,7 +50,7 @@ export interface Device {
 // Backward-compat alias so Settings.tsx import stays unchanged
 export type DeviceConfig = Device;
 
-// ── Per-device simulation state ────────────────────────────────────────────────
+// Per-device simulation state
 interface DeviceSimState {
   currentTemperature: number;
   currentHumidity: number;
@@ -61,7 +61,7 @@ interface DeviceSimState {
   sensorHistory: SensorReading[];
 }
 
-// ── Settings ──────────────────────────────────────────────────────────────────
+//  Settings 
 export interface Settings {
   warningTemperature: number;
   criticalTemperature: number;
@@ -122,7 +122,7 @@ export interface ToastMessage {
   duration?: number;
 }
 
-// ── Defaults ───────────────────────────────────────────────────────────────────
+//  Defaults and localStorage helpers
 const DEFAULT_SETTINGS: Settings = {
   warningTemperature: 10,
   criticalTemperature: 15,
@@ -191,7 +191,7 @@ function buildInitialSimState(deviceId: string, isOnline: boolean): DeviceSimSta
   };
 }
 
-// ── localStorage helpers ───────────────────────────────────────────────────────
+//  localStorage helpers 
 function loadSettings(): Settings {
   try { const s = localStorage.getItem('cw_settings'); if (s) return { ...DEFAULT_SETTINGS, ...JSON.parse(s) }; } catch { /* */ }
   return DEFAULT_SETTINGS;
@@ -207,7 +207,7 @@ function loadDevices(): Device[] {
 }
 function saveDevices(d: Device[]) { try { localStorage.setItem('cw_devices', JSON.stringify(d)); } catch { /* */ } }
 
-// ── Context type ───────────────────────────────────────────────────────────────
+// Context type and provider
 interface AppContextType {
   currentTemperature: number;
   currentHumidity: number;
@@ -263,7 +263,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
 
-  // ── Auth ───────────────────────────────────────────────────────────────────
+  // Authentication State
   const getInitialAuth = () => {
     try {
       const session = JSON.parse(localStorage.getItem('cw_session') || 'null');
@@ -284,23 +284,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activePage, setActivePage]           = useState(initAuth.authed ? 'dashboard' : 'login');
   const [user, setUser]                       = useState<User>(initAuth.user);
 
-  // ── Settings ───────────────────────────────────────────────────────────────
+  //  Settings 
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const compactMode = settings.compactMode;
   const setCompactMode = useCallback((v: boolean) => {
     setSettings(prev => { const next = { ...prev, compactMode: v }; saveSettings(next); return next; });
   }, []);
 
-  // ── Devices ────────────────────────────────────────────────────────────────
+  //  Devices 
   const [devices, setDevices] = useState<Device[]>(loadDevices);
 
-  // ── Selected device ID ─────────────────────────────────────────────────────
+  //  Selected device ID 
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>(() => {
     const list = loadDevices();
     return list.find(d => d.status === 'online')?.id ?? list[0]?.id ?? 'device-001';
   });
 
-  // ── Per-device simulation — lives in a ref to avoid re-render on every tick
+  //  Per-device simulation — lives in a ref to avoid re-render on every tick
   const simRef = useRef<Record<string, DeviceSimState>>({});
   if (Object.keys(simRef.current).length === 0) {
     for (const d of loadDevices()) {
@@ -336,7 +336,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (sim) setSelectedSim({ ...sim });
   }, [selectedDeviceId]);
 
-  // ── Produce mode ───────────────────────────────────────────────────────────
+  // Produce mode 
   const [produceMode, setProduceMode] = useState<ProduceMode>(() => {
     try { return (localStorage.getItem('cw_produce_mode') as ProduceMode) || 'mixed'; } catch { return 'mixed'; }
   });
@@ -347,7 +347,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try { localStorage.setItem('cw_produce_mode', mode); } catch { /* */ }
   }, []);
 
-  // ── Produce profile thresholds ─────────────────────────────────────────────
+  // Produce profile thresholds 
   // applyProduceProfile: sets produceMode AND updates all devices' targets + thresholds
   const applyProduceProfile = useCallback((mode: ProduceMode) => {
     setProduceMode(mode);
@@ -362,7 +362,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return updated;
     });
 
-    // FIX: also update the active sim's working targets so ControlPanel
+  
     // gauge, stepper, and presets all reflect the produce profile immediately.
     // simRef and setSelectedSim are in scope here — same pattern as mutateSim.
     const simPatch = {
@@ -391,8 +391,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSelectedSim(prev => ({ ...prev, ...simPatch }));
   }, [isAuthenticated]);
 
-  // ── Alerts ─────────────────────────────────────────────────────────────────
-  // Seed alerts — use device names from the loaded list so renames are reflected
+  // Alerts  
+ // Seed alerts — use device names from the loaded list so renames are reflected
   const [alerts, setAlerts] = useState<Alert[]>(() => {
     const list = loadDevices();
     const name = (id: string) => list.find(d => d.id === id)?.name ?? id;
@@ -405,7 +405,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // ── Per-device sparkline data ──────────────────────────────────────────────
+  //  Per-device sparkline data
   const generateDeviceReadings = (baseTemp: number, seed: number): DeviceReading[] => {
     const r: DeviceReading[] = [];
     for (let i = 23; i >= 0; i--) {
@@ -416,7 +416,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return r;
   };
 
-  // ── Per-device sparkline data — useRef so addDevice can inject entries ────
+  //  Per-device sparkline data — useRef so addDevice can inject entries
   const deviceReadingsRef = useRef<Record<string, DeviceReading[]>>({
     'device-001': generateDeviceReadings(7.2,  1),
     'device-002': generateDeviceReadings(11.5, 3),
@@ -428,7 +428,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => Object.fromEntries(Object.entries(simRef.current).map(([id, sim]) => [id, sim.sensorHistory]))
   );
 
-  // ── Simulation — runs for all online devices every 3 seconds ──────────────
+  // Simulation — runs for all online devices every 3 seconds 
   useEffect(() => {
     if (!isAuthenticated) return;
     const interval = setInterval(() => {
@@ -465,8 +465,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         if (device.id === selectedDeviceId) selectedChanged = true;
 
-        // ── Alert threshold detection ─────────────────────────────────────────
-        // FIX: use live settings state, not DEFAULT_SETTINGS — so user threshold
+        //  Alert threshold detection 
         // changes in Settings page take effect immediately for new alerts.
         const warnTemp  = device.useCustomThresholds ? device.warningTemperature  : settings.warningTemperature;
         const critTemp  = device.useCustomThresholds ? device.criticalTemperature  : settings.criticalTemperature;
@@ -488,7 +487,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const newAlerts: Alert[] = [];
         const now = new Date();
 
-        // ── Temperature: breach opened ─────────────────────────────────────
+        // Temperature: breach opened 
         if (newTempLevel !== 'safe' && prevLevels.temp === 'safe') {
           const alertId = `alert-${Date.now()}-t-${device.id}`;
           breach.tempStart    = now;
@@ -506,7 +505,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         }
 
-        // ── Temperature: breach escalated (warn → critical) ────────────────
+        //  Temperature: breach escalated (warn → critical)
         if (newTempLevel === 'critical' && prevLevels.temp === 'warning') {
           const alertId = `alert-${Date.now()}-tc-${device.id}`;
           breach.tempAlertIds = [...(breach.tempAlertIds ?? []), alertId]; // keep original warning ID too
@@ -522,12 +521,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         }
 
-        // ── Temperature: track peak during breach ──────────────────────────
+        //  Temperature: track peak during breach
         if (newTempLevel !== 'safe' && breach.tempPeak !== undefined) {
           breach.tempPeak = Math.max(breach.tempPeak, newTemp);
         }
 
-        // ── Temperature: breach closed → auto-resolve if auto mode on ──────
+        //  Temperature: breach closed → auto-resolve if auto mode on 
         if (newTempLevel === 'safe' && prevLevels.temp !== 'safe') {
           const sim = simRef.current[device.id];
           if (sim?.autoMode && breach.tempAlertIds?.length) {
@@ -554,8 +553,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           breach.tempAlertIds = undefined;
         }
 
-        // ── Humidity: breach opened ────────────────────────────────────────
-        if (newHumidLevel !== 'safe' && prevLevels.humid === 'safe') {
+        //  Humidity: breach opened
+          if (newHumidLevel !== 'safe' && prevLevels.humid === 'safe') {
           const alertId = `alert-${Date.now()}-h-${device.id}`;
           breach.humidStart    = now;
           breach.humidPeak     = newHumid;
@@ -572,13 +571,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
         }
 
-        // ── Humidity: track peak ───────────────────────────────────────────
+        //  Humidity: track peak 
         if (newHumidLevel !== 'safe' && breach.humidPeak !== undefined) {
           breach.humidPeak = Math.max(breach.humidPeak, newHumid);
         }
 
-        // ── Humidity: breach closed → auto-resolve if auto mode on ─────────
-        if (newHumidLevel === 'safe' && prevLevels.humid !== 'safe') {
+        //  Humidity: breach closed → auto-resolve if auto mode on
+          if (newHumidLevel === 'safe' && prevLevels.humid !== 'safe') {
           const sim = simRef.current[device.id];
           if (sim?.autoMode && breach.humidAlertIds?.length) {
             const duration  = breach.humidStart
@@ -622,20 +621,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // FIX: added `settings` to dependency array so alert thresholds stay in sync
   }, [isAuthenticated, devices, selectedDeviceId, settings]);
 
-  // ── Mutate sim for selected device (controls, mode changes) ───────────────
+  // Mutate sim for selected device (controls, mode changes) 
   const mutateSim = useCallback((patch: Partial<DeviceSimState>) => {
     simRef.current[selectedDeviceId] = { ...simRef.current[selectedDeviceId], ...patch };
     setSelectedSim(prev => ({ ...prev, ...patch }));
   }, [selectedDeviceId]);
 
-  // ── Toasts ─────────────────────────────────────────────────────────────────
+  // Toasts
   const addToast = useCallback((toast: ToastMessage) => {
     setToasts(prev => [...prev, toast]);
     if (toast.duration !== Infinity) setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toast.id)), toast.duration || 4000);
   }, []);
   const dismissToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
 
-  // ── Alert helpers ──────────────────────────────────────────────────────────
+  //  Alert helpers
   const unreadAlertCount = alerts.filter(a => a.status === 'new' || a.status === 'auto_resolved').length;
   const acknowledgeAlert     = (id: string) => setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'acknowledged' as const } : a));
   const resolveAlert         = (id: string) => setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'resolved'     as const } : a));
@@ -643,7 +642,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (a.status === 'new' || a.status === 'auto_resolved') ? { ...a, status: 'acknowledged' as const } : a
   ));
 
-  // ── Settings ───────────────────────────────────────────────────────────────
+  //  Settings 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings(prev => { const next = { ...prev, ...patch }; saveSettings(next); return next; });
   }, []);

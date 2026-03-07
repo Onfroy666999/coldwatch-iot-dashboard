@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import type { Alert } from '../context/AppContext';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+//  Helpers 
 
 function timeAgo(d: Date) {
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
@@ -39,7 +39,7 @@ const STATUS_BADGE = {
   auto_resolved: { cls: 'bg-blue-500/15 text-blue-500',     label: 'Auto-resolved' },
 };
 
-// ── Timeline block shown inside expanded critical alerts ──────────────────────
+// Timeline block shown inside expanded critical alerts 
 
 function AlertTimeline({ alert, fmtTemp }: { alert: Alert; fmtTemp: (c: number) => string }) {
   const events: { icon: React.ReactNode; color: string; label: string; detail?: string }[] = [];
@@ -117,7 +117,7 @@ function AlertTimeline({ alert, fmtTemp }: { alert: Alert; fmtTemp: (c: number) 
   );
 }
 
-// ── Single alert card ─────────────────────────────────────────────────────────
+// Single alert card 
 
 function AlertCard({
   alert, isExpanded, onToggle, onAcknowledge, onResolve, fmtTemp,
@@ -265,7 +265,7 @@ function AlertCard({
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// Main page 
 
 export default function Alerts() {
   const { alerts, acknowledgeAlert, resolveAlert, acknowledgeAllAlerts, addToast, settings } = useApp();
