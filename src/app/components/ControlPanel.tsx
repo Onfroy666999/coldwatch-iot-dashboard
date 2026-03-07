@@ -4,7 +4,7 @@ import { Zap, Power, PowerOff, AlertTriangle, Thermometer, Droplets } from 'luci
 import { useApp } from '../context/AppContext';
 import { PRODUCE_PROFILES } from './ProduceModeSelector';
 
-// ── Unit helpers ──────────────────────────────────────────────────────────────
+// Unit helpers
 
 function makeUnitHelpers(isFahrenheit: boolean) {
   const toDisplay  = (c: number) => isFahrenheit ? parseFloat((c * 9 / 5 + 32).toFixed(1)) : parseFloat(c.toFixed(1));
@@ -15,8 +15,7 @@ function makeUnitHelpers(isFahrenheit: boolean) {
   return { toDisplay, toInternal, unit, stepMin, stepMax };
 }
 
-// ── Live Stat Card ────────────────────────────────────────────────────────────
-
+// Live Stat Card
 function StatCard({
   icon, label, value, unit, statusLabel, statusColor, target, targetUnit,
 }: {
@@ -53,7 +52,7 @@ function StatCard({
   );
 }
 
-// ── Stepper + Tap-to-edit ─────────────────────────────────────────────────────
+// Stepper + Tap-to-edit 
 
 function ValueStepper({
   value, onChange, min, max, step = 1, accentColor, unit, label,
@@ -113,7 +112,7 @@ function ValueStepper({
   );
 }
 
-// ── Preset Pills ──────────────────────────────────────────────────────────────
+// Preset Pills 
 
 function PresetPills({
   presets, current, onSelect, accentColor,
@@ -147,7 +146,7 @@ function PresetPills({
   );
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// Main Component 
 
 export default function ControlPanel() {
   const {

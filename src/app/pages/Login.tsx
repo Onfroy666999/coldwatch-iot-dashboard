@@ -6,10 +6,10 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
-// ── Simple deterministic hash (local-only, not for production secrets) ────────
+// ── Simple deterministic hash (local-only, not for production secrets) 
 const hashString = (str: string) => btoa(unescape(encodeURIComponent(str + '_cw2024')));
 
-// ── LocalStorage helpers ──────────────────────────────────────────────────────
+// ── LocalStorage helpers 
 export interface StoredUser {
   id: string; name: string; email?: string; passwordHash: string;
   avatar: string; securityQuestion: string; securityAnswerHash: string;
@@ -31,7 +31,7 @@ const SECURITY_QUESTIONS = [
   "What was the make of your first car?",
 ];
 
-// ── Palette — Light / Clean ───────────────────────────────────────────────────
+// ── Palette — Light / Clean 
 // Page bg:     #F0F2F5  Cool light grey
 // Card bg:     #FFFFFF  Pure white
 // Border idle: #E4E7EC  Soft grey
@@ -42,7 +42,7 @@ const SECURITY_QUESTIONS = [
 // CTA:         #111827  Near black (matches mockup's black button)
 // Error:       #DC2626  Standard red
 
-// ── Light input ───────────────────────────────────────────────────────────────
+// ── Light input
 function LightInput({
   icon: Icon, type = 'text', placeholder, value, onChange,
   autoComplete, autoFocus, rightSlot,
@@ -116,7 +116,7 @@ function PrimaryBtn({ loading, label, loadingLabel }: {
 
 type View = 'signin' | 'signup' | 'forgot';
 
-// ── Sign In ───────────────────────────────────────────────────────────────────
+// ── Sign In
 function SignInView({ onSwitch }: { onSwitch: (v: View) => void }) {
   const { login } = useApp();
   const [identifier, setIdentifier] = useState('');
@@ -207,7 +207,7 @@ function SignInView({ onSwitch }: { onSwitch: (v: View) => void }) {
   );
 }
 
-// ── Sign Up ───────────────────────────────────────────────────────────────────
+// ── Sign Up
 function SignUpView({ onSwitch, onSignedUp }: {
   onSwitch: (v: View) => void;
   onSignedUp?: (userId: string) => void;
@@ -373,7 +373,7 @@ function SignUpView({ onSwitch, onSignedUp }: {
   );
 }
 
-// ── Forgot Password ───────────────────────────────────────────────────────────
+// ── Forgot Password 
 type ResetStep = 'email' | 'question' | 'newpass' | 'done';
 
 function ForgotView({ onSwitch }: { onSwitch: (v: View) => void }) {
@@ -537,7 +537,7 @@ function ForgotView({ onSwitch }: { onSwitch: (v: View) => void }) {
   );
 }
 
-// ── Root Login Page ───────────────────────────────────────────────────────────
+// ── Root Login Page
 export default function Login({ onSignedUp }: { onSignedUp?: (userId: string) => void }) {
   const [view, setView] = useState<View>('signin');
 

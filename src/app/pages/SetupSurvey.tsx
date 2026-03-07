@@ -9,7 +9,7 @@ import {
 import { useApp } from '../context/AppContext';
 import type { UserRole, ProduceMode } from '../context/AppContext';
 
-// ── Icon wrapper — matches the size/style of the previous lordicon boxes ──────
+//  Icon wrapper — matches the size/style of the previous lordicon boxes
 function CardIcon({ icon: Icon, color, active }: { icon: React.ElementType; color: string; active: boolean }) {
   return (
     <Icon
@@ -20,7 +20,7 @@ function CardIcon({ icon: Icon, color, active }: { icon: React.ElementType; colo
   );
 }
 
-// ── Data tables ───────────────────────────────────────────────────────────────
+//  Data tables 
 const ROLES: {
   id: UserRole; label: string; description: string;
   icon: React.ElementType; color: string; tint: string;
@@ -70,7 +70,7 @@ function StepPills({ step, total }: { step: number; total: number }) {
   );
 }
 
-// ── Card row shared by both SelectionCard and ToggleCard ──────────────────────
+//  Card row shared by both SelectionCard and ToggleCard 
 function CardRow({
   active, color, tint, icon, title, subtitle, children, onClick,
 }: {
@@ -182,14 +182,14 @@ function ToggleCard(props: {
   );
 }
 
-// ── Animation variants (module-level — not recreated every render) ────────────
+// ── Animation variants (module-level — not recreated every render) 
 const slideVariants = {
   enter: (d: number) => ({ opacity: 0, x: d * 32 }),
   center:               { opacity: 1, x: 0 },
   exit:  (d: number) => ({ opacity: 0, x: d * -32 }),
 };
 
-// ── Main component ────────────────────────────────────────────────────────────
+// Main component 
 export default function SetupSurvey({ onComplete, onSkip }: Props) {
   const { user, completeSurvey, settings } = useApp();
   const [step,      setStep]      = useState(0);

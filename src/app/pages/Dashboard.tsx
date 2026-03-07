@@ -26,7 +26,7 @@ export default function Dashboard() {
   const { currentTemperature, currentHumidity, systemStatus, alerts, sensorHistory, settings, user, setActivePage, devices, selectedDeviceId, setSelectedDeviceId } = useApp();
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '24h'>('1h');
 
-  // ── Live "last updated" pulse ─────────────────────────────────────────────
+  // Live "last updated" pulse 
   const [secondsAgo, setSecondsAgo] = useState(0);
   const lastTickRef = useRef(Date.now());
 
@@ -45,7 +45,7 @@ export default function Dashboard() {
   // Derive hour directly — changes at most once per session, no state needed
   const hour = new Date().getHours();
 
-  // ── Trend — compare last two readings (direction is unit-agnostic) ────────
+  // ── Trend — compare last two readings (direction is unit-agnostic)
   const tempTrend = sensorHistory.length >= 2
     ? (sensorHistory[sensorHistory.length - 1].temperature >= sensorHistory[sensorHistory.length - 2].temperature ? 'up' : 'down')
     : 'up';

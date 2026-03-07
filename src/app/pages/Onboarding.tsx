@@ -9,14 +9,6 @@ interface OnboardingProps {
   onComplete: () => void;
 }
 
-// ── Palette (Modern Minimalist × High-Contrast Tech)
-// Deep Charcoal #2D3436 — base background
-// Accent Gold   #D3B037 — decorative/atmospheric accents only (not brand identity)
-// Brand Blue   #0984E3 — logo and all brand marks
-// Electric Blue #0984E3 — always means "tap here"
-// Cyan Neon     #00CEC9 — temperature / cold chain data
-// Soft Grey     #DFE6E9 — body text, secondary surfaces
-
 const slides = [
   {
     id: 0,
@@ -124,7 +116,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       className="h-screen overflow-hidden relative flex flex-col"
       style={{ backgroundColor: '#1A1F2E' }}
     >
-      {/* ── Full-bleed photo — top 55% of screen ── */}
+      {/* Full-bleed photo  top 55% of screen  */}
       <AnimatePresence mode="wait">
         <motion.div
           key={`photo-${slide.id}`}
@@ -141,7 +133,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             className="w-full h-full object-cover"
             style={{ objectPosition: slide.photoPosition }}
           />
-          {/* Top scrim — keeps logo/skip readable over any image */}
+          {/* Top scrim keeps logo/skip readable over any image */}
           <div
             className="absolute inset-x-0 top-0"
             style={{
@@ -149,7 +141,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               background: 'linear-gradient(to bottom, rgba(26,31,46,0.72) 0%, transparent 100%)',
             }}
           />
-          {/* Bottom scrim — bleeds image into dark content zone */}
+          {/* Bottom scrim  bleeds image into dark content zone */}
           <div
             className="absolute inset-x-0 bottom-0"
             style={{
@@ -160,7 +152,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         </motion.div>
       </AnimatePresence>
 
-      {/* ── Top bar — floats over photo ── */}
+      {/*  Top bar  floats over photo */}
       <motion.div
         className="relative z-10 flex items-center justify-between px-6 pt-12 pb-4"
         initial={{ opacity: 0, y: -16 }}
@@ -203,10 +195,10 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         )}
       </motion.div>
 
-      {/* ── Spacer — pushes content below the photo ── */}
+      {/*  Spacer pushes content below the photo  */}
       <div style={{ height: '36vh' }} />
 
-      {/* ── Content zone — sits in the dark area ── */}
+      {/* Content zone — sits in the dark area  */}
       <div className="relative z-10 flex-1 flex flex-col px-6 pt-1 pb-0">
         <AnimatePresence mode="wait" custom={direction}>
           <motion.div

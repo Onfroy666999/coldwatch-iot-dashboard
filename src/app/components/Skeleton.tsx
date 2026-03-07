@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-// ── usePageLoading ────────────────────────────────────────────────────────────
+// usePageLoading 
 // Returns true for `ms` milliseconds after mount, then false.
 // This gives skeletons a guaranteed window to appear even with local data,
 // so the pattern is already wired up when real network latency arrives.
@@ -13,7 +13,7 @@ export function usePageLoading(ms = 700) {
   return loading;
 }
 
-// ── Shimmer keyframe injected once ───────────────────────────────────────────
+// Shimmer keyframe injected once 
 const SHIMMER_STYLE = `
 @keyframes cw-shimmer {
   0%   { background-position: -400px 0; }
@@ -45,7 +45,7 @@ function injectStyle() {
   document.head.appendChild(el);
 }
 
-// ── Bone — the atomic shimmer element ─────────────────────────────────────────
+// Bone — the atomic shimmer element
 export function Bone({
   w = '100%', h = 16, radius = 8, className = '', style = {},
 }: {
@@ -61,7 +61,7 @@ export function Bone({
   );
 }
 
-// ── Small helpers ─────────────────────────────────────────────────────────────
+// Small helpers 
 function Row({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <div className={`flex items-center gap-3 ${className}`}>{children}</div>;
 }
@@ -76,7 +76,7 @@ function Card({ children, className = '' }: { children: React.ReactNode; classNa
   );
 }
 
-// ── Stat card skeleton — used in Dashboard ────────────────────────────────────
+// Stat card skeleton — used in Dashboard
 function StatCardSkeleton() {
   return (
     <Card>
@@ -91,7 +91,7 @@ function StatCardSkeleton() {
   );
 }
 
-// ── Chart card skeleton ───────────────────────────────────────────────────────
+// Chart card skeleton 
 function ChartCardSkeleton({ height = 160 }: { height?: number }) {
   return (
     <Card>
@@ -105,7 +105,7 @@ function ChartCardSkeleton({ height = 160 }: { height?: number }) {
   );
 }
 
-// ── Alert row skeleton ────────────────────────────────────────────────────────
+// Alert row skeleton
 function AlertRowSkeleton() {
   return (
     <div className="flex items-start gap-3 px-4 py-3.5 border-b border-[#E4E7EC] last:border-0">
@@ -123,7 +123,7 @@ function AlertRowSkeleton() {
   );
 }
 
-// ── Device card skeleton ──────────────────────────────────────────────────────
+// Device card skeleton 
 function DeviceCardSkeleton() {
   return (
     <Card className="flex items-center gap-4">
@@ -141,11 +141,11 @@ function DeviceCardSkeleton() {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// PAGE SKELETONS
-// ────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────
+// SKELETON COMPONENTS FOR EACH PAGE
+// ──────────────────────────────────
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
+// Dashboard 
 export function DashboardSkeleton() {
   return (
     <div className="space-y-5">
@@ -237,7 +237,7 @@ export function DashboardSkeleton() {
   );
 }
 
-// ── Alerts ────────────────────────────────────────────────────────────────────
+//  Alerts
 export function AlertsSkeleton() {
   return (
     <div className="space-y-5">
@@ -276,7 +276,7 @@ export function AlertsSkeleton() {
   );
 }
 
-// ── Devices ───────────────────────────────────────────────────────────────────
+//  Devices 
 export function DevicesSkeleton() {
   return (
     <div className="space-y-5">
@@ -304,7 +304,7 @@ export function DevicesSkeleton() {
   );
 }
 
-// ── History ───────────────────────────────────────────────────────────────────
+// History
 export function HistorySkeleton() {
   return (
     <div className="space-y-5">
@@ -356,7 +356,7 @@ export function HistorySkeleton() {
   );
 }
 
-// ── Settings ──────────────────────────────────────────────────────────────────
+// Settings
 export function SettingsSkeleton({ isAdvancedUser = false }: { isAdvancedUser?: boolean }) {
   // Farmers/transporters see 3 rows (display, notifications, security).
   // Warehouse managers see all 6 (+ thresholds, devices, data).
