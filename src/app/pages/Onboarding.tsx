@@ -1,122 +1,112 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Snowflake, Bell, Wifi, ChevronRight, Thermometer, Droplets, Activity } from 'lucide-react';
+import { Snowflake, ChevronRight, ChevronLeft } from 'lucide-react';
+import slide1Img from '../../assets/slide1.png';
+import slide2Img from '../../assets/slide2.png';
+import slide3Img from '../../assets/slide3.jpg';
 
 interface OnboardingProps {
   onComplete: () => void;
 }
 
+// ── Palette (Modern Minimalist × High-Contrast Tech)
+// Deep Charcoal #2D3436 — base background
+// Accent Gold   #D3B037 — decorative/atmospheric accents only (not brand identity)
+// Brand Blue   #0984E3 — logo and all brand marks
+// Electric Blue #0984E3 — always means "tap here"
+// Cyan Neon     #00CEC9 — temperature / cold chain data
+// Soft Grey     #DFE6E9 — body text, secondary surfaces
+
 const slides = [
   {
     id: 0,
-    tag: 'Real-Time Monitoring',
-    headline: 'Guard\nEvery\nDegree.',
-    sub: 'ColdWatch connects to your IoT sensors and gives you a live feed of every storage unit temperature, humidity, and system status from one dashboard.',
-    icon: Thermometer,
-    accentColor: '#2979C8',
-    glowColor: 'rgba(41, 121, 200, 0.35)',
+    tag: 'The Problem',
+    headline: 'Spoilage Starts Silently.',
+    sub: 'Up to 45% of produce in Ghana is lost after harvest, most of it in storage, most of it preventable. A few degrees too warm is all it takes.',
+    photo: slide1Img,
+    // Position the market scene — centre the farmer's face
+    photoPosition: 'center 30%',
+    accentColor: '#00CEC9',
+    tagBg: 'rgba(0, 206, 201, 0.12)',
+    tagBorder: 'rgba(0, 206, 201, 0.3)',
     stats: [
-      { value: '±0.1°C', label: 'Accuracy' },
-      { value: '3s', label: 'Update Rate' },
-      { value: '24/7', label: 'Uptime' },
+      { value: '45%', label: 'Lost post-harvest' },
+      { value: '48hrs', label: 'Before damage shows' },
+      { value: '₵2,400', label: 'Avg. loss per tonne' },
     ],
   },
   {
     id: 1,
-    tag: 'Smart Alerting',
-    headline: 'Know\nBefore\nYou Lose.',
-    sub: 'Set custom warning and critical thresholds. ColdWatch notifies you the moment a breach starts not after the damage is done.',
-    icon: Bell,
-    accentColor: '#E67E22',
-    glowColor: 'rgba(230, 126, 34, 0.35)',
+    tag: 'Early Warning',
+    headline: "Know Before It's Gone.",
+    sub: 'ColdWatch watches your storage around the clock. The moment temperature or humidity drifts out of range, you get an alert before your produce is affected.',
+    photo: slide2Img,
+    // Centre on the man's face and phone
+    photoPosition: 'center 20%',
+    accentColor: '#D3B037',
+    tagBg: 'rgba(211, 176, 55, 0.12)',
+    tagBorder: 'rgba(211, 176, 55, 0.3)',
     stats: [
-      { value: 'SMS', label: 'Alerts' },
-      { value: 'Email', label: 'Reports' },
-      { value: 'Push', label: 'Notify' },
+      { value: '3s', label: 'Alert speed' },
+      { value: 'SMS', label: 'No app needed' },
+      { value: '24/7', label: 'Never sleeps' },
     ],
   },
   {
     id: 2,
-    tag: 'Remote Control',
-    headline: 'Command\nFrom\nAnywhere.',
-    sub: 'Adjust target temperatures, toggle cooling modes, and manage all your storage units remotely no matter where you are.',
-    icon: Wifi,
-    accentColor: '#27AE60',
-    glowColor: 'rgba(39, 174, 96, 0.35)',
+    tag: 'Your Produce, Protected',
+    headline: 'Less Waste, More Income.',
+    sub: 'Set the right conditions for what you store like yams, tomatoes, leafy greens. Let ColdWatch keep everything on track. Less loss means better prices and a stronger business.',
+    photo: slide3Img,
+    // Show the full cold room with the open door
+    photoPosition: 'center center',
+    accentColor: '#0984E3',
+    tagBg: 'rgba(9, 132, 227, 0.12)',
+    tagBorder: 'rgba(9, 132, 227, 0.3)',
     stats: [
-      { value: '3+', label: 'Devices' },
-      { value: 'ESP32', label: 'Powered' },
-      { value: 'Secure', label: 'Auth' },
+      { value: '80%', label: 'Loss preventable' },
+      { value: 'Tubers', label: 'Fruits · Leafy' },
+      { value: 'Free', label: 'To get started' },
     ],
   },
 ];
 
-// Floating particle component
-function Particle({ delay, x, y, size }: { delay: number; x: number; y: number; size: number }) {
-  return (
-    <motion.div
-      className="absolute rounded-full pointer-events-none"
-      style={{
-        left: `${x}%`,
-        top: `${y}%`,
-        width: size,
-        height: size,
-        background: 'rgba(255,255,255,0.08)',
-      }}
-      animate={{
-        y: [0, -30, 0],
-        opacity: [0.3, 0.8, 0.3],
-        scale: [1, 1.2, 1],
-      }}
-      transition={{
-        duration: 4 + Math.random() * 3,
-        delay,
-        repeat: Infinity,
-        ease: 'easeInOut',
-      }}
-    />
-  );
-}
-
-const particles = Array.from({ length: 18 }, (_, i) => ({
-  id: i,
-  x: Math.random() * 100,
-  y: Math.random() * 100,
-  size: 3 + Math.random() * 8,
-  delay: Math.random() * 4,
-}));
+// Animation variants — module-level to avoid recreation on every render
+const slideVariants = {
+  enter:  (d: number) => ({ x: d * 56, opacity: 0 }),
+  center:              { x: 0, opacity: 1 },
+  exit:   (d: number) => ({ x: -d * 56, opacity: 0 }),
+};
 
 export default function Onboarding({ onComplete }: OnboardingProps) {
   const [current, setCurrent] = useState(0);
   const [direction, setDirection] = useState(1);
+  const [paused, setPaused] = useState(false); // true once user manually interacts
   const slide = slides[current];
-  const Icon = slide.icon;
   const isLast = current === slides.length - 1;
 
-  const goNext = () => {
-    if (isLast) {
-      onComplete();
-    } else {
+  //  Autoplay: advance every 10s, stop permanently on last slide 
+  useEffect(() => {
+    if (isLast || paused) return;
+    const timer = setTimeout(() => {
       setDirection(1);
       setCurrent(c => c + 1);
-    }
+    }, 10000);
+    return () => clearTimeout(timer);
+  }, [current, isLast, paused]);
+
+  const goNext = () => {
+    setPaused(true);
+    if (isLast) { onComplete(); return; }
+    setDirection(1);
+    setCurrent(c => c + 1);
   };
 
   const goPrev = () => {
-    if (current > 0) {
-      setDirection(-1);
-      setCurrent(c => c - 1);
-    }
-  };
-
-  const handleDragEnd = (_: unknown, info: { offset: { x: number }; velocity: { x: number } }) => {
-    const swipeThreshold = 50;
-    const velocityThreshold = 300;
-    if (info.offset.x < -swipeThreshold || info.velocity.x < -velocityThreshold) {
-      goNext(); // swiped left → forward
-    } else if (info.offset.x > swipeThreshold || info.velocity.x > velocityThreshold) {
-      goPrev(); // swiped right → back
-    }
+    setPaused(true);
+    if (current === 0) return;
+    setDirection(-1);
+    setCurrent(c => c - 1);
   };
 
   const goTo = (idx: number) => {
@@ -124,247 +114,281 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     setCurrent(idx);
   };
 
-  const variants = {
-    enter: (dir: number) => ({ x: dir * 60, opacity: 0 }),
-    center: { x: 0, opacity: 1 },
-    exit: (dir: number) => ({ x: -dir * 60, opacity: 0 }),
+  const handleDragEnd = (_: unknown, info: { offset: { x: number }; velocity: { x: number } }) => {
+    if (info.offset.x < -50 || info.velocity.x < -300) goNext();
+    else if (info.offset.x > 50 || info.velocity.x > 300) goPrev();
   };
 
   return (
     <div
-      className="min-h-screen relative overflow-hidden flex flex-col items-center justify-between py-12 px-6"
-      style={{
-        background: 'radial-gradient(ellipse at 30% 20%, #1a3a6e 0%, #0f1f3d 45%, #080f1f 100%)',
-      }}
+      className="h-screen overflow-hidden relative flex flex-col"
+      style={{ backgroundColor: '#1A1F2E' }}
     >
-      {/* Animated background particles */}
-      {particles.map(p => (
-        <Particle key={p.id} {...p} />
-      ))}
-
-      {/* Subtle grid overlay */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)',
-          backgroundSize: '40px 40px',
-        }}
-      />
-
-      {/* Top bar — logo + skip */}
-      <motion.div
-        className="relative z-10 w-full max-w-sm flex items-center justify-between"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-      >
-        <div className="flex items-center gap-2">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: 'rgba(41,121,200,0.25)', border: '1px solid rgba(41,121,200,0.4)' }}
-          >
-            <Snowflake className="w-4 h-4 text-white" />
-          </div>
-          <span className="text-white text-sm tracking-wide" style={{ fontFamily: 'Inter, sans-serif' }}>
-            ColdWatch
-          </span>
-        </div>
-        <button
-          onClick={() => {
-            onComplete();
-          }}
-          className="text-white/40 text-sm hover:text-white/70 transition-colors"
+      {/* ── Full-bleed photo — top 55% of screen ── */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`photo-${slide.id}`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.5, ease: 'easeInOut' }}
+          className="absolute inset-x-0 top-0 pointer-events-none"
+          style={{ height: '46vh' }}
         >
-          Skip
-        </button>
+          <img
+            src={slide.photo}
+            alt=""
+            className="w-full h-full object-cover"
+            style={{ objectPosition: slide.photoPosition }}
+          />
+          {/* Top scrim — keeps logo/skip readable over any image */}
+          <div
+            className="absolute inset-x-0 top-0"
+            style={{
+              height: '35%',
+              background: 'linear-gradient(to bottom, rgba(26,31,46,0.72) 0%, transparent 100%)',
+            }}
+          />
+          {/* Bottom scrim — bleeds image into dark content zone */}
+          <div
+            className="absolute inset-x-0 bottom-0"
+            style={{
+              height: '70%',
+              background: 'linear-gradient(to bottom, transparent 0%, #1A1F2E 75%)',
+            }}
+          />
+        </motion.div>
+      </AnimatePresence>
+
+      {/* ── Top bar — floats over photo ── */}
+      <motion.div
+        className="relative z-10 flex items-center justify-between px-6 pt-12 pb-4"
+        initial={{ opacity: 0, y: -16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center"
+            style={{
+              background: 'rgba(9,132,227,0.2)',
+              border: '1px solid rgba(9,132,227,0.4)',
+            }}
+          >
+            <Snowflake style={{ width: 18, height: 18, color: '#0984E3' }} />
+          </div>
+          <div>
+            <span className="text-white text-sm font-bold tracking-tight">ColdWatch</span>
+            <div
+              className="text-[9px] font-semibold tracking-[0.15em] uppercase"
+              style={{ color: 'rgba(9,132,227,0.75)', lineHeight: 1 }}
+            >
+              Cold Chain Monitor
+            </div>
+          </div>
+        </div>
+
+        {!isLast && (
+          <button
+            onClick={onComplete}
+            className="text-xs font-medium px-3.5 py-2 rounded-lg"
+            style={{
+              color: 'rgba(255,255,255,0.5)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(0,0,0,0.2)',
+            }}
+          >
+            Skip
+          </button>
+        )}
       </motion.div>
 
-      {/* Main glass card */}
-      <div className="relative z-10 w-full max-w-sm flex-1 flex items-center">
+      {/* ── Spacer — pushes content below the photo ── */}
+      <div style={{ height: '36vh' }} />
+
+      {/* ── Content zone — sits in the dark area ── */}
+      <div className="relative z-10 flex-1 flex flex-col px-6 pt-1 pb-0">
         <AnimatePresence mode="wait" custom={direction}>
           <motion.div
             key={slide.id}
             custom={direction}
-            variants={variants}
+            variants={slideVariants}
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+            transition={{ duration: 0.38, ease: [0.25, 0.46, 0.45, 0.94] }}
             drag="x"
             dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.15}
+            dragElastic={0.12}
             onDragEnd={handleDragEnd}
-            className="w-full cursor-grab active:cursor-grabbing"
+            className="cursor-grab active:cursor-grabbing"
           >
-            {/* Glass card */}
-            <div
-              className="rounded-3xl p-8 w-full"
+            {/* Tag pill */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.08 }}
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full mb-3"
               style={{
-                background: 'rgba(255,255,255,0.06)',
-                backdropFilter: 'blur(24px)',
-                WebkitBackdropFilter: 'blur(24px)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                boxShadow: `0 32px 64px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)`,
+                background: slide.tagBg,
+                border: `1px solid ${slide.tagBorder}`,
               }}
             >
-              {/* Tag */}
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6"
-                style={{
-                  background: `rgba(${slide.accentColor === '#2979C8' ? '41,121,200' : slide.accentColor === '#E67E22' ? '230,126,34' : '39,174,96'}, 0.15)`,
-                  border: `1px solid ${slide.accentColor}40`,
-                }}
+              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: slide.accentColor }} />
+              <span
+                className="text-[10px] font-bold tracking-[0.14em] uppercase"
+                style={{ color: slide.accentColor }}
               >
-                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: slide.accentColor }} />
-                <span className="text-xs tracking-widest uppercase" style={{ color: slide.accentColor }}>
-                  {slide.tag}
-                </span>
-              </motion.div>
+                {slide.tag}
+              </span>
+            </motion.div>
 
-              {/* Hero icon with glow */}
-              <motion.div
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.15, type: 'spring', stiffness: 200 }}
-                className="mb-6"
-              >
-                <motion.div
-                  animate={{ y: [0, -8, 0] }}
-                  transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-                  className="w-20 h-20 rounded-2xl flex items-center justify-center relative"
+            {/* Headline */}
+            <motion.h1
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.12 }}
+              className="mb-2"
+              style={{
+                fontSize: '1.75rem',
+                fontWeight: 800,
+                lineHeight: 1.1,
+                letterSpacing: '-0.03em',
+                color: '#FFFFFF',
+              }}
+            >
+              {(() => {
+                const words = slide.headline.split(' ');
+                return (
+                  <>
+                    <span style={{ color: slide.accentColor }}>{words[0]}</span>
+                    {' ' + words.slice(1).join(' ')}
+                  </>
+                );
+              })()}
+            </motion.h1>
+
+            {/* Body text */}
+            <motion.p
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.16 }}
+              className="text-xs leading-relaxed mb-3"
+              style={{ color: 'rgba(223,230,233,0.6)', maxWidth: 340 }}
+            >
+              {slide.sub}
+            </motion.p>
+
+            {/* Stats row */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="grid grid-cols-3 gap-2"
+            >
+              {slide.stats.map((stat, i) => (
+                <div
+                  key={i}
+                  className="rounded-xl py-2 text-center relative overflow-hidden"
                   style={{
-                    background: `linear-gradient(135deg, ${slide.accentColor}30, ${slide.accentColor}15)`,
-                    border: `1px solid ${slide.accentColor}40`,
-                    boxShadow: `0 0 40px ${slide.glowColor}`,
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.08)',
                   }}
                 >
-                  <Icon className="w-10 h-10" style={{ color: slide.accentColor }} />
-                  {/* Inner glow ring */}
                   <div
-                    className="absolute inset-0 rounded-2xl"
-                    style={{
-                      background: `radial-gradient(circle at center, ${slide.accentColor}20 0%, transparent 70%)`,
-                    }}
+                    className="absolute top-0 left-1/4 right-1/4 h-px"
+                    style={{ background: `linear-gradient(90deg, transparent, ${slide.accentColor}50, transparent)` }}
                   />
-                </motion.div>
-              </motion.div>
-
-              {/* Headline */}
-              <motion.h1
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="text-white mb-4"
-                style={{
-                  fontSize: '2.4rem',
-                  fontWeight: 700,
-                  lineHeight: 1.1,
-                  letterSpacing: '-0.02em',
-                  whiteSpace: 'pre-line',
-                }}
-              >
-                {slide.headline}
-              </motion.h1>
-
-              {/* Body */}
-              <motion.p
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.25 }}
-                className="text-sm leading-relaxed mb-8"
-                style={{ color: 'rgba(255,255,255,0.55)' }}
-              >
-                {slide.sub}
-              </motion.p>
-
-              {/* Stats row */}
-              <motion.div
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="grid grid-cols-3 gap-3 mb-2"
-              >
-                {slide.stats.map((stat, i) => (
-                  <div
-                    key={i}
-                    className="rounded-xl p-3 text-center"
-                    style={{
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    <p className="text-white text-sm font-semibold">{stat.value}</p>
-                    <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                      {stat.label}
-                    </p>
-                  </div>
-                ))}
-              </motion.div>
-            </div>
+                  <p className="text-white text-sm font-bold">{stat.value}</p>
+                  <p className="text-[10px] mt-0.5 font-medium" style={{ color: 'rgba(223,230,233,0.35)' }}>
+                    {stat.label}
+                  </p>
+                </div>
+              ))}
+            </motion.div>
           </motion.div>
         </AnimatePresence>
       </div>
 
-      {/* Bottom — dots + CTA */}
+      {/* ── Bottom controls ── */}
       <motion.div
-        className="relative z-10 w-full max-w-sm flex flex-col items-center gap-6"
+        className="relative z-10 px-6 pb-8 pt-3"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.2 }}
+        transition={{ duration: 0.5, delay: 0.15 }}
       >
-        {/* Dot indicators */}
-        <div className="flex items-center gap-2">
-          {slides.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => goTo(i)}
-              className="transition-all duration-300"
-              style={{
-                width: i === current ? 24 : 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: i === current ? slide.accentColor : 'rgba(255,255,255,0.2)',
-              }}
-            />
-          ))}
+        <div className="flex items-center justify-center mb-3">
+          <div className="flex items-center gap-2">
+            {slides.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => goTo(i)}
+                style={{
+                  width: i === current ? 28 : 8,
+                  height: 8,
+                  borderRadius: 99,
+                  backgroundColor: i === current ? slide.accentColor : 'rgba(255,255,255,0.18)',
+                  transition: 'all 0.3s ease',
+                }}
+              />
+            ))}
+          </div>
         </div>
 
-        {/* CTA button */}
-        <motion.button
-          onClick={goNext}
-          whileTap={{ scale: 0.97 }}
-          className="w-full py-4 rounded-2xl text-white font-semibold flex items-center justify-center gap-2 relative overflow-hidden"
-          style={{
-            background: `linear-gradient(135deg, ${slide.accentColor}, ${slide.accentColor}cc)`,
-            boxShadow: `0 8px 32px ${slide.glowColor}`,
-            fontSize: '0.95rem',
-            letterSpacing: '0.01em',
-          }}
-        >
-          {/* Shimmer sweep */}
-          <motion.div
-            className="absolute inset-0"
+        <div className="flex gap-3">
+          <AnimatePresence>
+            {current > 0 && (
+              <motion.button
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: 52 }}
+                exit={{ opacity: 0, width: 0 }}
+                transition={{ duration: 0.22 }}
+                onClick={goPrev}
+                className="h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  overflow: 'hidden',
+                }}
+              >
+                <ChevronLeft className="w-5 h-5 text-white" />
+              </motion.button>
+            )}
+          </AnimatePresence>
+
+          <motion.button
+            layout
+            onClick={goNext}
+            whileTap={{ scale: 0.97 }}
+            className="flex-1 h-12 rounded-2xl text-white font-bold flex items-center justify-center gap-2 relative overflow-hidden"
             style={{
-              background: 'linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.15) 50%, transparent 60%)',
-              backgroundSize: '200% 100%',
+              background: 'linear-gradient(135deg, #0984E3, #0773C8)',
+              boxShadow: '0 8px 28px rgba(9,132,227,0.35)',
+              fontSize: '0.9rem',
+              letterSpacing: '0.01em',
             }}
-            animate={{ backgroundPosition: ['200% 0', '-200% 0'] }}
-            transition={{ duration: 2.5, repeat: Infinity, ease: 'linear', repeatDelay: 1 }}
-          />
-          <span className="relative z-10">{isLast ? 'Get Started' : 'Continue'}</span>
-          <ChevronRight className="w-4 h-4 relative z-10" />
-        </motion.button>
+          >
+            <motion.div
+              className="absolute inset-0"
+              style={{
+                background: 'linear-gradient(105deg, transparent 38%, rgba(255,255,255,0.14) 50%, transparent 62%)',
+                backgroundSize: '250% 100%',
+              }}
+              animate={{ backgroundPosition: ['250% 0', '-250% 0'] }}
+              transition={{ duration: 2.8, repeat: Infinity, ease: 'linear', repeatDelay: 1.2 }}
+            />
+            <span className="relative z-10">{isLast ? 'Get Started' : 'Continue'}</span>
+            <ChevronRight className="w-4 h-4 relative z-10" />
+          </motion.button>
+        </div>
 
         {isLast && (
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-xs text-center"
-            style={{ color: 'rgba(255,255,255,0.3)' }}
+            transition={{ delay: 0.3 }}
+            className="text-center text-xs mt-4"
+            style={{ color: 'rgba(255,255,255,0.22)' }}
           >
             By continuing you agree to ColdWatch's terms of service
           </motion.p>
