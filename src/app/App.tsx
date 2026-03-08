@@ -14,7 +14,7 @@ import Settings from './pages/Settings';
 import Onboarding from './pages/Onboarding';
 import SetupSurvey from './pages/SetupSurvey';
 import SplashScreen from './pages/SplashScreen';
-
+import { Analytics } from '@vercel/analytics/react';
 const PAGE_ORDER = ['dashboard', 'alerts', 'history', 'devices', 'settings'];
 
 const slideVariants = {
@@ -177,6 +177,7 @@ export default function App() {
   return (
     <AppProvider>
       <AppContent />
+      <Analytics />
     </AppProvider>
   );
 }
