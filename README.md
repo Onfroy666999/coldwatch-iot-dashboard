@@ -1,6 +1,6 @@
 # ColdWatch — IoT Cold Chain Monitoring System
 
-A real-time IoT dashboard for monitoring cold storage conditions for perishable goods. Built for Ghanaian farmers and warehouse managers to track temperature and humidity across multiple storage units.
+  # COLDWATCH (AN IOT-BASED COLD CHAIN MONITORING SYSTEM FOR PERISHABLE GOODS)
 
 **Live app:** [coldwatch-iot-dashboard.vercel.app](https://coldwatch-iot-dashboard.vercel.app)
 
