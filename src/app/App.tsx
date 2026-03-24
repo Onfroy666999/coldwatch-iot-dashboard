@@ -15,6 +15,7 @@ import Onboarding from './pages/Onboarding';
 import SetupSurvey from './pages/SetupSurvey';
 import SplashScreen from './pages/SplashScreen';
 import { Analytics } from '@vercel/analytics/react';
+import { WifiOff } from 'lucide-react';
 const PAGE_ORDER = ['dashboard', 'alerts', 'history', 'devices', 'settings'];
 
 const slideVariants = {
@@ -25,7 +26,7 @@ const slideVariants = {
 
 
 function AppContent() {
-  const { isAuthenticated, activePage, unreadAlertCount, addToast } = useApp();
+  const { isAuthenticated, activePage, unreadAlertCount, addToast, isOnline } = useApp();
   const [showSplash, setShowSplash] = useState(true);
 
   // Onboarding flow — only show if not previously completed
@@ -148,6 +149,22 @@ function AppContent() {
 
   return (
     <div className="fixed inset-0 flex flex-col" style={{ backgroundColor: '#F8FAFC', color: '#111827' }}>
+      {/* Offline banner */}
+      <AnimatePresence>
+        {!isOnline && (
+          <motion.div
+            initial={{ y: -48, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -48, opacity: 0 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 px-4 py-2.5 text-white text-sm font-medium"
+            style={{ backgroundColor: '#C0392B' }}
+          >
+            <WifiOff className="w-4 h-4 flex-shrink-0" />
+            You are offline. Changes will sync when connection returns.
+          </motion.div>
+        )}
+      </AnimatePresence>
       <Sidebar />
       <div className="md:ml-56 flex flex-col flex-1 min-h-0">
         <TopBar />
