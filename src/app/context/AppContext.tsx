@@ -256,6 +256,7 @@ interface AppContextType {
   addToast: (toast: ToastMessage) => void;
   toasts: ToastMessage[];
   dismissToast: (id: string) => void;
+  isOnline: boolean;
   isAdvancedUser: boolean;
 }
 
@@ -404,6 +405,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Online/offline detection
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const handleOnline  = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online',  handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online',  handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   //  Per-device sparkline data
   const generateDeviceReadings = (baseTemp: number, seed: number): DeviceReading[] => {
@@ -866,6 +880,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addToast,
       toasts,
       dismissToast,
+      isOnline,
       isAdvancedUser: user.role === 'warehouse_manager',
     }}>
       {children}
