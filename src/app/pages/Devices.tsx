@@ -23,52 +23,63 @@ function timeAgo(d: Date) {
 const getBatteryColor = (level: number) =>
   level > 50 ? '#27AE60' : level > 20 ? '#E67E22' : '#C0392B';
 
-// ── Gemini image analysis ─────────────────────────────────────────────────────
+// ── Groq Vision image analysis ───────────────────────────────────────────────
+// Uses the same VITE_GROQ_API_KEY as the AI assistant — no extra key needed.
+// Routes through llama-4-scout which handles low-light / low-quality images well.
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY ?? '';
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY ?? '';
+const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
 
 async function analyseProduceImage(
   base64Image: string,
   mimeType: string,
   produceLabel: string
 ): Promise<{ state: ProduceState; confidence: 'high' | 'medium' | 'low'; explanation: string }> {
+  if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
+
   const prompt = `You are a cold chain expert assessing post-harvest produce quality for a Ghanaian cold storage system.
 
 The image shows: ${produceLabel}
 
-Classify the produce into EXACTLY ONE of these four conditions:
-- fresh: just harvested, vibrant colour, firm texture, no visible damage
-- in-between: some time has passed, slight softening or colour change, still marketable
-- dried: fully dried or cured produce (like dried cassava, stockfish, groundnuts)
-- almost-damaged: visible rot, mould, bruising, extreme softening, or discolouration — needs urgent cold
+IMPORTANT: Even if the image is dark, blurry, or low resolution — you MUST make your best assessment. Do not refuse or ask for a better image. Use visible colour, texture, shape, and surface detail to classify.
 
-Even if the image quality is low or blurry, make your best assessment based on visible colour, texture, and shape.
+Classify the produce into EXACTLY ONE of these four conditions:
+- fresh: vibrant colour, firm texture, no visible damage or softening
+- in-between: some ageing — colour fading, slight softening or wrinkling, still marketable
+- dried: fully dried or cured produce intended for long-term storage
+- almost-damaged: visible rot, mould, bruising, extreme discolouration or breakdown — needs urgent cold
 
 Respond with ONLY valid JSON (no markdown, no extra text):
-{"state":"fresh|in-between|dried|almost-damaged","confidence":"high|medium|low","explanation":"One sentence describing what you see"}`;
+{"state":"fresh|in-between|dried|almost-damaged","confidence":"high|medium|low","explanation":"One sentence describing what you see and why you gave this classification"}`;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: prompt },
-            { inline_data: { mime_type: mimeType, data: base64Image } },
-          ],
-        }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
-      }),
-    }
-  );
+  const response = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model:       'meta-llama/llama-4-scout-17b-16e-instruct',
+      temperature: 0.1,
+      max_tokens:  250,
+      messages: [{
+        role:    'user',
+        content: [
+          {
+            type:      'image_url',
+            image_url: { url: `data:${mimeType};base64,${base64Image}` },
+          },
+          { type: 'text', text: prompt },
+        ],
+      }],
+    }),
+  });
 
-  if (!response.ok) throw new Error('Gemini API request failed');
+  if (!response.ok) throw new Error('Groq Vision API request failed');
 
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  const clean = text.replace(/```json|```/g, '').trim();
+  const data   = await response.json();
+  const text   = data.choices?.[0]?.message?.content ?? '';
+  const clean  = text.replace(/```json|```/g, '').trim();
   const parsed = JSON.parse(clean);
 
   // Validate the state value
@@ -76,8 +87,8 @@ Respond with ONLY valid JSON (no markdown, no extra text):
   if (!validStates.includes(parsed.state)) throw new Error('Invalid state from AI');
 
   return {
-    state: parsed.state as ProduceState,
-    confidence: parsed.confidence ?? 'medium',
+    state:       parsed.state as ProduceState,
+    confidence:  parsed.confidence ?? 'medium',
     explanation: parsed.explanation ?? '',
   };
 }
