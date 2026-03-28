@@ -15,7 +15,9 @@ import Onboarding from './pages/Onboarding';
 import SetupSurvey from './pages/SetupSurvey';
 import SplashScreen from './pages/SplashScreen';
 import { Analytics } from '@vercel/analytics/react';
-import { WifiOff } from 'lucide-react';
+import { WifiOff, Bot } from 'lucide-react';
+import SyncBanner from './components/SyncBanner';
+import AIAssistant from './components/AIAssistant';
 const PAGE_ORDER = ['dashboard', 'alerts', 'history', 'devices', 'settings'];
 
 const slideVariants = {
@@ -34,6 +36,7 @@ function AppContent() {
     () => localStorage.getItem('cw_onboarding_complete') !== 'true'
   );
   const [showSurvey, setShowSurvey] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
 
   // Direction tracking — must be here, before any early returns
   const prevPageRef = useRef(activePage);
@@ -165,6 +168,7 @@ function AppContent() {
           </motion.div>
         )}
       </AnimatePresence>
+      <SyncBanner />
       <Sidebar />
       <div className="md:ml-56 flex flex-col flex-1 min-h-0">
         <TopBar />
@@ -186,6 +190,23 @@ function AppContent() {
       </div>
       <BottomNav />
       <ToastContainer />
+
+      {/* ── AI Assistant floating trigger button ── */}
+      {/* Positioned above BottomNav on mobile (bottom-20), above fold on desktop (bottom-8) */}
+      <button
+        onClick={() => setShowAssistant(true)}
+        aria-label="Open AI Assistant"
+        className="fixed right-4 bottom-20 md:bottom-8 md:right-8 z-40 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-95 hover:shadow-xl"
+        style={{ backgroundColor: '#0984E3' }}
+      >
+        <Bot className="w-6 h-6 text-white" />
+      </button>
+
+      {/* ── AI Assistant drawer — rendered outside main layout so it overlays everything ── */}
+      <AIAssistant
+        isOpen={showAssistant}
+        onClose={() => setShowAssistant(false)}
+      />
     </div>
   );
 }

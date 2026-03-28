@@ -3,11 +3,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronRight, ChevronLeft, CheckCircle2, BellOff, Snowflake,
   Store, Warehouse, Truck, User,
-  Layers, Package, Apple, Leaf, Wheat,
   Bell, Mail, Phone,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import type { UserRole, ProduceMode } from '../context/AppContext';
+import type { UserRole } from '../context/AppContext';
 
 //  Icon wrapper — matches the size/style of the previous lordicon boxes
 function CardIcon({ icon: Icon, color, active }: { icon: React.ElementType; color: string; active: boolean }) {
@@ -31,16 +30,6 @@ const ROLES: {
   { id: 'other',             label: 'Other',             description: 'My role is different from the options above',        icon: User,      color: '#5D6470', tint: '#F1F2F4' },
 ];
 
-const PRODUCE: {
-  id: ProduceMode; label: string; tagline: string;
-  icon: React.ElementType; color: string; tint: string;
-}[] = [
-  { id: 'mixed',   label: 'Mixed Produce',    tagline: 'Various crop types together',          icon: Layers,  color: '#1A65B5', tint: '#EBF3FD' },
-  { id: 'tubers',  label: 'Tubers',           tagline: 'Cassava, Yam, Cocoyam, Plantain',     icon: Package, color: '#B84A00', tint: '#FEF0E7' },
-  { id: 'fruits',  label: 'Fruits',           tagline: 'Mango, Pineapple, Orange, Banana',    icon: Apple,   color: '#1A7A3F', tint: '#E6F6EC' },
-  { id: 'leafy',   label: 'Leafy Vegetables', tagline: 'Lettuce, Cabbage, Spinach, Kontomire', icon: Leaf,    color: '#0E7A62', tint: '#E6F6F2' },
-  { id: 'legumes', label: 'Legumes',          tagline: 'Cowpea, Groundnuts, Soybeans',        icon: Wheat,   color: '#7A5A2E', tint: '#F8F2EA' },
-];
 
 const NOTIFS = [
   { key: 'inApp' as const, label: 'In-App Notifications', desc: 'Alerts appear in the dashboard, recommended', icon: Bell,  color: '#1A65B5', tint: '#EBF3FD' },
@@ -194,7 +183,6 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
   const { user, completeSurvey, settings } = useApp();
   const [step,      setStep]      = useState(0);
   const [role,      setRole]      = useState<UserRole | null>(null);
-  const [produce,   setProduce]   = useState<ProduceMode>('mixed');
   const [dir,       setDir]       = useState<1 | -1>(1);
   const [inApp,     setInApp]     = useState(settings.inAppNotifications);
   const [email,     setEmail]     = useState(settings.emailAlerts);
@@ -205,7 +193,7 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
   // Lock TOTAL once the user advances past step 0 — prevents pills and button
   // from jumping mid-survey if they go back and change role.
   const [lockedEmailStep, setLockedEmailStep] = useState(false);
-  const TOTAL = lockedEmailStep ? 4 : wantsEmailStep ? 4 : 3;
+  const TOTAL = lockedEmailStep ? 3 : wantsEmailStep ? 3 : 2;
 
   const go = (n: number, d: 1 | -1) => {
     // Lock the email step decision the moment user leaves step 0 forward
@@ -217,7 +205,7 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
 
   const finish = () => {
     completeSurvey(
-      role ?? 'other', produce,
+      role ?? 'other',
       { inAppNotifications: inApp, emailAlerts: email, smsAlerts: sms },
       notifEmail.trim() || undefined,
     );
@@ -226,7 +214,6 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
 
   const meta = [
     { title: "What's your role?",        sub: "Helps us personalise the dashboard for how you work." },
-    { title: "What do you store?",       sub: "We'll dial in the right temperature and humidity targets." },
     { title: "How should we alert you?", sub: "Choose how to be notified when something goes wrong." },
     { title: "Link your alert email",    sub: role === 'transporter'
         ? "Get notified of temperature breaches in transit, even when the app is closed."
@@ -250,7 +237,7 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
             ColdWatch
           </span>
         </div>
-        {step < 3 && (
+        {step < 2 && (
           <button
             onClick={onSkip}
             className="text-sm font-medium px-3 py-1.5 rounded-lg active:bg-black/5 transition-colors"
@@ -329,38 +316,10 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
             </motion.div>
           )}
 
-          {/* Step 1 — Produce */}
+          {/* Step 1 — Notifications */}
           {step === 1 && (
             <motion.div
               key="s1"
-              custom={dir}
-              variants={slideVariants}
-              initial="enter" animate="center" exit="exit"
-              transition={{ duration: 0.26, ease: [0.25, 0.46, 0.45, 0.94] }}
-              className="space-y-2.5 pb-8"
-            >
-              {PRODUCE.map((p, i) => (
-                <motion.div
-                  key={p.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05, duration: 0.22 }}
-                >
-                  <SelectionCard
-                    active={produce === p.id}
-                    color={p.color} tint={p.tint}
-                    icon={p.icon} title={p.label} subtitle={p.tagline}
-                    onClick={() => setProduce(p.id)}
-                  />
-                </motion.div>
-              ))}
-            </motion.div>
-          )}
-
-          {/* Step 2 — Notifications */}
-          {step === 2 && (
-            <motion.div
-              key="s2"
               custom={dir}
               variants={slideVariants}
               initial="enter" animate="center" exit="exit"
@@ -428,10 +387,10 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
             </motion.div>
           )}
 
-          {/* Step 3 — Alert email (warehouse managers + transporters only) */}
-          {step === 3 && wantsEmailStep && (
+          {/* Step 2 — Alert email (warehouse managers + transporters only) */}
+          {step === 2 && wantsEmailStep && (
             <motion.div
-              key="s3"
+              key="s2"
               custom={dir}
               variants={slideVariants}
               initial="enter" animate="center" exit="exit"
