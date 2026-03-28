@@ -15,7 +15,7 @@ import Onboarding from './pages/Onboarding';
 import SetupSurvey from './pages/SetupSurvey';
 import SplashScreen from './pages/SplashScreen';
 import { Analytics } from '@vercel/analytics/react';
-import { WifiOff, Bot } from 'lucide-react';
+import { WifiOff, Snowflake } from 'lucide-react';
 import SyncBanner from './components/SyncBanner';
 import AIAssistant from './components/AIAssistant';
 const PAGE_ORDER = ['dashboard', 'alerts', 'history', 'devices', 'settings'];
@@ -192,15 +192,37 @@ function AppContent() {
       <ToastContainer />
 
       {/* ── AI Assistant floating trigger button ── */}
-      {/* Positioned above BottomNav on mobile (bottom-20), above fold on desktop (bottom-8) */}
-      <button
-        onClick={() => setShowAssistant(true)}
-        aria-label="Open AI Assistant"
-        className="fixed right-4 bottom-20 md:bottom-8 md:right-8 z-40 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-95 hover:shadow-xl"
-        style={{ backgroundColor: '#0984E3' }}
-      >
-        <Bot className="w-6 h-6 text-white" />
-      </button>
+      {/* Snowflake icon, urgency pulse ring when active breaches exist */}
+      <div className="fixed right-4 bottom-20 md:bottom-8 md:right-8 z-40">
+        {/* Urgency pulse ring — only renders when there are active breach alerts */}
+        {unreadAlertCount > 0 && (
+          <span
+            className="absolute inset-0 rounded-full animate-ping"
+            style={{ backgroundColor: '#EF4444', opacity: 0.35 }}
+            aria-hidden="true"
+          />
+        )}
+        <button
+          onClick={() => setShowAssistant(true)}
+          aria-label="Open AI Assistant"
+          className="relative w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95 hover:scale-105"
+          style={{
+            background: 'linear-gradient(135deg, #0984E3 0%, #0652a0 100%)',
+            boxShadow: '0 4px 24px rgba(9,132,227,0.45), 0 2px 8px rgba(0,0,0,0.18)',
+          }}
+        >
+          <Snowflake className="w-6 h-6 text-white" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.25))'}} />
+          {/* Alert count badge */}
+          {unreadAlertCount > 0 && (
+            <span
+              className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+              style={{ backgroundColor: '#EF4444', border: '2px solid #F8FAFC' }}
+            >
+              {unreadAlertCount > 9 ? '9+' : unreadAlertCount}
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* ── AI Assistant drawer — rendered outside main layout so it overlays everything ── */}
       <AIAssistant

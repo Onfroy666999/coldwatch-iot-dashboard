@@ -72,7 +72,10 @@ export default function ProfileSheet({ onClose }: Props) {
     if (!name.trim()) return;
     setSaving(true);
     setTimeout(() => {
-      updateUser({ name: name.trim(), email: email.trim(), profilePicture: profilePic, role });
+      // Recalculate initials whenever name changes — AppContext will also do this
+      // as a safety net, but computing it here ensures the UI updates immediately.
+      const newAvatar = name.trim().split(/\s+/).map(n => n[0]).join('').toUpperCase().slice(0, 2);
+      updateUser({ name: name.trim(), email: email.trim(), profilePicture: profilePic, role, avatar: newAvatar });
       addToast({ id: `t-${Date.now()}`, type: 'success', message: 'Profile updated' });
       setSaving(false);
     }, 500);
