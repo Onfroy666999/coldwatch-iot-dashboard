@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-
+import { enqueueAction, clearQueue } from '../Lib/ActionQueue';
 export interface SensorReading {
   timestamp: Date;
   temperature: number;
@@ -45,6 +45,12 @@ export interface Device {
   // false = alert when humidity is TOO LOW  (leafy, fruits — prevent wilting)
   // undefined = defaults to true (matches original behaviour for global settings)
   humidAlertHigh?: boolean;
+  // Produce setup — filled in via the Add Device wizard
+  produceMode?: ProduceMode;
+  produceState?: ProduceState;
+  facilitySize?: 'small' | 'medium' | 'large';
+  transportHours?: number;
+  produceSetupComplete?: boolean;
 }
 
 // Backward-compat alias so Settings.tsx import stays unchanged
@@ -98,7 +104,8 @@ export interface DeviceReading {
   temperature: number;
 }
 
-export type ProduceMode = 'mixed' | 'tubers' | 'fruits' | 'leafy' | 'legumes';
+export type ProduceMode = 'mixed' | 'tubers' | 'fruits' | 'leafy' | 'legumes' | 'meat';
+export type ProduceState = 'fresh' | 'dried' | 'in-between' | 'almost-damaged';
 
 // Mirrors PRODUCE_PROFILES in ProduceModeSelector — module-level so it's stable
 // across renders and can be used in useEffect/useCallback without stale closures.
@@ -113,7 +120,36 @@ export const PRODUCE_THRESHOLDS: Record<ProduceMode, {
   fruits:  { targetTemperature: 10, targetHumidity: 85, warningTemperature: 13, criticalTemperature: 15, warningHumidity: 80, criticalHumidity: 90, humidAlertHigh: false },
   leafy:   { targetTemperature:  4, targetHumidity: 95, warningTemperature:  6, criticalTemperature:  8, warningHumidity: 90, criticalHumidity: 98, humidAlertHigh: false },
   legumes: { targetTemperature: 15, targetHumidity: 65, warningTemperature: 20, criticalTemperature: 25, warningHumidity: 60, criticalHumidity: 70, humidAlertHigh: true  },
+  meat:    { targetTemperature:  2, targetHumidity: 60, warningTemperature:  4, criticalTemperature:  7, warningHumidity: 55, criticalHumidity: 70, humidAlertHigh: true  },
 };
+
+// State-based adjustments applied ON TOP of the base produce thresholds.
+// Logic: fresh = use baseline; in-between = slightly warmer (avoid thermal shock to aging produce);
+// dried = much warmer, much drier (dried produce doesn't need aggressive cold);
+// almost-damaged = most aggressive cooling to halt active spoilage.
+export const STATE_ADJUSTMENTS: Record<ProduceState, { tempOffset: number; humidOffset: number }> = {
+  'fresh':          { tempOffset:  0, humidOffset:  0 },
+  'in-between':     { tempOffset: +1, humidOffset: -3 },
+  'dried':          { tempOffset: +4, humidOffset: -12 },
+  'almost-damaged': { tempOffset: -2, humidOffset: +4 },
+};
+
+// Returns the final target temp + humidity for a device given its produce type and condition.
+// Clamps to safe agronomic ranges — e.g. meat never goes above 4°C even when dried.
+export function getStateAdjustedTargets(
+  mode: ProduceMode,
+  state: ProduceState
+): { targetTemperature: number; targetHumidity: number } {
+  const base = PRODUCE_THRESHOLDS[mode];
+  const adj  = STATE_ADJUSTMENTS[state];
+  const targetTemperature = parseFloat(
+    Math.min(base.criticalTemperature - 1, Math.max(base.targetTemperature + adj.tempOffset, 0)).toFixed(1)
+  );
+  const targetHumidity = parseFloat(
+    Math.min(98, Math.max(30, base.targetHumidity + adj.humidOffset)).toFixed(0)
+  );
+  return { targetTemperature, targetHumidity };
+}
 
 export interface ToastMessage {
   id: string;
@@ -247,8 +283,9 @@ interface AppContextType {
   updateDevice: (id: string, patch: Partial<Device>) => void;
   updateDeviceConfig: (id: string, patch: Partial<Device>) => void;
   updateUser: (patch: Partial<User>) => void;
-  completeSurvey: (role: UserRole, produceMode: ProduceMode, notifPrefs: Partial<Settings>, notificationEmail?: string) => void;
-  addDevice: (name: string, location: string) => void;
+  completeSurvey: (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => void;
+  addDevice: (name: string, location: string, produceInfo?: { produceMode: ProduceMode; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number }) => void;
+  updateProduceSetup: (deviceId: string, produceInfo: { produceMode: ProduceMode; produceState: ProduceState; facilitySize?: 'small' | 'medium' | 'large'; transportHours?: number }) => void;
   deleteDevice: (id: string) => void;
   login: (email: string, name: string, id: string, avatar: string) => void;
   logout: () => void;
@@ -650,8 +687,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   //  Alert helpers
   const unreadAlertCount = alerts.filter(a => a.status === 'new' || a.status === 'auto_resolved').length;
-  const acknowledgeAlert     = (id: string) => setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'acknowledged' as const } : a));
-  const resolveAlert         = (id: string) => setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'resolved'     as const } : a));
+  const acknowledgeAlert     = (id: string) => { setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'acknowledged' as const } : a)); enqueueAction({ type: 'ACKNOWLEDGE_ALERT', payload: { id } }); };
+  const resolveAlert         = (id: string) => { setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'resolved' as const } : a)); enqueueAction({ type: 'RESOLVE_ALERT', payload: { id } }); };
   const acknowledgeAllAlerts = () => setAlerts(prev => prev.map(a =>
     (a.status === 'new' || a.status === 'auto_resolved') ? { ...a, status: 'acknowledged' as const } : a
   ));
@@ -659,6 +696,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   //  Settings 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings(prev => { const next = { ...prev, ...patch }; saveSettings(next); return next; });
+    enqueueAction({ type: 'UPDATE_SETTINGS', payload: patch as Record<string, unknown> });
   }, []);
 
   // Devices
@@ -678,10 +716,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch { /* */ }
       return next;
     });
+    enqueueAction({ type: 'UPDATE_USER', payload: patch as Record<string, unknown> });
   }, []);
 
   // ── Survey completion — sets role, produce mode, and notification prefs ──
-  const completeSurvey = useCallback((role: UserRole, pm: ProduceMode, notifPrefs: Partial<Settings>, notificationEmail?: string) => {
+  const completeSurvey = useCallback((role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => {
     // Update user role, surveyComplete, and optional notificationEmail
     setUser(prev => {
       const next = { ...prev, role, surveyComplete: true, ...(notificationEmail ? { notificationEmail } : {}) };
@@ -698,30 +737,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // FIX: call applyProduceProfile instead of setProduceMode directly —
     // this ensures device alert thresholds AND sim targets are both updated
     // to match the produce type the user selected in the survey.
-    applyProduceProfile(pm);
-
     // Apply notification preferences
     setSettings(prev => {
       const next = { ...prev, ...notifPrefs };
       saveSettings(next);
       return next;
     });
-  }, [applyProduceProfile]);
+  }, []);
 
-  const addDevice = useCallback((name: string, location: string) => {
+  const addDevice = useCallback((name: string, location: string, produceInfo?: { produceMode: ProduceMode; produceState: 'fresh' | 'dried' | 'in-between' | 'almost-damaged'; facilitySize: 'small' | 'medium' | 'large'; transportHours: number }) => {
     const newId = `device-${Date.now()}`;
     const newDevice: Device = {
       id: newId, name, location, status: 'offline', lastSeen: new Date(),
       firmwareVersion: '2.1.3', batteryLevel: 100,
-      tempOffset: 0, humidOffset: 0, useCustomThresholds: false,
-      // Inherit live global thresholds at creation time
-      warningTemperature: settings.warningTemperature,
-      criticalTemperature: settings.criticalTemperature,
-      warningHumidity: settings.warningHumidity,
-      criticalHumidity: settings.criticalHumidity,
+      tempOffset: 0, humidOffset: 0,
+      useCustomThresholds: !!produceInfo,
+      warningTemperature:  (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].warningTemperature  : settings.warningTemperature),
+      criticalTemperature: (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].criticalTemperature : settings.criticalTemperature),
+      warningHumidity:     (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].warningHumidity     : settings.warningHumidity),
+      criticalHumidity:    (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].criticalHumidity    : settings.criticalHumidity),
+      humidAlertHigh:      produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].humidAlertHigh : undefined,
+      // Store state-adjusted targets on device so they persist across sessions
+      ...(produceInfo ? { _adjustedTargets: getStateAdjustedTargets(produceInfo.produceMode, produceInfo.produceState) } : {}),
+      ...(produceInfo ? {
+        produceMode: produceInfo.produceMode,
+        produceState: produceInfo.produceState,
+        facilitySize: produceInfo.facilitySize,
+        transportHours: produceInfo.transportHours,
+        produceSetupComplete: true,
+      } : {}),
     };
     setDevices(prev => { const next = [...prev, newDevice]; saveDevices(next); return next; });
-    simRef.current[newId]          = buildInitialSimState(newId, false);
+    const initSim = buildInitialSimState(newId, false);
+    if (produceInfo) {
+      const adjusted = getStateAdjustedTargets(produceInfo.produceMode, produceInfo.produceState);
+      initSim.targetTemperature = adjusted.targetTemperature;
+      initSim.targetHumidity    = adjusted.targetHumidity;
+    }
+    simRef.current[newId]          = initSim;
     alertStateRef.current[newId]   = { temp: 'safe', humid: 'safe' };
     alertBreachRef.current[newId]  = {};
     // Seed sparkline data for the new device so it has readings from the start
@@ -729,6 +782,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deviceReadingsRef.current[newId] = generateDeviceReadings(baseline.temp, Math.random() * 10);
     setDeviceReadings({ ...deviceReadingsRef.current });
   }, [settings]);
+
+  // updateProduceSetup — called from device card when user fills in produce setup later,
+  // or when AI image analysis updates the produce state after device creation.
+  const updateProduceSetup = useCallback((
+    deviceId: string,
+    produceInfo: { produceMode: ProduceMode; produceState: ProduceState; facilitySize?: 'small' | 'medium' | 'large'; transportHours?: number }
+  ) => {
+    const thresholds = PRODUCE_THRESHOLDS[produceInfo.produceMode];
+    const adjusted   = getStateAdjustedTargets(produceInfo.produceMode, produceInfo.produceState);
+
+    // Persist produce info + thresholds to device record
+    setDevices(prev => {
+      const next = prev.map(d => d.id === deviceId ? {
+        ...d,
+        produceMode:          produceInfo.produceMode,
+        produceState:         produceInfo.produceState,
+        ...(produceInfo.facilitySize   ? { facilitySize:   produceInfo.facilitySize   } : {}),
+        ...(produceInfo.transportHours !== undefined ? { transportHours: produceInfo.transportHours } : {}),
+        produceSetupComplete: true,
+        useCustomThresholds:  true,
+        warningTemperature:   thresholds.warningTemperature,
+        criticalTemperature:  thresholds.criticalTemperature,
+        warningHumidity:      thresholds.warningHumidity,
+        criticalHumidity:     thresholds.criticalHumidity,
+        humidAlertHigh:       thresholds.humidAlertHigh,
+      } : d);
+      saveDevices(next);
+      return next;
+    });
+
+    // Apply adjusted targets to sim — affects dashboard immediately
+    if (simRef.current[deviceId]) {
+      simRef.current[deviceId] = {
+        ...simRef.current[deviceId],
+        targetTemperature: adjusted.targetTemperature,
+        targetHumidity:    adjusted.targetHumidity,
+      };
+    }
+    // If this is the currently selected device, update React state too
+    if (deviceId === selectedDeviceId) {
+      setSelectedSim(prev => ({
+        ...prev,
+        targetTemperature: adjusted.targetTemperature,
+        targetHumidity:    adjusted.targetHumidity,
+      }));
+    }
+  }, [selectedDeviceId]);
 
   const deleteDevice = useCallback((id: string) => {
     let remaining: Device[] = [];
@@ -776,6 +876,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     localStorage.removeItem('cw_session');
+    clearQueue().catch(() => { /* ignore */ });
     setIsAuthenticated(false);
     setActivePage('login');
   };
@@ -873,6 +974,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateUser,
       completeSurvey,
       addDevice,
+      updateProduceSetup,
       deleteDevice,
       login,
       logout,
