@@ -308,10 +308,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const users   = JSON.parse(localStorage.getItem('cw_users')   || '[]');
       if (session?.remember && session?.userId) {
         const stored = users.find((u: any) => u.id === session.userId);
-        if (stored) return {
-          authed: true,
-          user: { id: stored.id, name: stored.name, email: stored.email || '', avatar: stored.avatar, profilePicture: stored.profilePicture || '', role: stored.role, surveyComplete: stored.surveyComplete ?? false, notificationEmail: stored.notificationEmail || '' },
-        };
+        if (stored) {
+          // Migration: recompute initials from the stored name in case the avatar
+          // is stale (e.g. name was changed before the avatar-sync fix was applied).
+          const correctAvatar = stored.name
+            ? stored.name.trim().split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
+            : stored.avatar;
+          // Persist the corrected avatar back to localStorage so it stays fixed
+          if (correctAvatar && correctAvatar !== stored.avatar) {
+            try {
+              const corrected = users.map((u: any) => u.id === stored.id ? { ...u, avatar: correctAvatar } : u);
+              localStorage.setItem('cw_users', JSON.stringify(corrected));
+            } catch { /* */ }
+          }
+          return {
+            authed: true,
+            user: { id: stored.id, name: stored.name, email: stored.email || '', avatar: correctAvatar || stored.avatar, profilePicture: stored.profilePicture || '', role: stored.role, surveyComplete: stored.surveyComplete ?? false, notificationEmail: stored.notificationEmail || '' },
+          };
+        }
       }
     } catch { /* */ }
     return { authed: false, user: { id: '', name: 'User', email: '', avatar: 'U' } };
@@ -708,10 +722,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // User profile 
   const updateUser = useCallback((patch: Partial<User>) => {
     setUser(prev => {
-      const next = { ...prev, ...patch };
+      // If the name is being changed and no explicit avatar is provided,
+      // recalculate the initials so the avatar always reflects the current name.
+      const computedAvatar = patch.name && !patch.avatar
+        ? patch.name.trim().split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
+        : patch.avatar;
+      const fullPatch = { ...patch, ...(computedAvatar ? { avatar: computedAvatar } : {}) };
+      const next = { ...prev, ...fullPatch };
       try {
         const users = JSON.parse(localStorage.getItem('cw_users') || '[]');
-        const updated = users.map((u: any) => u.id === next.id ? { ...u, ...patch } : u);
+        const updated = users.map((u: any) => u.id === next.id ? { ...u, ...fullPatch } : u);
         localStorage.setItem('cw_users', JSON.stringify(updated));
       } catch { /* */ }
       return next;
