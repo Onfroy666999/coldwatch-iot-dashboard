@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Leaf, Apple, Wheat, Layers, AlertTriangle, CheckCircle2, Thermometer, Droplets, ChevronDown, ChevronUp, Info, Package, RefreshCw } from 'lucide-react';
+import { Leaf, Apple, Wheat, Layers, AlertTriangle, CheckCircle2, Thermometer, Droplets, ChevronDown, ChevronUp, Info, Package, RefreshCw, Beef } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { ProduceMode } from '../context/AppContext';
 
@@ -126,6 +126,27 @@ export const PRODUCE_PROFILES: Record<ProduceMode, ProduceProfile> = {
     ],
     storageNote: 'Legumes are not very cold-sensitive but are extremely humidity-sensitive. Aflatoxin contamination is the primary risk.',
   },
+  meat: {
+    id: 'meat',
+    label: 'Meat & Fish',
+    tagline: 'Chicken, Beef, Pork, Tilapia, Tuna — strict cold chain',
+    icon: <Beef className="w-5 h-5" />,
+    iconBg: 'rgba(185,28,28,0.10)',
+    iconColor: '#B91C1C',
+    accentColor: '#B91C1C',
+    crops: ['Chicken', 'Beef', 'Pork', 'Tilapia', 'Tuna', 'Sardines'],
+    targetTemp: 2,
+    targetHumidity: 60,
+    tempRange: [0, 4],
+    humidityRange: [55, 65],
+    chillingFloor: 0,
+    tradeoffs: [
+      { icon: '⚠️', text: 'Meat must never exceed 7°C — bacterial growth above this threshold renders it unsafe within hours.', severity: 'warn' },
+      { icon: '❄️', text: 'Do not freeze fresh meat unless intended — ice crystal damage degrades texture. Target 0–4°C.', severity: 'info' },
+      { icon: '💧', text: 'Keep humidity at 55–65% RH. Too high causes surface slime; too low causes excessive weight loss from drying.', severity: 'warn' },
+    ],
+    storageNote: 'Meat and fish are the most cold-sensitive category. A single temperature excursion above 7°C for more than two hours is a food safety event, not just a quality issue.',
+  },
 };
 
 // Trade-off Warning Card 
@@ -221,7 +242,7 @@ export default function ProduceModeSelector() {
   const profile    = PRODUCE_PROFILES[produceMode];
 
   const primaryModes: ProduceMode[] = ['mixed', 'tubers', 'fruits', 'leafy'];
-  const allModes: ProduceMode[]     = [...primaryModes, 'legumes'];
+  const allModes: ProduceMode[]     = [...primaryModes, 'legumes', 'meat'];
   const visibleModes = showAllModes ? allModes : primaryModes;
 
   const handleSelectAndApply = (mode: ProduceMode) => {

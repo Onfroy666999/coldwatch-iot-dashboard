@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import type { DeviceConfig } from '../context/AppContext';
@@ -7,9 +7,11 @@ import {
   Bell, Save, Thermometer, ChevronRight, ChevronLeft,
   Monitor, Cpu, Database, Lock, ChevronDown, ChevronUp,
   Sliders, Phone, Mail, Clock, Trash2, AlertTriangle, ShieldCheck,
+  HelpCircle, Wifi, Zap, CheckCircle2, Copy, Check,
+  Package, Terminal, AlertCircle, RefreshCw, Info,
 } from 'lucide-react';
 
-// Shared primitives 
+// ─── Shared primitives ────────────────────────────────────────────────────────
 
 function Toggle({ value, onChange, label }: { value: boolean; onChange: () => void; label: string }) {
   return (
@@ -47,7 +49,7 @@ function ToggleRow({ label, description, value, onChange, border = true }: {
   );
 }
 
-//  Sub-page shell
+// ─── Sub-page shell ───────────────────────────────────────────────────────────
 
 function SubPage({ title, icon, iconBg, iconColor, onBack, children }: {
   title: string;
@@ -83,7 +85,7 @@ function SubPage({ title, icon, iconBg, iconColor, onBack, children }: {
   );
 }
 
-// DeviceConfigCard 
+// ─── DeviceConfigCard ─────────────────────────────────────────────────────────
 
 function DeviceConfigCard({ config, onUpdate, globalSettings }: {
   config: DeviceConfig;
@@ -194,7 +196,498 @@ function DeviceConfigCard({ config, onUpdate, globalSettings }: {
   );
 }
 
-// Sub-page content components 
+// ─── CopyButton — used inside the connection guide ────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API not available (e.g. non-HTTPS dev env) — silently ignore.
+    }
+  }, [text]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      aria-label="Copy to clipboard"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95"
+      style={{
+        backgroundColor: copied ? '#E6F6EC' : '#E4E7EC',
+        color: copied ? '#166534' : '#374151',
+        border: `1px solid ${copied ? '#A7D7B6' : '#D1D5DB'}`,
+      }}
+    >
+      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  );
+}
+
+// ─── AccordionStep — collapsible step in the connection guide ─────────────────
+
+function AccordionStep({
+  number, title, icon, iconColor, iconBg, defaultOpen = false, children,
+}: {
+  number: number;
+  title: string;
+  icon: React.ReactNode;
+  iconColor: string;
+  iconBg: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid #E4E7EC' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 p-4 text-left transition-colors active:bg-[#F9FAFB]"
+      >
+        {/* Step number badge */}
+        <div
+          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold"
+          style={{ backgroundColor: iconBg, color: iconColor }}
+        >
+          {number}
+        </div>
+        {/* Icon */}
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: iconBg }}
+        >
+          <span style={{ color: iconColor }}>{icon}</span>
+        </div>
+        <p className="flex-1 text-sm font-semibold text-[#111827]">{title}</p>
+        {open
+          ? <ChevronUp className="w-4 h-4 text-[#6B7280] flex-shrink-0" />
+          : <ChevronDown className="w-4 h-4 text-[#6B7280] flex-shrink-0" />
+        }
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="px-4 pb-5 space-y-3" style={{ borderTop: '1px solid #E4E7EC' }}>
+              <div className="pt-4">{children}</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── CodeBlock — monospace snippet with copy ─────────────────────────────────
+
+function CodeBlock({ code, label }: { code: string; label?: string }) {
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #D1D5DB' }}>
+      {label && (
+        <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#F3F4F6', borderBottom: '1px solid #E4E7EC' }}>
+          <span className="text-xs font-medium text-[#6B7280]">{label}</span>
+          <CopyButton text={code} />
+        </div>
+      )}
+      {!label && (
+        <div className="flex justify-end px-3 py-2" style={{ backgroundColor: '#F3F4F6', borderBottom: '1px solid #E4E7EC' }}>
+          <CopyButton text={code} />
+        </div>
+      )}
+      <pre
+        className="p-3 text-xs overflow-x-auto leading-relaxed"
+        style={{ backgroundColor: '#1E293B', color: '#E2E8F0', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, monospace' }}
+      >
+        {code}
+      </pre>
+    </div>
+  );
+}
+
+// ─── HowToConnectSub ──────────────────────────────────────────────────────────
+
+function HowToConnectSub({
+  onBack,
+  deviceConfigs,
+}: {
+  onBack: () => void;
+  deviceConfigs: ReturnType<typeof useApp>['deviceConfigs'];
+}) {
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>(deviceConfigs[0]?.id ?? '');
+  const selectedDevice = deviceConfigs.find(d => d.id === selectedDeviceId) ?? deviceConfigs[0];
+
+  // The API endpoint the firmware must POST to.
+  // We intentionally do NOT include the API key here — the user copies this URL
+  // and enters their key separately in the firmware. This prevents the key from
+  // being stored in clipboard history as part of a complete credential string.
+  const apiEndpoint = `${window.location.origin}/api/readings`;
+
+  const firmwareConfig = selectedDevice
+    ? `// ColdWatch ESP32 Firmware Configuration
+// ─────────────────────────────────────────
+// Paste this into your firmware before flashing.
+// Keep your API key private — never share this file.
+
+#define DEVICE_ID    "${selectedDevice.id}"
+#define WIFI_SSID    "your_wifi_name"
+#define WIFI_PASS    "your_wifi_password"
+#define API_ENDPOINT "${apiEndpoint}"
+// API_KEY is set separately via your secure environment.
+// See Step 3 for key retrieval instructions.`
+    : '';
+
+  const hasDevices = deviceConfigs.length > 0;
+
+  return (
+    <SubPage
+      title="How to Connect"
+      icon={<HelpCircle className="w-5 h-5" />}
+      iconBg="rgba(124,58,237,0.08)"
+      iconColor="#7C3AED"
+      onBack={onBack}
+    >
+      {/* Intro banner */}
+      <div
+        className="flex items-start gap-3 p-4 rounded-2xl"
+        style={{ backgroundColor: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.15)' }}
+      >
+        <Info className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#7C3AED' }} />
+        <p className="text-xs leading-relaxed" style={{ color: '#5B21B6' }}>
+          This guide walks you through connecting your ESP32 + DHT22 sensor unit to ColdWatch.
+          Follow the steps in order. If you don't have hardware yet, you can return to this page
+          any time from Settings.
+        </p>
+      </div>
+
+      {/* Prerequisites */}
+      <div className="rounded-2xl p-4 bg-white space-y-3" style={{ border: '1px solid #E4E7EC' }}>
+        <div className="flex items-center gap-2 mb-1">
+          <Package className="w-4 h-4" style={{ color: '#D97706' }} />
+          <p className="text-sm font-semibold text-[#111827]">What you need</p>
+        </div>
+        {[
+          { label: 'ESP32 development board', note: 'Any variant: ESP32-WROOM, ESP32-S2, ESP32-C3' },
+          { label: 'DHT22 temperature & humidity sensor', note: 'DHT11 also works but is less accurate' },
+          { label: 'SIM800L GSM module', note: 'Optional — needed for SMS alerts without WiFi' },
+          { label: 'USB cable + computer', note: 'For flashing the firmware' },
+          { label: 'Arduino IDE or PlatformIO', note: 'Free download at arduino.cc' },
+          { label: 'Active WiFi network at the storage facility', note: 'The ESP32 must be in range' },
+        ].map((item, i, arr) => (
+          <div
+            key={i}
+            className={`flex items-start gap-3 py-2.5 ${i < arr.length - 1 ? 'border-b border-[#F3F4F6]' : ''}`}
+          >
+            <div
+              className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+              style={{ backgroundColor: '#FEF3C7', border: '1px solid #FDE68A' }}
+            >
+              <Check className="w-3 h-3" style={{ color: '#D97706' }} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-[#111827]">{item.label}</p>
+              <p className="text-xs text-[#6B7280] mt-0.5">{item.note}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Device selector — shown only when user has registered devices */}
+      {hasDevices && (
+        <div className="rounded-2xl p-4 bg-white" style={{ border: '1px solid #E4E7EC' }}>
+          <p className="text-xs font-medium text-[#6B7280] mb-2">Select the device you are connecting</p>
+          <div className="space-y-2">
+            {deviceConfigs.map(d => (
+              <button
+                key={d.id}
+                onClick={() => setSelectedDeviceId(d.id)}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-all active:scale-[0.99] border-2 ${
+                  selectedDeviceId === d.id
+                    ? 'border-[#7C3AED] bg-[#7C3AED]/5'
+                    : 'border-[#E4E7EC] bg-[#F9FAFB]'
+                }`}
+              >
+                <Cpu className="w-4 h-4 flex-shrink-0" style={{ color: selectedDeviceId === d.id ? '#7C3AED' : '#6B7280' }} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold truncate ${selectedDeviceId === d.id ? 'text-[#5B21B6]' : 'text-[#111827]'}`}>
+                    {d.name}
+                  </p>
+                  <p className="text-xs text-[#6B7280] truncate">{d.location}</p>
+                </div>
+                {selectedDeviceId === d.id && <CheckCircle2 className="w-4 h-4 flex-shrink-0" style={{ color: '#7C3AED' }} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* No devices registered yet */}
+      {!hasDevices && (
+        <div
+          className="flex items-start gap-3 p-4 rounded-2xl"
+          style={{ backgroundColor: '#FFF8F0', border: '1px solid #F5CBA7' }}
+        >
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#C0501A' }} />
+          <p className="text-xs leading-relaxed text-[#7A3010]">
+            You have not registered any devices yet. Go to the <span className="font-semibold">Devices</span> page and tap
+            &ldquo;Add Device&rdquo; to register your first unit. Once registered, your Device ID will appear here.
+          </p>
+        </div>
+      )}
+
+      {/* Step-by-step accordion */}
+      <div className="space-y-3">
+
+        {/* Step 1 — Install Arduino IDE & libraries */}
+        <AccordionStep
+          number={1}
+          title="Install Arduino IDE and required libraries"
+          icon={<Terminal className="w-4 h-4" />}
+          iconColor="#0984E3"
+          iconBg="rgba(9,132,227,0.08)"
+          defaultOpen
+        >
+          <ol className="space-y-3">
+            {[
+              { step: 'Download Arduino IDE 2.x from arduino.cc and install it on your computer.' },
+              { step: 'Open Arduino IDE → File → Preferences → Additional boards manager URLs and paste:', code: 'https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json' },
+              { step: 'Open Tools → Board → Boards Manager, search "esp32" and install the Espressif package.' },
+              { step: 'Open Sketch → Include Library → Manage Libraries. Search for and install:' },
+            ].map((item, i) => (
+              <li key={i} className="flex gap-3">
+                <span className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-white mt-0.5" style={{ backgroundColor: '#0984E3', minWidth: 20 }}>{i + 1}</span>
+                <div className="flex-1">
+                  <p className="text-xs text-[#374151] leading-relaxed">{item.step}</p>
+                  {item.code && <div className="mt-2"><CodeBlock code={item.code} /></div>}
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-3 space-y-2">
+            {['DHT sensor library by Adafruit', 'Adafruit Unified Sensor', 'ArduinoJson by Benoit Blanchon', 'HTTPClient (bundled with ESP32 core)'].map((lib, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ backgroundColor: '#F3F4F6' }}>
+                <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#16A34A' }} />
+                <p className="text-xs font-mono text-[#111827]">{lib}</p>
+              </div>
+            ))}
+          </div>
+        </AccordionStep>
+
+        {/* Step 2 — Wire the hardware */}
+        <AccordionStep
+          number={2}
+          title="Wire the ESP32 to your DHT22 sensor"
+          icon={<Zap className="w-4 h-4" />}
+          iconColor="#D97706"
+          iconBg="rgba(217,119,6,0.08)"
+        >
+          <p className="text-xs text-[#6B7280] leading-relaxed mb-3">
+            Connect the DHT22 to your ESP32 using the following wiring. Double-check polarity before powering on — reversed power will damage the sensor.
+          </p>
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #E4E7EC' }}>
+            {/* Table header */}
+            <div className="grid grid-cols-3 px-3 py-2" style={{ backgroundColor: '#F3F4F6', borderBottom: '1px solid #E4E7EC' }}>
+              <p className="text-xs font-semibold text-[#6B7280]">DHT22 Pin</p>
+              <p className="text-xs font-semibold text-[#6B7280]">ESP32 Pin</p>
+              <p className="text-xs font-semibold text-[#6B7280]">Notes</p>
+            </div>
+            {[
+              { dht: 'VCC (+)', esp: '3.3V or 5V', note: 'Use 3.3V if unsure', color: '#DC2626' },
+              { dht: 'DATA',    esp: 'GPIO 4',      note: 'Add 10kΩ pull-up',  color: '#2563EB' },
+              { dht: 'NC',      esp: '—',            note: 'Not connected',     color: '#9CA3AF' },
+              { dht: 'GND (–)', esp: 'GND',          note: 'Any GND pin',       color: '#111827' },
+            ].map((row, i) => (
+              <div
+                key={i}
+                className="grid grid-cols-3 px-3 py-2.5"
+                style={{ borderBottom: i < 3 ? '1px solid #F3F4F6' : undefined }}
+              >
+                <p className="text-xs font-mono font-medium" style={{ color: row.color }}>{row.dht}</p>
+                <p className="text-xs font-mono text-[#111827]">{row.esp}</p>
+                <p className="text-xs text-[#6B7280]">{row.note}</p>
+              </div>
+            ))}
+          </div>
+          <div
+            className="flex items-start gap-2 mt-3 p-3 rounded-xl"
+            style={{ backgroundColor: '#FFF8F0', border: '1px solid #F5CBA7' }}
+          >
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#C0501A' }} />
+            <p className="text-xs text-[#7A3010] leading-relaxed">
+              If you are using the SIM800L GSM module for SMS alerts, it requires a dedicated power supply of 3.7–4.2V. Do not power it from the ESP32 3.3V pin — it draws too much current and will cause resets.
+            </p>
+          </div>
+        </AccordionStep>
+
+        {/* Step 3 — Configure and flash firmware */}
+        <AccordionStep
+          number={3}
+          title="Configure and flash the firmware"
+          icon={<Terminal className="w-4 h-4" />}
+          iconColor="#16A34A"
+          iconBg="rgba(22,163,74,0.08)"
+        >
+          <p className="text-xs text-[#6B7280] leading-relaxed mb-3">
+            Copy the configuration block below into your firmware sketch. Fill in your WiFi credentials.
+            Your Device ID is pre-filled from the device you selected above.
+          </p>
+
+          {selectedDevice ? (
+            <CodeBlock code={firmwareConfig} label="firmware_config.h" />
+          ) : (
+            <div
+              className="flex items-start gap-2 p-3 rounded-xl"
+              style={{ backgroundColor: '#FFF8F0', border: '1px solid #F5CBA7' }}
+            >
+              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#C0501A' }} />
+              <p className="text-xs text-[#7A3010]">Register a device first to generate your firmware configuration.</p>
+            </div>
+          )}
+
+          <div
+            className="flex items-start gap-2 mt-3 p-3 rounded-xl"
+            style={{ backgroundColor: 'rgba(9,132,227,0.06)', border: '1px solid rgba(9,132,227,0.15)' }}
+          >
+            <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#0984E3' }} />
+            <p className="text-xs text-[#1E40AF] leading-relaxed">
+              <span className="font-semibold">API Key security:</span> Your API key must be stored as a compile-time constant or a separate secrets file that is excluded from version control.
+              Never paste your API key into the public firmware block above — it is shown here without the key intentionally.
+            </p>
+          </div>
+
+          <ol className="space-y-3 mt-4">
+            {[
+              'Open the firmware sketch in Arduino IDE.',
+              'Go to Tools → Board → ESP32 Arduino and select your ESP32 model.',
+              'Go to Tools → Port and select the COM port your ESP32 is connected to.',
+              'Click the Upload button (→). The IDE will compile and flash the firmware.',
+              'Open Tools → Serial Monitor, set baud rate to 115200. You should see WiFi connection logs.',
+            ].map((step, i) => (
+              <li key={i} className="flex gap-3">
+                <span className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-white mt-0.5" style={{ backgroundColor: '#16A34A', minWidth: 20 }}>{i + 1}</span>
+                <p className="text-xs text-[#374151] leading-relaxed">{step}</p>
+              </li>
+            ))}
+          </ol>
+        </AccordionStep>
+
+        {/* Step 4 — Verify connection */}
+        <AccordionStep
+          number={4}
+          title="Verify the connection in ColdWatch"
+          icon={<Wifi className="w-4 h-4" />}
+          iconColor="#7C3AED"
+          iconBg="rgba(124,58,237,0.08)"
+        >
+          <p className="text-xs text-[#6B7280] leading-relaxed mb-3">
+            Once the firmware is running, ColdWatch will start receiving readings automatically.
+            Here is how to confirm everything is working:
+          </p>
+          {[
+            { title: 'Status turns Online', desc: 'On the Devices page, your device card should change from "Offline" to "Online" within one sampling interval.' },
+            { title: 'Dashboard shows live readings', desc: 'Temperature and humidity values will update on the Dashboard. The simulation data is replaced by real sensor data.' },
+            { title: 'History fills in', desc: 'Check the History page — readings should appear as a continuous line chart from the moment the ESP32 started sending.' },
+            { title: 'Test an alert', desc: 'Briefly breathe onto the sensor to raise humidity. If you see an alert banner appear, notifications are working.' },
+          ].map((item, i, arr) => (
+            <div
+              key={i}
+              className={`flex gap-3 py-2.5 ${i < arr.length - 1 ? 'border-b border-[#F3F4F6]' : ''}`}
+            >
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#7C3AED' }} />
+              <div>
+                <p className="text-xs font-semibold text-[#111827]">{item.title}</p>
+                <p className="text-xs text-[#6B7280] mt-0.5 leading-relaxed">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </AccordionStep>
+
+        {/* Step 5 — Troubleshooting */}
+        <AccordionStep
+          number={5}
+          title="Troubleshooting common issues"
+          icon={<RefreshCw className="w-4 h-4" />}
+          iconColor="#DC2626"
+          iconBg="rgba(220,38,38,0.06)"
+        >
+          <div className="space-y-3">
+            {[
+              {
+                problem: 'Device stays Offline after flashing',
+                fixes: [
+                  'Confirm WIFI_SSID and WIFI_PASS are correct — WiFi passwords are case-sensitive.',
+                  'Ensure the ESP32 is within range of the access point.',
+                  'Open Serial Monitor and look for an error message in the connection logs.',
+                  'Try pressing the RST button on the ESP32 after flashing.',
+                ],
+              },
+              {
+                problem: 'Readings show –999 or wildly wrong values',
+                fixes: [
+                  'Check that the DHT22 DATA pin is connected to GPIO 4.',
+                  'Confirm the 10kΩ pull-up resistor is in place between DATA and VCC.',
+                  'Replace the sensor — DHT22 units can fail on first power-on.',
+                ],
+              },
+              {
+                problem: 'Upload fails — port not found',
+                fixes: [
+                  'Install the CH340 or CP2102 USB driver for your specific ESP32 board.',
+                  'Try a different USB cable — some cables are charge-only and carry no data.',
+                  'On macOS, check System Preferences → Security & Privacy if the driver is blocked.',
+                ],
+              },
+              {
+                problem: 'SMS alerts not sending',
+                fixes: [
+                  'Confirm the SIM card is active and has airtime or a data bundle.',
+                  'Check that the SIM800L is powered at 3.7–4.2V, not from the ESP32 3.3V pin.',
+                  'Test the module directly with AT commands via Serial Monitor.',
+                ],
+              },
+            ].map((item, i) => (
+              <div key={i} className="rounded-xl overflow-hidden" style={{ border: '1px solid #FEE2E2' }}>
+                <div className="px-3 py-2.5" style={{ backgroundColor: '#FEF2F2', borderBottom: '1px solid #FEE2E2' }}>
+                  <p className="text-xs font-semibold text-red-700">{item.problem}</p>
+                </div>
+                <div className="px-3 py-3 space-y-2">
+                  {item.fixes.map((fix, j) => (
+                    <div key={j} className="flex gap-2">
+                      <span className="text-xs text-[#6B7280] flex-shrink-0 font-medium mt-0.5">→</span>
+                      <p className="text-xs text-[#374151] leading-relaxed">{fix}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </AccordionStep>
+      </div>
+
+      {/* Footer note */}
+      <div className="rounded-2xl p-4" style={{ backgroundColor: '#F9FAFB', border: '1px solid #E4E7EC' }}>
+        <p className="text-xs text-[#6B7280] leading-relaxed text-center">
+          Still stuck? Check the serial monitor output and note the exact error message before troubleshooting further.
+          Most issues are wiring or WiFi credential problems.
+        </p>
+      </div>
+      <div className="h-6" />
+    </SubPage>
+  );
+}
+
+// ─── Sub-page content components ──────────────────────────────────────────────
 
 type AppSettings = ReturnType<typeof useApp>['settings'];
 
@@ -406,7 +899,6 @@ function SecuritySub({ onBack, local, setLocal, save, user }: {
   onBack: () => void; local: AppSettings; setLocal: React.Dispatch<React.SetStateAction<AppSettings>>; save: (l: string, p: any) => void;
   user: ReturnType<typeof useApp>['user'];
 }) {
-  // FIX: farmers may have no email — fall back to name
   const sessionIdentifier = user.email || user.name;
 
   return (
@@ -450,9 +942,9 @@ function SecuritySub({ onBack, local, setLocal, save, user }: {
   );
 }
 
-// Main Settings page 
+// ─── Main Settings page ───────────────────────────────────────────────────────
 
-type SubKey = 'display' | 'notifications' | 'thresholds' | 'devices' | 'data' | 'security';
+type SubKey = 'display' | 'notifications' | 'thresholds' | 'devices' | 'data' | 'security' | 'howtoconnect';
 
 export default function Settings() {
   const { settings, updateSettings, updateDeviceConfig, deviceConfigs, user, addToast, deleteAccount, isAdvancedUser, updateUser } = useApp();
@@ -461,8 +953,6 @@ export default function Settings() {
   const [local,             setLocal]             = useState(settings);
   const [notifEmail,        setNotifEmail]        = useState(user.notificationEmail || '');
   const [notifEmailError,   setNotifEmailError]   = useState('');
-  // Resync if user.notificationEmail is updated externally (e.g. set during SetupSurvey
-  // in the same session) — useState only captures the value at mount time.
   useEffect(() => { setNotifEmail(user.notificationEmail || ''); }, [user.notificationEmail]);
   const isLoading = usePageLoading();
 
@@ -477,16 +967,29 @@ export default function Settings() {
     addToast({ id: `toast-${Date.now()}`, type: 'success', message: label });
   };
 
-  const menuRows: { key: SubKey; icon: React.ReactNode; iconBg: string; iconColor: string; label: string; subtitle: string; managerOnly?: boolean }[] = [
-    { key: 'display',       icon: <Monitor className="w-5 h-5" />,     iconBg: 'rgba(9,132,227,0.08)',  iconColor: '#0984E3', label: 'Display Preferences',  subtitle: 'Temperature unit'                       },
-    { key: 'notifications', icon: <Bell className="w-5 h-5" />,        iconBg: 'rgba(9,132,227,0.08)',  iconColor: '#0984E3', label: 'Notifications',         subtitle: 'Alerts, SMS, email, escalation'         },
-    { key: 'thresholds',    icon: <Thermometer className="w-5 h-5" />, iconBg: 'rgba(217,119,6,0.08)',  iconColor: '#D97706', label: 'Alert Thresholds',      subtitle: 'Global warning and critical limits',    managerOnly: true },
-    { key: 'devices',       icon: <Cpu className="w-5 h-5" />,         iconBg: 'rgba(22,163,74,0.08)',  iconColor: '#16A34A', label: 'Device Configuration',  subtitle: 'Calibration, names, per-device limits', managerOnly: true },
-    { key: 'data',          icon: <Database className="w-5 h-5" />,    iconBg: 'rgba(22,163,74,0.08)',  iconColor: '#16A34A', label: 'Data & History',        subtitle: 'Sampling interval, retention period',   managerOnly: true },
-    { key: 'security',      icon: <Lock className="w-5 h-5" />,        iconBg: 'rgba(220,38,38,0.06)',  iconColor: '#DC2626', label: 'Security',              subtitle: 'Auto-logout, session info'             },
+  const menuRows: {
+    key: SubKey;
+    icon: React.ReactNode;
+    iconBg: string;
+    iconColor: string;
+    label: string;
+    subtitle: string;
+    managerOnly?: boolean;
+    allUsers?: boolean;
+  }[] = [
+    { key: 'display',       icon: <Monitor className="w-5 h-5" />,      iconBg: 'rgba(9,132,227,0.08)',   iconColor: '#0984E3', label: 'Display Preferences',  subtitle: 'Temperature unit'                       },
+    { key: 'notifications', icon: <Bell className="w-5 h-5" />,         iconBg: 'rgba(9,132,227,0.08)',   iconColor: '#0984E3', label: 'Notifications',         subtitle: 'Alerts, SMS, email, escalation'         },
+    // How to Connect is visible to every user — farmers plug in hardware too
+    { key: 'howtoconnect',  icon: <HelpCircle className="w-5 h-5" />,   iconBg: 'rgba(124,58,237,0.08)', iconColor: '#7C3AED', label: 'How to Connect',        subtitle: 'ESP32 wiring, firmware, troubleshooting', allUsers: true },
+    { key: 'thresholds',    icon: <Thermometer className="w-5 h-5" />,  iconBg: 'rgba(217,119,6,0.08)',  iconColor: '#D97706', label: 'Alert Thresholds',      subtitle: 'Global warning and critical limits',    managerOnly: true },
+    { key: 'devices',       icon: <Cpu className="w-5 h-5" />,          iconBg: 'rgba(22,163,74,0.08)',  iconColor: '#16A34A', label: 'Device Configuration',  subtitle: 'Calibration, names, per-device limits', managerOnly: true },
+    { key: 'data',          icon: <Database className="w-5 h-5" />,     iconBg: 'rgba(22,163,74,0.08)',  iconColor: '#16A34A', label: 'Data & History',        subtitle: 'Sampling interval, retention period',   managerOnly: true },
+    { key: 'security',      icon: <Lock className="w-5 h-5" />,         iconBg: 'rgba(220,38,38,0.06)',  iconColor: '#DC2626', label: 'Security',              subtitle: 'Auto-logout, session info'             },
   ];
 
-  const visibleRows = menuRows.filter(r => !r.managerOnly || isAdvancedUser);
+  // allUsers rows always show; managerOnly rows only for advanced users; others always show
+  const visibleRows = menuRows.filter(r => r.allUsers || !r.managerOnly || isAdvancedUser);
+
   const sharedProps = { local, setLocal, save };
 
   return (
@@ -559,6 +1062,7 @@ export default function Settings() {
       {/* ── Sub-pages ── */}
       {activeSub === 'display'       && <DisplaySub       key="display"       onBack={() => setActiveSub(null)} {...sharedProps} />}
       {activeSub === 'notifications' && <NotificationsSub key="notifications" onBack={() => setActiveSub(null)} {...sharedProps} showNotifEmail={showNotifEmail} notifEmail={notifEmail} setNotifEmail={setNotifEmail} notifEmailError={notifEmailError} setNotifEmailError={setNotifEmailError} updateUser={updateUser} isAdvancedUser={isAdvancedUser} updateSettings={updateSettings} />}
+      {activeSub === 'howtoconnect'  && <HowToConnectSub  key="howtoconnect"  onBack={() => setActiveSub(null)} deviceConfigs={deviceConfigs} />}
       {activeSub === 'thresholds'    && <ThresholdsSub    key="thresholds"    onBack={() => setActiveSub(null)} {...sharedProps} />}
       {activeSub === 'devices'       && <DevicesSub       key="devices"       onBack={() => setActiveSub(null)} deviceConfigs={deviceConfigs} updateDeviceConfig={updateDeviceConfig} addToast={addToast} settings={settings} />}
       {activeSub === 'data'          && <DataSub          key="data"          onBack={() => setActiveSub(null)} {...sharedProps} />}
