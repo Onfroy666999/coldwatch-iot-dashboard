@@ -476,7 +476,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     for (let i = 23; i >= 0; i--) {
       const h = new Date(Date.now() - i * 3600000);
       const n = Math.sin((i + seed) * 0.7) * 1.5 + (Math.random() - 0.5) * 0.8;
-      r.push({ time: h.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }), temperature: parseFloat((baseTemp + n).toFixed(1)) });
+      r.push({ time: h.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }), temperature: parseFloat((baseTemp + n).toFixed(1)) });
     }
     return r;
   };
