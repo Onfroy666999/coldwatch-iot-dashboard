@@ -48,7 +48,7 @@ export default function History() {
   const unitLabel = isFahrenheit ? '°F' : '°C';
 
   const chartData = historyData.map(reading => ({
-    time: reading.timestamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    time: reading.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
     temperature: toDisplay(reading.temperature),
     humidity: parseFloat(reading.humidity.toFixed(1)),
   }));
@@ -308,7 +308,7 @@ export default function History() {
                   <p className="text-xs text-[#6B7280] font-mono mb-2.5">
                     {reading.timestamp.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}
                     {' · '}
-                    {reading.timestamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    {reading.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
                   </p>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">

@@ -48,7 +48,7 @@ function AlertTimeline({ alert, fmtTemp }: { alert: Alert; fmtTemp: (c: number) 
     icon:   <Bell className="w-3.5 h-3.5" />,
     color:  SEVERITY_STYLE[alert.severity].bg,
     label:  'Alert triggered',
-    detail: alert.timestamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    detail: alert.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
   });
 
   if (alert.peakTempC != null) {
@@ -82,7 +82,7 @@ function AlertTimeline({ alert, fmtTemp }: { alert: Alert; fmtTemp: (c: number) 
       icon:   <ShieldCheck className="w-3.5 h-3.5" />,
       color:  '#27AE60',
       label:  alert.autoResolved ? 'Auto-resolved' : 'Resolved',
-      detail: alert.resolvedAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      detail: alert.resolvedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
     });
   }
 

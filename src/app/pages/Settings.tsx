@@ -922,7 +922,7 @@ function SecuritySub({ onBack, local, setLocal, save, user }: {
           <div className="space-y-2.5">
             {[
               { label: 'Signed in as',    value: sessionIdentifier },
-              { label: 'Session started', value: 'Today, ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) },
+              { label: 'Session started', value: 'Today, ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) },
               { label: 'Auto-logout',     value: local.autoLogoutMinutes === 0 ? 'Disabled' : `After ${local.autoLogoutMinutes} min of inactivity` },
             ].map((row, i) => (
               <div key={i} className="flex items-center justify-between">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AppProvider, useApp } from './context/AppContext';
 import Sidebar from './components/Sidebar';
@@ -17,7 +17,7 @@ import SplashScreen from './pages/SplashScreen';
 import { Analytics } from '@vercel/analytics/react';
 import { WifiOff, Snowflake } from 'lucide-react';
 import SyncBanner from './components/SyncBanner';
-import AIAssistant from './components/AIAssistant';
+import AIAssistant, { type NixHandle } from './components/AIAssistant';
 const PAGE_ORDER = ['dashboard', 'alerts', 'history', 'devices', 'settings'];
 
 const slideVariants = {
@@ -28,7 +28,7 @@ const slideVariants = {
 
 
 function AppContent() {
-  const { isAuthenticated, activePage, unreadAlertCount, addToast, isOnline } = useApp();
+  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline } = useApp();
   const [showSplash, setShowSplash] = useState(true);
 
   // Onboarding flow — only show if not previously completed
@@ -36,7 +36,17 @@ function AppContent() {
     () => localStorage.getItem('cw_onboarding_complete') !== 'true'
   );
   const [showSurvey, setShowSurvey] = useState(false);
-  const [showAssistant, setShowAssistant] = useState(false);
+  const [showAssistant,  setShowAssistant]  = useState(false);
+  const [nixListening,   setNixListening]   = useState(false);
+
+  // Ref to AIAssistant — lets the floating button trigger voice directly
+  const nixRef = useRef<NixHandle>(null);
+
+  // Called by AIAssistant when it navigates — updates activePage and closes drawer
+  const handleNixNavigate = useCallback((page: string) => {
+    setActivePage(page);
+    setShowAssistant(false);
+  }, [setActivePage]);
 
   // Direction tracking — must be here, before any early returns
   const prevPageRef = useRef(activePage);
@@ -191,43 +201,146 @@ function AppContent() {
       <BottomNav />
       <ToastContainer />
 
-      {/* ── AI Assistant floating trigger button ── */}
-      {/* Snowflake icon, urgency pulse ring when active breaches exist */}
-      <div className="fixed right-4 bottom-20 md:bottom-8 md:right-8 z-40">
-        {/* Urgency pulse ring — only renders when there are active breach alerts */}
-        {unreadAlertCount > 0 && (
-          <span
-            className="absolute inset-0 rounded-full animate-ping"
-            style={{ backgroundColor: '#EF4444', opacity: 0.35 }}
-            aria-hidden="true"
-          />
-        )}
-        <button
-          onClick={() => setShowAssistant(true)}
-          aria-label="Open AI Assistant"
-          className="relative w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95 hover:scale-105"
-          style={{
-            background: 'linear-gradient(135deg, #0984E3 0%, #0652a0 100%)',
-            boxShadow: '0 4px 24px rgba(9,132,227,0.45), 0 2px 8px rgba(0,0,0,0.18)',
-          }}
-        >
-          <Snowflake className="w-6 h-6 text-white" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.25))'}} />
-          {/* Alert count badge */}
-          {unreadAlertCount > 0 && (
-            <span
-              className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
-              style={{ backgroundColor: '#EF4444', border: '2px solid #F8FAFC' }}
+      {/* ── Nix AI floating button — persistent voice trigger on every page ── */}
+      {/*
+          Behaviour:
+          • Tap when idle        → start listening immediately (no drawer opens)
+          • Tap when listening   → stop listening
+          • Long press / tap icon label → open full chat drawer
+          • nixListening = true  → three pulsing ripple rings animate on button
+          • unreadAlertCount > 0 → red badge shows alert count
+          Nix responds, acts, and navigates entirely from this button.
+          The chat drawer is still available for longer conversations.
+      */}
+      <div className="fixed right-4 bottom-20 md:bottom-8 md:right-8 z-40 flex flex-col items-center gap-2">
+
+        {/* "Nix is listening" label — appears above button while mic is open */}
+        <AnimatePresence>
+          {nixListening && (
+            <motion.div
+              key="nix-listening-label"
+              initial={{ opacity: 0, y: 6, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.9 }}
+              transition={{ duration: 0.18 }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white"
+              style={{
+                background: 'linear-gradient(135deg, #0984E3, #0652a0)',
+                boxShadow: '0 2px 12px rgba(9,132,227,0.5)',
+              }}
             >
-              {unreadAlertCount > 9 ? '9+' : unreadAlertCount}
-            </span>
+              {/* Animated mic dot */}
+              <motion.span
+                className="w-2 h-2 rounded-full bg-white"
+                animate={{ opacity: [1, 0.3, 1] }}
+                transition={{ duration: 0.9, repeat: Infinity }}
+              />
+              Nix is listening…
+            </motion.div>
           )}
-        </button>
+        </AnimatePresence>
+
+        {/* Button wrapper — positions pulse rings relative to button */}
+        <div className="relative">
+
+          {/* ── Pulse rings — three expanding rings while Nix is listening ── */}
+          {nixListening && (
+            <>
+              <motion.span
+                className="absolute inset-0 rounded-full"
+                style={{ backgroundColor: '#0984E3' }}
+                animate={{ scale: [1, 2.2], opacity: [0.5, 0] }}
+                transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut' }}
+                aria-hidden="true"
+              />
+              <motion.span
+                className="absolute inset-0 rounded-full"
+                style={{ backgroundColor: '#0984E3' }}
+                animate={{ scale: [1, 1.8], opacity: [0.35, 0] }}
+                transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut', delay: 0.3 }}
+                aria-hidden="true"
+              />
+              <motion.span
+                className="absolute inset-0 rounded-full"
+                style={{ backgroundColor: '#0984E3' }}
+                animate={{ scale: [1, 1.4], opacity: [0.2, 0] }}
+                transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut', delay: 0.6 }}
+                aria-hidden="true"
+              />
+            </>
+          )}
+
+          {/* Alert urgency ping — shown when NOT listening but alerts exist */}
+          {!nixListening && unreadAlertCount > 0 && (
+            <span
+              className="absolute inset-0 rounded-full animate-ping"
+              style={{ backgroundColor: '#EF4444', opacity: 0.35 }}
+              aria-hidden="true"
+            />
+          )}
+
+          {/* ── Main Nix button ── */}
+          <button
+            onClick={() => {
+              if (nixListening) {
+                // Already listening — stop
+                nixRef.current?.stopListening();
+              } else if (showAssistant) {
+                // Drawer open — close it
+                setShowAssistant(false);
+              } else {
+                // Idle — start listening directly (no drawer)
+                nixRef.current?.startListening();
+              }
+            }}
+            onDoubleClick={() => {
+              // Double tap opens the full chat drawer
+              setShowAssistant(true);
+            }}
+            aria-label={nixListening ? 'Stop Nix' : 'Talk to Nix'}
+            title="Tap to talk · Double-tap to open chat"
+            className="relative w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95"
+            style={{
+              background: nixListening
+                ? 'linear-gradient(135deg, #0652a0 0%, #0984E3 100%)'
+                : 'linear-gradient(135deg, #0984E3 0%, #0652a0 100%)',
+              boxShadow: nixListening
+                ? '0 4px 32px rgba(9,132,227,0.7), 0 2px 8px rgba(0,0,0,0.25)'
+                : '0 4px 24px rgba(9,132,227,0.45), 0 2px 8px rgba(0,0,0,0.18)',
+            }}
+          >
+            <motion.div
+              animate={nixListening ? { rotate: 360 } : { rotate: 0 }}
+              transition={nixListening
+                ? { duration: 8, repeat: Infinity, ease: 'linear' }
+                : { duration: 0.3 }}
+            >
+              <Snowflake
+                className="w-6 h-6 text-white"
+                style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.25))' }}
+              />
+            </motion.div>
+
+            {/* Alert count badge */}
+            {unreadAlertCount > 0 && !nixListening && (
+              <span
+                className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                style={{ backgroundColor: '#EF4444', border: '2px solid #F8FAFC' }}
+              >
+                {unreadAlertCount > 9 ? '9+' : unreadAlertCount}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* ── AI Assistant drawer — rendered outside main layout so it overlays everything ── */}
+      {/* ── AI Assistant drawer ── */}
       <AIAssistant
+        ref={nixRef}
         isOpen={showAssistant}
         onClose={() => setShowAssistant(false)}
+        onNavigate={handleNixNavigate}
+        onVoiceStateChange={setNixListening}
       />
     </div>
   );
