@@ -53,7 +53,7 @@ export default function TopBar() {
               {currentTime.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
             </p>
             <p className="text-xs tabular-nums" style={{ color: '#9CA3AF' }}>
-              {currentTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
             </p>
           </div>
 
