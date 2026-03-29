@@ -111,7 +111,7 @@ export default function Dashboard() {
 
   const sliceCount = timeRange === '1h' ? 20 : timeRange === '6h' ? 60 : 120;
   const chartData = sensorHistory.slice(-sliceCount).map(r => ({
-    time:        r.timestamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    time:        r.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
     temperature: toDisplay(r.temperature),
     humidity:    parseFloat(r.humidity.toFixed(1)),
   }));

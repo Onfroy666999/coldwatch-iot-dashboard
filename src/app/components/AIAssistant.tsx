@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import {
@@ -11,21 +11,18 @@ import {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Language = 'en' | 'tw';
-
-// Voice recording state machine
 type VoiceState = 'idle' | 'listening' | 'processing';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
-  content: string;       // display text (action JSON stripped out)
-  rawContent: string;    // full response including any action block
+  content: string;
+  rawContent: string;
   timestamp: Date;
-  pending?: boolean;     // true while streaming/waiting
-  actionTaken?: string;  // short label shown after an action executes
+  pending?: boolean;
+  actionTaken?: string;
 }
 
-// Actions the AI can request the app to perform
 interface AIAction {
   type:
     | 'SET_TARGET_TEMP'
@@ -35,469 +32,343 @@ interface AIAction {
     | 'STOP_COOLING'
     | 'ACKNOWLEDGE_ALERT'
     | 'ACKNOWLEDGE_ALL_ALERTS'
-    | 'SWITCH_DEVICE';
+    | 'SWITCH_DEVICE'
+    | 'NAVIGATE';
   value?: number | boolean | string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY ?? '';
-const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
-// Two models, one API key — both free on Groq's platform.
-// 8B for conversation: fastest response, good English reasoning.
-// 70B for translation only: significantly better multilingual capability
-// (Twi, Ga, Ga-Adangbe, Hausa) without affecting conversation latency.
+const GROQ_API_KEY            = import.meta.env.VITE_GROQ_API_KEY ?? '';
+const GROQ_URL                = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL_CONVERSATION = 'llama-3.1-8b-instant';
 const GROQ_MODEL_TRANSLATION  = 'llama-3.3-70b-versatile';
+const MAX_HISTORY             = 20;
+const VOICE_AUTOSEND_DELAY    = 1800;
+const VALID_PAGES             = ['dashboard', 'alerts', 'history', 'devices', 'settings'] as const;
 
-// Groq Vision — used for produce photo analysis inside the chat
-// Analyse a produce photo via Groq Vision (llama-3.2-11b-vision-preview).
-// Uses the same GROQ_API_KEY already in use for conversation — no extra key needed.
-// Groq vision follows the OpenAI image_url format with base64 data URIs.
+// ─── Produce image analysis (Groq Vision) ────────────────────────────────────
+// Uses llama-4-scout-17b — free on GROQ_API_KEY.
+// CRITICAL: Does NOT hint the model with the device produce type — previous
+// versions caused misidentification by anchoring on the configured type.
+
 async function analyseProduceImageForChat(
   base64Image: string,
   mimeType: string,
-  produceLabel: string
+  _produceLabel: string
 ): Promise<{ state: string; confidence: string; explanation: string } | null> {
   if (!GROQ_API_KEY) return null;
+  const prompt = `You are an expert in West African post-harvest produce quality assessment, with specific knowledge of Ghana, Nigeria, and West Africa.
 
-  const prompt = `You are a cold chain expert assessing post-harvest produce quality in Ghana and West Africa.
-The image shows: ${produceLabel}
+STEP 1 — IDENTIFY THE PRODUCE:
+Look at the image. Common West African produce: tomatoes, yams, cocoyams, plantains, bananas, cassava, garden eggs, pepper, onions, kontomire, oranges, mangoes, pineapples, pawpaw, watermelon, cabbage, carrots, groundnuts, cowpeas, maize, fish, meat.
+Name only what is clearly visible. Do NOT guess.
 
-IMPORTANT: Even if the image is dark, blurry, or taken in poor lighting — you MUST still make your best assessment. Do not refuse or ask for a better image. Look at colour, texture, shape, and any visible surface details to make a call.
+STEP 2 — ASSESS THE CONDITION:
+Classify into EXACTLY ONE:
+- fresh: vibrant colour, firm texture, no damage
+- in-between: some ageing, fading, slight softening, still marketable
+- dried: intentionally dried or cured produce
+- almost-damaged: visible rot, mould, heavy bruising, extreme discolouration
 
-Classify the produce into EXACTLY ONE of these four conditions:
-- fresh: vibrant colour, firm appearance, no visible damage or softening
-- in-between: some ageing visible — colour fading, slight softening or wrinkling, still marketable
-- dried: fully dried or cured produce intended for long-term storage
-- almost-damaged: visible rot, mould, heavy bruising, extreme discolouration, or breakdown
+Even in poor lighting — use colour, shape, texture. Do not refuse.
 
-Respond with ONLY valid JSON (no markdown, no extra text, no explanation outside the JSON):
-{"state":"fresh|in-between|dried|almost-damaged","confidence":"high|medium|low","explanation":"One plain sentence describing exactly what you see and why you gave this classification"}`;
-
+Respond with ONLY valid JSON:
+{"state":"fresh|in-between|dried|almost-damaged","confidence":"high|medium|low","explanation":"Name the produce, describe what you see, state why you chose this condition"}`;
   try {
     const res = await fetch(GROQ_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
       body: JSON.stringify({
-        model:       'meta-llama/llama-4-scout-17b-16e-instruct',
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
         temperature: 0.1,
-        max_tokens:  250,
-        messages: [{
-          role:    'user',
-          content: [
-            {
-              type:      'image_url',
-              image_url: { url: `data:${mimeType};base64,${base64Image}` },
-            },
-            { type: 'text', text: prompt },
-          ],
-        }],
+        max_tokens: 300,
+        messages: [{ role: 'user', content: [
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}` } },
+          { type: 'text', text: prompt },
+        ]}],
       }),
     });
     if (!res.ok) return null;
-    const data  = await res.json();
-    const text  = data.choices?.[0]?.message?.content ?? '';
-    const clean = text.replace(/```json|```/g, '').trim();
-    return JSON.parse(clean);
-  } catch {
-    return null;
-  }
+    const data = await res.json();
+    const text = (data.choices?.[0]?.message?.content ?? '') as string;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+    const valid = ['fresh', 'in-between', 'dried', 'almost-damaged'];
+    if (!valid.includes(parsed.state as string)) return null;
+    return { state: parsed.state as string, confidence: (parsed.confidence as string) ?? 'medium', explanation: (parsed.explanation as string) ?? '' };
+  } catch { return null; }
 }
 
-// Convert File to base64 for vision analysis
 function fileToBase64Chat(file: File): Promise<{ base64: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload  = () => {
-      const result = reader.result as string;
-      resolve({ base64: result.split(',')[1], mimeType: file.type || 'image/jpeg' });
-    };
+    reader.onload = () => { const r = reader.result as string; resolve({ base64: r.split(',')[1], mimeType: file.type || 'image/jpeg' }); };
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 }
 
-// Maximum messages kept in memory per session to prevent context blow-out.
-const MAX_HISTORY = 20;
-
-// How long to wait after the user stops speaking before auto-sending (ms).
-// Gives the user a chance to review the transcript first.
-const VOICE_AUTOSEND_DELAY = 1800;
-
-// ─── Pre-translation layer ────────────────────────────────────────────────────
-// When the user's UI language is non-English (Twi, Ga, Hausa, etc.) we run
-// their message through a dedicated lightweight translation call BEFORE sending
-// it to the main cold-chain assistant. This means the assistant always reasons
-// in English — which it does reliably — regardless of what language the user
-// spoke or typed in.
-//
-// Design decisions:
-// - Temperature 0.0 — translation must be deterministic, not creative.
-// - maxOutputTokens 300 — translations are always shorter than the original.
-// - If translation fails for any reason (network, API error, unrecognisable
-//   language), we fall back to sending the original text unchanged. The system
-//   prompt's Layer 1 fallback then handles it gracefully at response time.
-// - We never show the translated text to the user — their original message
-//   is always displayed in the bubble. Translation is invisible infrastructure.
+// ─── Pre-translation ──────────────────────────────────────────────────────────
 
 async function translateToEnglish(text: string): Promise<string> {
   if (!GROQ_API_KEY) return text;
-
   try {
     const res = await fetch(GROQ_URL, {
-      method:  'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-      },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
       body: JSON.stringify({
-        model:       GROQ_MODEL_TRANSLATION,
-        temperature: 0.0,   // Deterministic — translation must not be creative
-        max_tokens:  300,
+        model: GROQ_MODEL_TRANSLATION, temperature: 0.0, max_tokens: 300,
         messages: [
-          {
-            role:    'system',
-            content: 'You are a translator. Translate the user message to English. Return ONLY the translated text — no explanation, no preamble, no quotes. If the text is already in English return it unchanged. If you cannot identify the language return the original unchanged.',
-          },
+          { role: 'system', content: 'You are a translator. Translate the user message to English. Return ONLY the translated text. If already English return unchanged. If unidentifiable return original.' },
           { role: 'user', content: text },
         ],
       }),
     });
-
-    if (!res.ok) return text; // Silent fallback — don't block the main request
-
-    const data       = await res.json();
-    const translated = data?.choices?.[0]?.message?.content?.trim() ?? '';
-    return translated.length > 0 ? translated : text;
-  } catch {
-    return text; // Network failure — fall back to original silently
-  }
+    if (!res.ok) return text;
+    const data = await res.json();
+    const t = (data?.choices?.[0]?.message?.content?.trim() ?? '') as string;
+    return t.length > 0 ? t : text;
+  } catch { return text; }
 }
 
-// ─── Web Speech API type declarations ────────────────────────────────────────
-// These are not in the standard TypeScript lib but are present in all modern
-// Android/Chrome browsers. We declare them here to avoid TS errors.
+// ─── Web Speech API types ─────────────────────────────────────────────────────
 
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-}
-interface SpeechRecognitionResultList {
-  readonly length: number;
-  [index: number]: SpeechRecognitionResult;
-}
-interface SpeechRecognitionResult {
-  readonly isFinal: boolean;
-  [index: number]: SpeechRecognitionAlternative;
-}
-interface SpeechRecognitionAlternative {
-  readonly transcript: string;
-  readonly confidence: number;
-}
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-}
+interface SpeechRecognitionEvent extends Event { results: SpeechRecognitionResultList; }
+interface SpeechRecognitionResultList { readonly length: number; [index: number]: SpeechRecognitionResult; }
+interface SpeechRecognitionResult { readonly isFinal: boolean; [index: number]: SpeechRecognitionAlternative; }
+interface SpeechRecognitionAlternative { readonly transcript: string; readonly confidence: number; }
+interface SpeechRecognitionErrorEvent extends Event { error: string; }
 interface SpeechRecognitionInstance extends EventTarget {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  maxAlternatives: number;
-  start(): void;
-  stop(): void;
-  abort(): void;
+  lang: string; continuous: boolean; interimResults: boolean; maxAlternatives: number;
+  start(): void; stop(): void; abort(): void;
   onresult: ((event: SpeechRecognitionEvent) => void) | null;
   onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-  onend: (() => void) | null;
-  onstart: (() => void) | null;
+  onend: (() => void) | null; onstart: (() => void) | null;
 }
 
-// Safe accessor — returns null if the browser doesn't support STT
 function getSpeechRecognition(): (new () => SpeechRecognitionInstance) | null {
   const w = window as unknown as Record<string, unknown>;
-  return (w['SpeechRecognition'] ?? w['webkitSpeechRecognition'] ?? null) as
-    | (new () => SpeechRecognitionInstance)
-    | null;
+  return (w['SpeechRecognition'] ?? w['webkitSpeechRecognition'] ?? null) as | (new () => SpeechRecognitionInstance) | null;
 }
 
 // ─── Language config ──────────────────────────────────────────────────────────
 
 const LANG_CONFIG: Record<Language, {
-  label: string;
-  flag: string;
-  placeholder: string;
-  greeting: string;
-  thinking: string;
-  errorNet: string;
-  errorKey: string;
-  confirmAction: string;
-  actionDone: string;
-  voiceHint: string;         // tooltip shown on mic button
-  voiceListening: string;    // status text while recording
-  voiceNotSupported: string; // shown if STT unavailable
-  translating: string;       // shown in thinking bubble while translation is in flight
+  label: string; flag: string; placeholder: string; greeting: string;
+  thinking: string; translating: string; errorNet: string; errorKey: string;
+  confirmAction: string; actionDone: string; voiceHint: string;
+  voiceListening: string; voiceNotSupported: string;
 }> = {
   en: {
-    label: 'English',
-    flag: '🇬🇧',
-    placeholder: 'Ask about your produce or give a command…',
+    label: 'English', flag: '\u{1F1EC}\u{1F1E7}',
+    placeholder: 'Ask about your produce or give a command\u2026',
     greeting: `Hello! I'm your ColdWatch assistant. I can help you monitor your cold storage, set targets, manage alerts, and give advice on your produce. You can type or tap the mic to speak. What can I help you with?`,
-    thinking: 'Thinking…',
-    translating: 'Thinking…', // English mode never hits the translation path
+    thinking: 'Thinking\u2026', translating: 'Thinking\u2026',
     errorNet: 'I could not reach the server. Please check your internet connection and try again.',
     errorKey: 'The AI service is not configured. Please add the VITE_GROQ_API_KEY to your environment.',
-    confirmAction: 'Confirm',
-    actionDone: 'Done',
-    voiceHint: 'Tap to speak (English or Twi)',
-    voiceListening: 'Listening… speak now',
+    confirmAction: 'Confirm', actionDone: 'Done',
+    voiceHint: 'Tap to speak (English or Twi)', voiceListening: 'Listening\u2026 speak now',
     voiceNotSupported: 'Voice not supported on this browser',
   },
   tw: {
-    label: 'Twi',
-    flag: '🇬🇭',
-    placeholder: 'Bisa ho asem anaa ma me nhyehyɛe…',
-    greeting: `Mema wo akye! Meyɛ wo ColdWatch boafoɔ. Wo tumi ka asem anaa kyerɛw de bisa me. Dɛn na mɛboa wo?`,
-    thinking: 'Meda wo ho dwuma…',
-    translating: 'Me kyerɛw wo asem…', // "Understanding your message…" — shown during translation
-    errorNet: 'Mintuiw server no. Hwɛ wo internet na san bisa.',
-    errorKey: 'AI seviis no nni hɔ. Fa VITE_GROQ_API_KEY to wo environment mu.',
-    confirmAction: 'Gyedi',
-    actionDone: 'Ayɛ',
-    voiceHint: 'Kasa wɔ Twi anaa English',
-    voiceListening: 'Mete wo asem… kasa',
+    label: 'Twi', flag: '\u{1F1EC}\u{1F1ED}',
+    placeholder: 'Bisa ho asem anaa ma me nhy\u025bhy\u025b\u025b\u2026',
+    greeting: `Mema wo akye! Mey\u025b wo ColdWatch boafo\u0254. Wo tumi ka asem anaa ky\u025br\u025bw de bisa me. D\u025bn na m\u025bboa wo?`,
+    thinking: 'Meda wo ho dwuma\u2026', translating: 'Me ky\u025br\u025bw wo asem\u2026',
+    errorNet: 'Mintuiw server no. Hw\u025b wo internet na san bisa.',
+    errorKey: 'AI seviis no nni h\u0254. Fa VITE_GROQ_API_KEY to wo environment mu.',
+    confirmAction: 'Gyedi', actionDone: 'Ay\u025b',
+    voiceHint: 'Kasa w\u0254 Twi anaa English', voiceListening: 'Mete wo asem\u2026 kasa',
     voiceNotSupported: 'Kasa feature no nsiesie wo browser yi so',
   },
 };
 
-// ─── System prompt builder ────────────────────────────────────────────────────
+// ─── App context snapshot ─────────────────────────────────────────────────────
+
+function buildAppContext(app: ReturnType<typeof useApp>) {
+  const selectedDevice  = app.devices.find(d => d.id === app.selectedDeviceId);
+  const activeAlerts    = app.alerts.filter(a => a.status === 'new' || a.status === 'acknowledged');
+  const breachAlerts    = activeAlerts.filter(a => a.severity === 'critical' || a.severity === 'warning');
+  const offlineDevices  = app.devices.filter(d => d.status === 'offline').length;
+  const criticalDevices = app.devices.filter(d =>
+    activeAlerts.some(a => a.deviceId === d.id && a.severity === 'critical')
+  ).length;
+  const shelfBaseHours: Record<string, number> = {
+    fresh: 120, 'in-between': 72, dried: 720, 'almost-damaged': 24,
+  };
+  return {
+    totalDevices: app.devices.length,
+    offlineDevices,
+    criticalDevices,
+    selectedDevice: selectedDevice ? {
+      id: selectedDevice.id, name: selectedDevice.name, location: selectedDevice.location,
+      status: selectedDevice.status,
+      produceMode: selectedDevice.produceMode ?? 'not set',
+      produceState: selectedDevice.produceState ?? 'not set',
+      facilitySize: selectedDevice.facilitySize ?? 'not set',
+      transportHours: selectedDevice.transportHours ?? 'not set',
+      produceSetupComplete: selectedDevice.produceSetupComplete ?? false,
+    } : null,
+    readings: {
+      currentTemperature: app.currentTemperature, currentHumidity: app.currentHumidity,
+      targetTemperature: app.targetTemperature, targetHumidity: app.targetHumidity,
+      systemStatus: app.systemStatus, autoMode: app.autoMode,
+      temperatureBreached: app.currentTemperature > app.targetTemperature + 1,
+      humidityBreached: Math.abs(app.currentHumidity - app.targetHumidity) > 5,
+    },
+    allDevices: app.devices.map(d => ({
+      id: d.id, name: d.name, location: d.location, status: d.status,
+      isSelected: d.id === app.selectedDeviceId,
+      produceMode: d.produceMode ?? 'not set',
+      produceState: d.produceState ?? 'not set',
+      batteryLevel: d.batteryLevel ?? null,
+      estimatedShelfLifeHours: d.produceState
+        ? Math.max(0, (shelfBaseHours[d.produceState] ?? 96) - (d.transportHours ?? 0))
+        : null,
+      activeAlerts: activeAlerts
+        .filter(a => a.deviceId === d.id).slice(0, 3)
+        .map(a => ({ id: a.id, severity: a.severity, message: a.message })),
+    })),
+    alerts: {
+      total: activeAlerts.length, unread: app.unreadAlertCount, activeBreaches: breachAlerts.length,
+      items: activeAlerts.slice(0, 5).map(a => ({
+        id: a.id, severity: a.severity, message: a.message,
+        device: a.deviceName, deviceId: a.deviceId, isBreach: a.severity !== 'info',
+      })),
+    },
+    user: { name: app.user.name, role: app.user.role ?? 'user' },
+    shelfLifeContext: selectedDevice?.produceMode && selectedDevice?.produceState ? {
+      produceMode: selectedDevice.produceMode,
+      produceState: selectedDevice.produceState,
+      transportHours: selectedDevice.transportHours ?? 0,
+      estimatedBaseHours: shelfBaseHours[selectedDevice.produceState ?? 'fresh'] ?? 96,
+      currentTempBreached: app.currentTemperature > app.targetTemperature + 1,
+    } : null,
+  };
+}
+
+// ─── Page summary prompt ──────────────────────────────────────────────────────
+
+function buildPageSummaryPrompt(page: string, ctx: ReturnType<typeof buildAppContext>): string {
+  const { selectedDevice: dev, readings, alerts, totalDevices, offlineDevices, criticalDevices } = ctx;
+  const tempStatus  = readings.temperatureBreached
+    ? `temperature is ${readings.currentTemperature.toFixed(1)} degrees — above the ${readings.targetTemperature} degree target`
+    : `temperature is ${readings.currentTemperature.toFixed(1)} degrees, on target`;
+  const humidStatus = readings.humidityBreached
+    ? `humidity is ${readings.currentHumidity.toFixed(0)} percent — off the ${readings.targetHumidity} percent target`
+    : `humidity is fine at ${readings.currentHumidity.toFixed(0)} percent`;
+  const deviceLine  = offlineDevices > 0
+    ? `${offlineDevices} of ${totalDevices} devices are offline.`
+    : `All ${totalDevices} devices are online.`;
+  const alertLine   = alerts.total === 0
+    ? 'No active alerts.'
+    : `${alerts.total} active alert${alerts.total > 1 ? 's' : ''}${alerts.activeBreaches > 0 ? `, including ${alerts.activeBreaches} breach${alerts.activeBreaches > 1 ? 'es' : ''}` : ''}.`;
+  const contexts: Record<string, string> = {
+    dashboard: dev
+      ? `User is on Dashboard showing ${dev.name} at ${dev.location}. The ${tempStatus}. The ${humidStatus}. ${alertLine} Give a 2-sentence spoken tour — device, key reading status, most pressing issue if any. Natural and direct.`
+      : `User is on Dashboard but no device selected. Tell them in one sentence to go to Devices to add or select one.`,
+    alerts:   `User is on Alerts page. ${alertLine}${criticalDevices > 0 ? ` ${criticalDevices} device${criticalDevices > 1 ? 's have' : ' has'} critical alerts.` : ''} Summarise in 2 sentences. If no alerts, be warm and reassuring.`,
+    devices:  `User is on Devices page. ${deviceLine}${offlineDevices > 0 ? ' Mention offline devices.' : ''} Tell them to tap a card for details or add a new one. 2 sentences.`,
+    history:  `User is on History page for ${dev?.name ?? 'the selected device'}. 2 sentences: this page shows sensor readings over time to spot trends and compare conditions.`,
+    settings: `User is on Settings page. 1-2 sentences: they can adjust notifications, alert thresholds, device calibration, ESP32 connection guide, and security options here.`,
+  };
+  const context = contexts[page] ?? `User is now on the ${page} page. Give a one sentence description of what they can do here.`;
+  return `[SYSTEM NOTE: ${context} Speak as Nix — natural, warm, concise. No ACTION block. English only.]`;
+}
+
+// ─── System prompt ────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(appContext: ReturnType<typeof buildAppContext>): string {
-  return `You are the ColdWatch AI assistant — an expert in cold chain management, post-harvest storage, and produce preservation in Ghana and West Africa.
+  return `You are Nix — the ColdWatch AI assistant. Expert in cold chain management, post-harvest storage, and produce preservation in Ghana and West Africa.
 
-LANGUAGE RULE — CRITICAL AND ABSOLUTE: You MUST always respond in clear, simple English. This rule overrides everything else. Do not reply in Twi, Ga, Hausa, or any other language under any circumstance, even if the user writes to you in another language, even if they ask you to reply in another language. English only, always, no exceptions. User messages are pre-translated to English before reaching you. Your responses will be spoken aloud to the user. Keep sentences short and natural for speech. Avoid bullet points or markdown — write in plain conversational paragraphs only.
+LANGUAGE RULE — ABSOLUTE: Always respond in clear, simple English. No exceptions. User messages are pre-translated. Responses will be spoken aloud. No bullet points. No markdown. Plain conversational paragraphs only.
 
-UNKNOWN INPUT RULE: User messages will be pre-translated to English before reaching you. However, if a message still arrives that you genuinely cannot understand or interpret — even in context — do NOT guess or make up a response. Instead reply with exactly: "I'm sorry, I didn't quite understand that. Could you please rephrase it in English?" This is safer than a confident wrong answer for a farmer making real decisions.
+UNKNOWN INPUT: If you genuinely cannot understand a message reply: "I'm sorry, I didn't quite understand that. Could you please rephrase it in English?"
 
 YOUR CAPABILITIES:
 - Advise on optimal temperature and humidity for any produce type or state
-- Interpret current sensor readings and explain what they mean for the stored produce
+- Interpret sensor readings and explain what they mean for stored produce
 - Help set temperature and humidity targets
-- Explain alerts in plain practical language — not just "breach detected" but what it means for the produce and what to do right now
-- Estimate and communicate shelf life impact — always give a rough time estimate when you can ("at this rate, roughly 2 days remaining")
-- Advise on meat, fish, fruits, vegetables, tubers, legumes, leafy greens, and dried produce
-- Understand and respond to instructions in both English and Twi
-- Proactively flag issues the user has not asked about if the data warrants it
-- Monitor and advise on ALL storage units/devices, not just the currently selected one
-- Switch the dashboard view to any device the user mentions by name
-- Compare conditions across multiple devices and tell the user which units need attention
+- Explain alerts in plain language — what caused it, what it means, one recommended action
+- Estimate shelf life — always give a rough time estimate when you can
+- Advise on meat, fish, fruits, vegetables, tubers, legumes, leafy greens, dried produce
+- Monitor ALL devices, not just the selected one
+- Switch dashboard to any device the user names
+- Compare conditions across multiple devices
 
-SHELF LIFE RULE:
-Whenever you have produce type and condition in the app state, mention the estimated remaining shelf life in your response — even if the user did not ask. Frame it practically: "At the current conditions, your tomatoes have roughly X days before quality drops significantly." If conditions are deteriorating, be honest and urgent about it.
+SHELF LIFE RULE: Whenever you have produce type and condition, mention estimated remaining shelf life even if not asked.
 
-ALERT EXPLANATION RULE:
-When explaining alerts, always go beyond the raw message. Say what caused it, what it means for the specific produce stored, and give one clear recommended action. Example: instead of "Temperature breach — critical", say "Your cold room temperature rose above the safe range for fresh tomatoes. Prolonged exposure above 10 degrees will accelerate spoilage. I recommend starting the cooling unit now and setting the target back to 8 degrees."
+ALERT RULE: Always explain beyond the raw message. What caused it, what it means for the produce, one clear action.
 
-AUTO-RESOLVE AWARENESS:
-When there is an active breach alert, the correct approach is to take corrective action — lower the target temperature, start cooling, or enable auto mode. When conditions return to safe levels, the system automatically resolves the alert. Do NOT manually dismiss active breach alerts. Instead, fix the conditions. Tell the user clearly: "Once the temperature returns to the safe range, the system will resolve the alert automatically."
+AUTO-RESOLVE: Never dismiss active breach alerts manually. Fix the conditions. Tell the user the system resolves automatically.
 
 CURRENT APP STATE:
 ${JSON.stringify(appContext, null, 2)}
 
-EXECUTING ACTIONS:
-If the user asks you to change a setting or perform an action, include a JSON block at the very end of your response (after your explanation) in this exact format:
-<ACTION>{"type":"SET_TARGET_TEMP","value":8}</ACTION>
+ACTIONS — CRITICAL RULES:
+RULE 1 — EXPLICIT COMMANDS ONLY: Only include an ACTION block when the user has explicitly asked you to DO something.
+RULE 2 — NEVER PROACTIVE: Never include an ACTION block in a greeting or unsolicited message.
+RULE 3 — ONE ACTION MAX per response.
+RULE 4 — NAVIGATION IS INSTANT: If the user asks to go anywhere, immediately produce a NAVIGATE ACTION. One short sentence then the ACTION. No confirmation needed.
 
-Available action types:
-- SET_TARGET_TEMP: value = number (°C) — sets target for the CURRENTLY SELECTED device
-- SET_TARGET_HUMIDITY: value = number (%) — sets humidity for the CURRENTLY SELECTED device
-- SET_AUTO_MODE: value = true | false — enable auto mode to let the system self-correct
-- START_COOLING — engage cooling to bring temperature down during a breach
+Format: <ACTION>{"type":"SET_TARGET_TEMP","value":8}</ACTION>
+
+Available types:
+- SET_TARGET_TEMP: value = number (°C, 0–25)
+- SET_TARGET_HUMIDITY: value = number (%, 30–98)
+- SET_AUTO_MODE: value = true | false
+- START_COOLING
 - STOP_COOLING
-- ACKNOWLEDGE_ALERT: value = alertId string — only for non-breach informational alerts
-- ACKNOWLEDGE_ALL_ALERTS — only when all active alerts are informational, not active breaches
-- SWITCH_DEVICE: value = deviceId string — switches the dashboard to a different device so the user can view its readings and control it. Use this when the user asks to check, view, or control a specific unit by name
+- ACKNOWLEDGE_ALERT: value = alertId string
+- ACKNOWLEDGE_ALL_ALERTS
+- SWITCH_DEVICE: value = deviceId string
+- NAVIGATE: value = "dashboard" | "alerts" | "history" | "devices" | "settings"
 
-SAFETY RULES:
-- Never suggest temperatures below 0°C for non-meat produce.
-- Never suggest temperatures above 25°C as a storage target.
-- Warn if requested settings seem outside safe ranges.
-- Always explain WHAT you are changing and WHY before including the ACTION block.
-- If you are not changing anything, do NOT include an ACTION block.
-- For active breach alerts, always recommend fixing conditions first rather than dismissing the alert.
+SAFETY: Never suggest <0°C for non-meat. Never >25°C. Fix breach conditions rather than dismissing alerts.
 
-CONVERSATION BEHAVIOUR — FOLLOW THESE EVERY TIME:
-- After EVERY response, always end with a relevant follow-up question or a brief "Is there anything else I can help you with?" Never go silent.
-- When you complete advice or an action, acknowledge it first — e.g. "Done, I have updated your temperature target." Then follow up naturally.
-- Be proactive: if readings are near breach thresholds even without an active alert, mention it without being asked.
-- If the user just had an action confirmed, acknowledge it warmly — e.g. "Done! Your temperature target is now set to 8 degrees. Would you also like me to check your humidity?"
-- Keep track of the conversation. Your follow-up should relate to what was just discussed, not something random.
-- If the user seems to be wrapping up, offer a brief summary of what changed in the session.
+CONVERSATION: After every response, end with a relevant follow-up question or natural offer. Never go silent. Acknowledge actions then follow up.
 
-TONE AND PERSONALITY — THIS IS THE MOST IMPORTANT SECTION:
-You are not a formal assistant. You are Nix — a sharp, warm, knowledgeable friend who understands cold chain storage and farming in Ghana exceptionally well. Think of a trusted colleague who studied agriculture and actually knows what they are talking about, but speaks the way a friend does — direct, caring, a little bit of personality, not stiff.
+TONE — MOST IMPORTANT:
+You are Nix — a sharp, warm, knowledgeable friend. Not a formal assistant. Direct, caring, a little personality.
 
-WHAT HUMAN SOUNDS LIKE IN PRACTICE:
-BAD (robotic): "The current temperature reading is 12.5 degrees Celsius, which exceeds the target threshold of 8 degrees Celsius by 4.5 degrees."
-GOOD (natural): "Your cold room's sitting at twelve and a half right now — that's about four degrees above where it should be. Not great for fresh tomatoes."
+BAD: "The current temperature reading is 12.5°C, which exceeds the target of 8°C by 4.5 degrees."
+GOOD: "Your cold room's sitting at twelve and a half right now — that's about four degrees above where it should be. Not great for fresh tomatoes."
 
-BAD: "I recommend enabling auto mode to optimise temperature regulation."
-GOOD: "Turn on auto mode — it'll handle the cooling for you and bring things back without you having to watch it."
+BAD: "I recommend enabling auto mode."
+GOOD: "Turn on auto mode — it'll handle the cooling for you without you having to watch it."
 
-BAD: "Is there anything else I can assist you with?"
-GOOD: "Want me to check the other units while we're at it?" or "Anything else on your mind?"
+RULES FOR SOUNDING HUMAN:
+- Always use contractions: I'll, it's, you'll, don't, isn't, that's, we've, let's
+- Vary sentence length. Mix short punchy sentences with slightly longer ones
+- React mildly when warranted: "Ah, that's looking good." or "Okay, that's a bit concerning."
+- Round numbers honestly: "about eight degrees" not "eight point zero degrees"
+- Start responses differently: "So,", "Right, so", "Honestly,", "Good news —", "Looking at your readings,"
+- When vague, make a sensible assumption and state it
+- Use the user's name occasionally, naturally — not every message
+- Never say "Certainly!", "Absolutely!", "Of course!", "Great question!"
+- End with something specific, not generic
+- Acknowledge uncertainty: "Honestly, hard to say for sure, but my best guess is about two days."
 
-SPECIFIC RULES FOR SOUNDING HUMAN:
-- Use contractions always: "I'll", "it's", "you'll", "don't", "isn't", "that's", "we've", "let's"
-- Vary sentence length. Mix short punchy sentences with slightly longer ones. Never three long sentences in a row.
-- Express mild reactions when the situation calls for it: "Ah, that's looking good actually." or "Okay, that's a bit concerning." or "Right, glad you caught that early."
-- Round numbers where rounding is honest. Say "about eight degrees" not "eight point zero degrees."
-- Start responses differently each time. Not always "Your". Try: "So,", "Right, so", "Looking at your readings,", "Good news —", "Okay, so —", "Honestly,", "That said,"
-- When the user is vague, make a sensible assumption and state it: "I'll assume you mean the tomatoes in unit one — let me know if you meant something else."
-- Say the user's name occasionally and naturally — the way a friend would, not every message.
-- When something is wrong, be calm and honest: "Look, the temperature has been too high for a while. That is real risk. Let's fix it now."
-- Never say "Certainly!", "Absolutely!", "Of course!", "Great question!" — these are filler phrases.
-- End with something specific: not "Is there anything else I can help you with?" but a natural follow-up tied to what was just discussed.
-- Acknowledge uncertainty like a person would: "Honestly, hard to say for sure without knowing how long it's been like this, but my best guess is about two days."
+LOCAL GROUNDING: Reference Ghanaian seasons, transport realities, market timing. Produce in Ghana often travels long distances in heat before cold storage — factor that into shelf-life reasoning.
 
-LOCAL GROUNDING:
-- Reference Ghanaian seasons, local transport realities, market timing, and produce types where relevant.
-- You understand produce in Ghana often travels long distances in heat before reaching cold storage. Factor that into shelf-life reasoning.
-- Address users with Ghanaian names the way you would if you knew them personally.
-
-FORMAT:
-- Plain conversational English only. No bullet points. No markdown. No numbered lists.
-- Write as if speaking aloud, because it will be spoken aloud.
-- Maximum four sentences per response unless the question genuinely needs more detail.`;
+FORMAT: Plain conversational English. Write as if speaking aloud. Maximum 4 sentences unless genuinely needed.`;
 }
 
-// ─── App context snapshot ─────────────────────────────────────────────────────
-
-function buildAppContext(app: ReturnType<typeof useApp>) {
-  const selectedDevice = app.devices.find(d => d.id === app.selectedDeviceId);
-  const activeAlerts   = app.alerts.filter(a => a.status === 'new' || a.status === 'acknowledged');
-  const breachAlerts   = activeAlerts.filter(a => a.severity === 'critical' || a.severity === 'warning');
-
-  // Base shelf-life hours by produce state — AI refines with produce type context
-  const shelfBaseHours: Record<string, number> = {
-    fresh: 120, 'in-between': 72, dried: 720, 'almost-damaged': 24,
-  };
-
-  return {
-    // ── Currently selected device (live readings) ───────────────────────────
-    selectedDevice: selectedDevice
-      ? {
-          id:             selectedDevice.id,
-          name:           selectedDevice.name,
-          location:       selectedDevice.location,
-          status:         selectedDevice.status,
-          produceMode:    selectedDevice.produceMode   ?? 'not set',
-          produceState:   selectedDevice.produceState  ?? 'not set',
-          facilitySize:   selectedDevice.facilitySize  ?? 'not set',
-          transportHours: selectedDevice.transportHours ?? 'not set',
-          produceSetupComplete: selectedDevice.produceSetupComplete ?? false,
-        }
-      : null,
-
-    // ── Live readings for the selected device ───────────────────────────────
-    readings: {
-      currentTemperature:  app.currentTemperature,
-      currentHumidity:     app.currentHumidity,
-      targetTemperature:   app.targetTemperature,
-      targetHumidity:      app.targetHumidity,
-      systemStatus:        app.systemStatus,
-      autoMode:            app.autoMode,
-      temperatureBreached: app.currentTemperature > app.targetTemperature + 1,
-      humidityBreached:    Math.abs(app.currentHumidity - app.targetHumidity) > 5,
-    },
-
-    // ── ALL devices — full profile so AI can advise on every unit ──────────
-    // This is the key data the AI needs to answer "how are all my units?"
-    allDevices: app.devices.map(d => ({
-      id:                   d.id,
-      name:                 d.name,
-      location:             d.location,
-      status:               d.status,
-      isSelected:           d.id === app.selectedDeviceId,
-      produceMode:          d.produceMode    ?? 'not set',
-      produceState:         d.produceState   ?? 'not set',
-      facilitySize:         d.facilitySize   ?? 'not set',
-      transportHours:       d.transportHours ?? 'not set',
-      produceSetupComplete: d.produceSetupComplete ?? false,
-      batteryLevel:         d.batteryLevel,
-      // Threshold config so AI knows what's safe for each unit
-      warningTemperature:   d.warningTemperature,
-      criticalTemperature:  d.criticalTemperature,
-      warningHumidity:      d.warningHumidity,
-      criticalHumidity:     d.criticalHumidity,
-      // Estimated shelf life for this device's produce
-      estimatedShelfLifeHours: d.produceState
-        ? Math.max(0, (shelfBaseHours[d.produceState] ?? 96) - (d.transportHours ?? 0))
-        : null,
-      // Active alerts for this specific device
-      activeAlerts: activeAlerts
-        .filter(a => a.deviceId === d.id)
-        .map(a => ({ id: a.id, severity: a.severity, message: a.message })),
-    })),
-
-    // ── Alerts across ALL devices ───────────────────────────────────────────
-    alerts: {
-      total:          activeAlerts.length,
-      unread:         app.unreadAlertCount,
-      activeBreaches: breachAlerts.length,
-      items: activeAlerts.slice(0, 8).map(a => ({
-        id:       a.id,
-        severity: a.severity,
-        message:  a.message,
-        device:   a.deviceName,
-        deviceId: a.deviceId,
-        isBreach: a.severity !== 'info',
-      })),
-    },
-
-    user: {
-      name: app.user.name,
-      role: app.user.role ?? 'user',
-    },
-
-    // ── Shelf life context for selected device ──────────────────────────────
-    shelfLifeContext: selectedDevice?.produceMode && selectedDevice?.produceState
-      ? {
-          produceMode:         selectedDevice.produceMode,
-          produceState:        selectedDevice.produceState,
-          transportHours:      selectedDevice.transportHours ?? 0,
-          estimatedBaseHours:  shelfBaseHours[selectedDevice.produceState ?? 'fresh'] ?? 96,
-          currentTempBreached: app.currentTemperature > app.targetTemperature + 1,
-        }
-      : null,
-  };
-}
-
-// ─── Parse AI action from response ───────────────────────────────────────────
+// ─── Parse AI action ──────────────────────────────────────────────────────────
 
 function parseAction(raw: string): { display: string; action: AIAction | null } {
-  // Strip the ACTION block from display text regardless of whether parsing succeeds.
-  // Llama models sometimes vary whitespace/newlines around the tags, so we use a
-  // case-insensitive, whitespace-tolerant regex for both matching and stripping.
-  const TAG_RE    = /<\s*ACTION\s*>([\s\S]*?)<\s*\/\s*ACTION\s*>/i;
-  const actionMatch = raw.match(TAG_RE);
-
-  // Always strip — even if JSON parsing fails the tag must never show in the UI
+  const TAG_RE = /<\s*ACTION\s*>([\s\S]*?)<\s*\/\s*ACTION\s*>/i;
+  const m = raw.match(TAG_RE);
   const display = raw.replace(TAG_RE, '').replace(/\n{3,}/g, '\n\n').trim();
-
-  if (!actionMatch) return { display, action: null };
-
+  if (!m) return { display, action: null };
   try {
-    const action = JSON.parse(actionMatch[1].trim()) as AIAction;
-    if (!action.type) return { display, action: null };
+    const action = JSON.parse(m[1].trim()) as AIAction;
+    if (!action?.type) return { display, action: null };
     return { display, action };
-  } catch {
-    return { display, action: null };
-  }
+  } catch { return { display, action: null }; }
 }
-
-// ─── Action label ─────────────────────────────────────────────────────────────
 
 function describeAction(action: AIAction): string {
   switch (action.type) {
@@ -509,202 +380,116 @@ function describeAction(action: AIAction): string {
     case 'ACKNOWLEDGE_ALERT':      return 'Alert acknowledged';
     case 'ACKNOWLEDGE_ALL_ALERTS': return 'All alerts acknowledged';
     case 'SWITCH_DEVICE':          return `Switched to ${action.value}`;
+    case 'NAVIGATE':               return `Going to ${action.value}`;
     default:                       return 'Action taken';
   }
 }
-
-// ─── Execute action ───────────────────────────────────────────────────────────
 
 function executeAction(action: AIAction, app: ReturnType<typeof useApp>): boolean {
   try {
     switch (action.type) {
       case 'SET_TARGET_TEMP':
-        if (typeof action.value === 'number' && action.value >= 0 && action.value <= 25) {
-          app.setTargetTemperature(action.value);
-          return true;
-        }
+        if (typeof action.value === 'number' && action.value >= 0 && action.value <= 25) { app.setTargetTemperature(action.value); return true; }
         return false;
       case 'SET_TARGET_HUMIDITY':
-        if (typeof action.value === 'number' && action.value >= 30 && action.value <= 98) {
-          app.setTargetHumidity(action.value);
-          return true;
-        }
+        if (typeof action.value === 'number' && action.value >= 30 && action.value <= 98) { app.setTargetHumidity(action.value); return true; }
         return false;
-      case 'SET_AUTO_MODE':
-        app.setAutoMode(Boolean(action.value));
-        return true;
-      case 'START_COOLING':
-        app.startCooling();
-        return true;
-      case 'STOP_COOLING':
-        app.stopCooling();
-        return true;
+      case 'SET_AUTO_MODE':   app.setAutoMode(Boolean(action.value)); return true;
+      case 'START_COOLING':   app.startCooling(); return true;
+      case 'STOP_COOLING':    app.stopCooling(); return true;
       case 'ACKNOWLEDGE_ALERT':
-        if (typeof action.value === 'string') {
-          app.acknowledgeAlert(action.value);
-          return true;
-        }
+        if (typeof action.value === 'string') { app.acknowledgeAlert(action.value); return true; }
         return false;
-      case 'ACKNOWLEDGE_ALL_ALERTS':
-        app.acknowledgeAllAlerts();
-        return true;
+      case 'ACKNOWLEDGE_ALL_ALERTS': app.acknowledgeAllAlerts(); return true;
       case 'SWITCH_DEVICE':
-        if (typeof action.value === 'string') {
-          // value is the device id
-          app.setSelectedDeviceId(action.value);
-          return true;
-        }
+        if (typeof action.value === 'string') { app.setSelectedDeviceId(action.value); return true; }
         return false;
-      default:
+      case 'NAVIGATE':
+        if (typeof action.value === 'string' && (VALID_PAGES as readonly string[]).includes(action.value)) { app.setActivePage(action.value); return true; }
         return false;
+      default: return false;
     }
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
-// ─── Text-to-speech helper ────────────────────────────────────────────────────
-// Wraps the Web Speech API's SpeechSynthesis. Always speaks in English.
-// Voice priority: Google Neural > Google any > Enhanced/Premium > en-GB > en-US.
+// ─── TTS helpers ──────────────────────────────────────────────────────────────
 
-// ─── Ghanaian name phonetics ─────────────────────────────────────────────────
-// Maps common Ghanaian/West African names to phonetic respellings so English
-// TTS engines render them the way a Ghanaian would say them.
 const GHANAIAN_NAME_PHONETICS: Record<string, string> = {
-  kwame:    'Kwah-meh',    kofi:     'Koh-fee',
-  kojo:     'Koh-joh',    kweku:    'Kweh-koo',
-  kwabena:  'Kwah-beh-nah', kwasi:  'Kwah-see',
-  yaw:      'Yao',         ama:     'Ah-mah',
-  akua:     'Ah-kwah',    adwoa:    'Ah-jwah',
-  abena:    'Ah-beh-nah', afia:     'Ah-fyah',
-  akosua:   'Ah-koh-swah', adjoa:   'Ah-jwah',
-  nii:      'Nee',         naa:     'Nah',
-  aba:      'Ah-bah',     okai:     'Oh-kai',
-  tetteh:   'Teh-teh',   lamptey:  'Lamp-teh',
-  kafui:    'Kah-foo-ee', edem:     'Eh-dehm',
-  seyram:   'Seh-rahm',  selorm:    'Seh-lorm',
-  alhassan: 'Al-has-sahn', issah:   'Ee-sah',
-  fuseini:  'Foo-seh-nee',
-  asante:   'Ah-sahn-teh', mensah:  'Men-sah',
-  boateng:  'Bwah-teng',  owusu:    'Oh-woo-soo',
-  appiah:   'Ah-pyah',    amoah:    'Ah-moh-ah',
-  frimpong: 'Freem-pong', darko:    'Dar-koh',
-  antwi:    'Ahn-twee',
+  kwame: 'Kwah-meh',    kofi: 'Koh-fee',       kojo: 'Koh-joh',
+  kweku: 'Kweh-koo',    kwabena: 'Kwah-beh-nah', kwasi: 'Kwah-see',
+  kwadwo: 'Kwah-joh',   yaw: 'Yao',             ama: 'Ah-mah',
+  akua: 'Ah-kwah',      adwoa: 'Ah-jwah',        abena: 'Ah-beh-nah',
+  afia: 'Ah-fyah',      akosua: 'Ah-koh-swah',   adjoa: 'Ah-jwah',
+  nii: 'Nee',           naa: 'Nah',              aba: 'Ah-bah',
+  okai: 'Oh-kai',       tetteh: 'Teh-teh',       lamptey: 'Lamp-teh',
+  kafui: 'Kah-foo-ee',  edem: 'Eh-dehm',         seyram: 'Seh-rahm',
+  selorm: 'Seh-lorm',   alhassan: 'Al-has-sahn', issah: 'Ee-sah',
+  fuseini: 'Foo-seh-nee', asante: 'Ah-sahn-teh', mensah: 'Men-sah',
+  boateng: 'Bwah-teng', owusu: 'Oh-woo-soo',     appiah: 'Ah-pyah',
+  amoah: 'Ah-moh-ah',   frimpong: 'Freem-pong',  darko: 'Dar-koh',
+  antwi: 'Ahn-twee',    asuako: 'Ah-swah-koh',   reginald: 'Reh-ji-nald',
 };
 
-// Replaces each word in a name string with its phonetic form if known.
 function phoneticiseName(name: string): string {
-  return name.split(/\s+/).map(word => {
-    const lower = word.toLowerCase().replace(/[^a-z]/g, '');
-    return GHANAIAN_NAME_PHONETICS[lower] ?? word;
+  return name.split(/\s+/).map(w => {
+    const l = w.toLowerCase().replace(/[^a-z]/g, '');
+    return GHANAIAN_NAME_PHONETICS[l] ?? w;
   }).join(' ');
 }
 
-// Converts integers 0–999 to English words so TTS reads them naturally.
 function numberToWords(n: number): string {
-  if (n < 0)  return `minus ${numberToWords(-n)}`;
-  const ones = ['zero','one','two','three','four','five','six','seven','eight',
-                 'nine','ten','eleven','twelve','thirteen','fourteen','fifteen',
-                 'sixteen','seventeen','eighteen','nineteen'];
+  if (n < 0) return `minus ${numberToWords(-n)}`;
+  const ones = ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
   const tens = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
   if (n < 20)   return ones[n];
   if (n < 100)  return tens[Math.floor(n / 10)] + (n % 10 ? '-' + ones[n % 10] : '');
-  if (n < 1000) {
-    const rem = n % 100;
-    return ones[Math.floor(n / 100)] + ' hundred' + (rem ? ' and ' + numberToWords(rem) : '');
-  }
+  if (n < 1000) { const r = n % 100; return ones[Math.floor(n / 100)] + ' hundred' + (r ? ' and ' + numberToWords(r) : ''); }
   return String(n);
 }
 
-// Rewrites AI response text so the speech engine reads it naturally:
-//   "8°C" → "eight degrees", "85%" → "eighty-five percent",
-//   user names phonecticised, sentence rhythm preserved.
 function prepareSpeechText(text: string, userName: string): string {
   let t = text;
-
-  // Strip action tags and markdown artefacts
   t = t.replace(/<\s*ACTION\s*>[\s\S]*?<\s*\/\s*ACTION\s*>/gi, '');
   t = t.replace(/[*_`#>]/g, '');
-
-  // Phonecticise the user's name wherever it appears (case-insensitive)
   if (userName) {
-    const escaped  = userName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const nameRe   = new RegExp(`\\b${escaped}\\b`, 'gi');
-    const phonetic = phoneticiseName(userName);
-    t = t.replace(nameRe, phonetic);
+    const e = userName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    t = t.replace(new RegExp(`\\b${e}\\b`, 'gi'), phoneticiseName(userName));
   }
-
-  // Temperatures: "8°C" → "eight degrees", "10.5°C" → "ten point five degrees"
   t = t.replace(/(\d+\.?\d*)\s*°C/g, (_m, n) => {
-    const val = parseFloat(n);
-    if (Number.isInteger(val)) return `${numberToWords(val)} degrees`;
-    const [int, dec] = n.split('.');
-    return `${numberToWords(parseInt(int, 10))} point ${dec} degrees`;
+    const v = parseFloat(n);
+    if (Number.isInteger(v)) return `${numberToWords(v)} degrees`;
+    const [i, d] = n.split('.');
+    return `${numberToWords(parseInt(i, 10))} point ${d} degrees`;
   });
-
-  // Humidity percentages: "85%" → "eighty-five percent"
   t = t.replace(/(\d+)%/g, (_m, n) => `${numberToWords(parseInt(n, 10))} percent`);
-
-  // Long hour counts: "24 hours" → "twenty-four hours"
-  t = t.replace(/\b(\d{2,})\s*hours?\b/gi,
-    (_m, n) => `${numberToWords(parseInt(n, 10))} hours`);
-
-  // Natural pause hints — commas after key conversational phrases
-  t = t.replace(/(right now|I'd recommend|let me know|sounds good|good news|by the way)(,?)/gi,
-    '$1,');
-
-  // Clean up excess whitespace
-  t = t.replace(/  +/g, ' ').trim();
-  return t;
+  t = t.replace(/\b(\d{2,})\s*hours?\b/gi, (_m, n) => `${numberToWords(parseInt(n, 10))} hours`);
+  t = t.replace(/(right now|I'd recommend|let me know|sounds good|good news|by the way)(,?)/gi, '$1,');
+  return t.replace(/  +/g, ' ').trim();
 }
 
 function speak(text: string, muted: boolean, userName = ''): void {
   if (muted || !('speechSynthesis' in window)) return;
-
-  // Run text through speech preparation — phonetics, number words, natural pauses
   const clean = prepareSpeechText(text, userName);
   if (!clean) return;
-
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(clean);
-
-  const voices   = window.speechSynthesis.getVoices();
-  const enVoices = voices.filter(v => v.lang.startsWith('en'));
-
-  // Priority 1: Google Neural2 / Wavenet — best quality, Android Chrome / ChromeOS
-  const googleNeural = enVoices.find(v => /google/i.test(v.name) && /neural|wavenet/i.test(v.name));
-  // Priority 2: en-GH (Ghana English) or en-NG (Nigerian English) — handles West African
-  //   names and accent patterns far better than en-GB for Ghanaian users
-  const enGH = enVoices.find(v => v.lang === 'en-GH');
-  const enNG = enVoices.find(v => v.lang === 'en-NG');
-  // Priority 3: Any Google English voice
-  const googleAny  = enVoices.find(v => /google/i.test(v.name));
-  // Priority 4: Enhanced/Premium OS voices (iOS Siri, macOS)
-  const enhanced   = enVoices.find(v => /enhanced|premium/i.test(v.name));
-  // Priority 5: en-GB — standard fallback
-  const enGB       = enVoices.find(v => v.lang === 'en-GB');
-  // Priority 6: en-US, then any English
-  const enUS       = enVoices.find(v => v.lang === 'en-US');
-  const any        = enVoices[0] ?? null;
-
-  const chosen = googleNeural ?? enGH ?? enNG ?? googleAny ?? enhanced ?? enGB ?? enUS ?? any;
+  const voices = window.speechSynthesis.getVoices();
+  const en = voices.filter(v => v.lang.startsWith('en'));
+  const chosen =
+    en.find(v => /google/i.test(v.name) && /neural|wavenet/i.test(v.name)) ??
+    en.find(v => v.lang === 'en-GH') ??
+    en.find(v => v.lang === 'en-NG') ??
+    en.find(v => /google/i.test(v.name)) ??
+    en.find(v => /enhanced|premium/i.test(v.name)) ??
+    en.find(v => v.lang === 'en-GB') ??
+    en.find(v => v.lang === 'en-US') ??
+    en[0] ?? null;
   if (chosen) utter.voice = chosen;
-
-  // Rate 0.85 — slightly slower than natural speech gives clarity in noisy
-  // field/warehouse environments without sounding artificially slowed.
-  // Pitch 1.0 — dead neutral. Avoiding artificial warmth (1.05+) prevents
-  // the "cheerful robot" effect. Natural warmth comes from the text itself.
-  utter.lang   = 'en-GH';  // Hint to the engine for accent-aware rendering
-  utter.rate   = 0.85;
-  utter.pitch  = 1.0;
-  utter.volume = 1.0;
-
+  utter.lang = 'en-GH'; utter.rate = 0.85; utter.pitch = 1.0; utter.volume = 1.0;
   window.speechSynthesis.speak(utter);
 }
 
-function cancelSpeech(): void {
-  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-}
+function cancelSpeech(): void { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }
 
 // ─── Quick prompt chips ───────────────────────────────────────────────────────
 
@@ -718,12 +503,12 @@ const QUICK_PROMPTS: Record<Language, string[]> = {
     'What temperature should I set?',
   ],
   tw: [
-    '⚡ Deɛn na mɛyɛ seesei?',
-    'Me readings deɛn na ɛte saa?',
-    'Me aduan bɛtena ahe?',
-    'Me aduan ho yɛ saa anaa?',
-    'Kyerɛ me alert a ɛwɔ hɔ no',
-    'Temperature bɛn na mɛhyehyɛ?',
+    '⚡ De\u025bn na m\u025by\u025b seesei?',
+    'Me readings de\u025bn na \u025bte saa?',
+    'Me aduan b\u025btena ahe?',
+    'Me aduan ho y\u025b saa anaa?',
+    'Ky\u025br\u025b me alert a \u025bw\u0254 h\u0254 no',
+    'Temperature b\u025bn na m\u025bhy\u025bhy\u025b?',
   ],
 };
 
@@ -733,9 +518,7 @@ function TypingIndicator() {
   return (
     <div className="flex items-center gap-1.5 px-3 py-2">
       {[0, 1, 2].map(i => (
-        <motion.div
-          key={i}
-          className="w-2.5 h-2.5 rounded-full"
+        <motion.div key={i} className="w-2.5 h-2.5 rounded-full"
           style={{ background: 'linear-gradient(135deg, #0984E3, #38bdf8)' }}
           animate={{ y: [0, -6, 0], opacity: [0.35, 1, 0.35], scale: [0.8, 1, 0.8] }}
           transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.18, ease: 'easeInOut' }}
@@ -745,41 +528,23 @@ function TypingIndicator() {
   );
 }
 
-function ActionConfirmBanner({
-  action, lang, onConfirm, onDismiss,
-}: {
-  action: AIAction;
-  lang: Language;
-  onConfirm: () => void;
-  onDismiss: () => void;
-}) {
+function ActionConfirmBanner({ action, lang, onConfirm, onDismiss }: { action: AIAction; lang: Language; onConfirm: () => void; onDismiss: () => void; }) {
   const label = describeAction(action);
   const cfg   = LANG_CONFIG[lang];
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8 }}
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
       className="mx-3 mb-2 rounded-2xl overflow-hidden"
-      style={{ border: '1px solid #BFDBFE', backgroundColor: '#EBF4FF' }}
-    >
+      style={{ border: '1px solid #BFDBFE', backgroundColor: '#EBF4FF' }}>
       <div className="flex items-center gap-3 px-4 py-3">
         <Zap className="w-4 h-4 flex-shrink-0" style={{ color: '#0984E3' }} />
         <p className="flex-1 text-xs font-medium text-[#1E40AF] leading-snug">{label}</p>
         <div className="flex gap-2 flex-shrink-0">
-          <button
-            onClick={onDismiss}
-            className="px-3 py-1.5 rounded-xl text-xs font-medium text-[#6B7280] transition-all active:scale-95"
-            style={{ border: '1px solid #D1D5DB', backgroundColor: '#F9FAFB' }}
-          >
+          <button onClick={onDismiss} className="px-3 py-1.5 rounded-xl text-xs font-medium text-[#6B7280] transition-all active:scale-95"
+            style={{ border: '1px solid #D1D5DB', backgroundColor: '#F9FAFB' }}>
             {lang === 'tw' ? 'Nna' : 'Cancel'}
           </button>
-          <button
-            onClick={onConfirm}
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold text-white transition-all active:scale-95"
-            style={{ backgroundColor: '#0984E3' }}
-          >
+          <button onClick={onConfirm} className="px-3 py-1.5 rounded-xl text-xs font-semibold text-white transition-all active:scale-95"
+            style={{ backgroundColor: '#0984E3' }}>
             {cfg.confirmAction}
           </button>
         </div>
@@ -789,32 +554,19 @@ function ActionConfirmBanner({
 }
 
 function StatusBar({ app }: { app: ReturnType<typeof useApp> }) {
-  // Calm informational strip — no urgency colours or alarm chips.
-  // Nix handles urgency through conversation. This strip is just context.
-  const selectedDevice = app.devices.find(d => d.id === app.selectedDeviceId);
-  const deviceLabel    = selectedDevice?.name ?? 'No device';
-
+  const dev = app.devices.find(d => d.id === app.selectedDeviceId);
   return (
-    <div
-      className="flex items-center gap-4 px-4 py-2 flex-wrap"
-      style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E4E7EC' }}
-    >
-      {/* Device label */}
+    <div className="flex items-center gap-4 px-4 py-2 flex-wrap"
+      style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E4E7EC' }}>
       <span className="text-[10px] font-semibold uppercase tracking-widest text-[#6B7280]">
-        {deviceLabel}
-        {selectedDevice?.status === 'offline' && (
-          <span className="ml-1 normal-case tracking-normal font-normal text-[#9CA3AF]">(offline)</span>
-        )}
+        {dev?.name ?? 'No device'}
+        {dev?.status === 'offline' && <span className="ml-1 normal-case tracking-normal font-normal text-[#9CA3AF]">(offline)</span>}
       </span>
-
-      {/* Temperature */}
       <div className="flex items-center gap-1.5">
         <Thermometer className="w-3.5 h-3.5 flex-shrink-0 text-[#6B7280]" />
         <span className="text-xs font-semibold text-[#111827]">{app.currentTemperature.toFixed(1)}°C</span>
         <span className="text-xs text-[#9CA3AF]">→ {app.targetTemperature}°C</span>
       </div>
-
-      {/* Humidity */}
       <div className="flex items-center gap-1.5">
         <Droplets className="w-3.5 h-3.5 flex-shrink-0 text-[#6B7280]" />
         <span className="text-xs font-semibold text-[#111827]">{app.currentHumidity.toFixed(0)}%</span>
@@ -824,73 +576,43 @@ function StatusBar({ app }: { app: ReturnType<typeof useApp> }) {
   );
 }
 
-// ─── Message bubble ───────────────────────────────────────────────────────────
-
-function MessageBubble({
-  msg,
-  muted,
-  onReplay,
-}: {
-  msg: Message;
-  muted: boolean;
-  onReplay: (text: string) => void;
-}) {
-  const isUser = msg.role === 'user';
-  // Detect urgency language in AI responses to apply severity-aware styling
-  const isUrgentContent = !isUser && !msg.pending && (
-    /urgent|critical|breach|damaged|spoil|danger|immediately|alert/i.test(msg.content)
-  );
-
+function MessageBubble({ msg, muted, userName, onReplay }: { msg: Message; muted: boolean; userName: string; onReplay: (text: string) => void; }) {
+  const isUser   = msg.role === 'user';
+  const isUrgent = !isUser && !msg.pending && /urgent|critical|breach|damaged|spoil|danger|immediately|alert/i.test(msg.content);
+  const formattedTime = (() => {
+    try {
+      const d = msg.timestamp instanceof Date ? msg.timestamp : new Date(msg.timestamp);
+      return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    } catch { return ''; }
+  })();
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className={`flex gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}
-    >
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
+      className={`flex gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && (
-        <div
-          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-          style={{
-            background: 'linear-gradient(135deg, #EBF4FF 0%, #DBEAFE 100%)',
-            border: '1px solid #BFDBFE',
-          }}
-        >
+        <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+          style={{ background: 'linear-gradient(135deg, #EBF4FF 0%, #DBEAFE 100%)', border: '1px solid #BFDBFE' }}>
           <Snowflake className="w-3.5 h-3.5" style={{ color: '#0984E3' }} />
         </div>
       )}
-
       <div className={`max-w-[80%] ${isUser ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
-        <div
-          className="px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed"
+        <div className="px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed"
           style={
             isUser
               ? { backgroundColor: '#0984E3', color: '#FFFFFF', borderBottomRightRadius: 4 }
-              : isUrgentContent
+              : isUrgent
                 ? { backgroundColor: '#FEF2F2', color: '#111827', borderBottomLeftRadius: 4, border: '1px solid #FECACA' }
                 : { backgroundColor: '#F0F7FF', color: '#111827', borderBottomLeftRadius: 4, border: '1px solid #DBEAFE' }
-          }
-        >
-          {msg.pending ? <TypingIndicator /> : (
-            <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</span>
-          )}
+          }>
+          {msg.pending ? <TypingIndicator /> : <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</span>}
         </div>
-
-        {/* Replay audio button — only on assistant messages that are not pending */}
         {!isUser && !msg.pending && (
-          <button
-            onClick={() => onReplay(msg.content)}
+          <button onClick={() => onReplay(msg.content)}
             className="flex items-center gap-1 px-2 py-1 rounded-full transition-all active:scale-95"
-            style={{ backgroundColor: 'transparent' }}
-            aria-label="Replay message audio"
-            title={muted ? 'Voice is muted' : 'Replay audio'}
-          >
+            style={{ backgroundColor: 'transparent' }} aria-label="Replay audio">
             <Play className="w-3 h-3" style={{ color: muted ? '#9CA3AF' : '#0984E3' }} />
             <span className="text-[10px]" style={{ color: muted ? '#9CA3AF' : '#0984E3' }}>Replay</span>
           </button>
         )}
-
-        {/* Action taken badge */}
         {msg.actionTaken && (
           <div className="flex items-center gap-1 px-2 py-1 rounded-full"
             style={{ backgroundColor: '#E6F6EC', border: '1px solid #A7D7B6' }}>
@@ -898,1006 +620,538 @@ function MessageBubble({
             <span className="text-xs font-medium" style={{ color: '#166534' }}>{msg.actionTaken}</span>
           </div>
         )}
-
-        <span className="text-[10px] text-[#9CA3AF] px-1">
-          {msg.timestamp.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        <span className="text-[10px] text-[#9CA3AF] px-1">{formattedTime}</span>
       </div>
     </motion.div>
   );
 }
 
-// ─── Voice status pill ────────────────────────────────────────────────────────
-
 function VoiceStatusPill({ voiceState, lang }: { voiceState: VoiceState; lang: Language }) {
   if (voiceState !== 'listening') return null;
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 4 }}
+    <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
       className="flex items-center gap-2 px-3 py-1.5 rounded-full mx-auto w-fit mb-2"
-      style={{ backgroundColor: '#FEE2E2', border: '1px solid #FECACA' }}
-    >
-      {/* Pulsing red dot */}
-      <motion.div
-        className="w-2 h-2 rounded-full"
-        style={{ backgroundColor: '#EF4444' }}
-        animate={{ opacity: [1, 0.3, 1] }}
-        transition={{ duration: 1, repeat: Infinity }}
-      />
-      <span className="text-xs font-medium" style={{ color: '#DC2626' }}>
-        {LANG_CONFIG[lang].voiceListening}
-      </span>
+      style={{ backgroundColor: '#FEE2E2', border: '1px solid #FECACA' }}>
+      <motion.div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#EF4444' }}
+        animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1, repeat: Infinity }} />
+      <span className="text-xs font-medium" style={{ color: '#DC2626' }}>{LANG_CONFIG[lang].voiceListening}</span>
     </motion.div>
   );
 }
 
-// ─── Main AIAssistant drawer ──────────────────────────────────────────────────
+// ─── NixHandle ────────────────────────────────────────────────────────────────
+// startListening / stopListening — trigger voice from floating button in App.tsx
+// narratePage(page)              — spoken tour of a page without opening the drawer
 
-interface AIAssistantProps {
-  isOpen: boolean;
-  onClose: () => void;
+export interface NixHandle {
+  startListening: () => void;
+  stopListening:  () => void;
+  isListening:    () => boolean;
+  narratePage:    (page: string) => void;
 }
 
-export default function AIAssistant({ isOpen, onClose }: AIAssistantProps) {
+interface AIAssistantProps {
+  isOpen:              boolean;
+  onClose:             () => void;
+  onNavigate?:         (page: string) => void;
+  onVoiceStateChange?: (listening: boolean) => void;
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+const AIAssistant = forwardRef<NixHandle, AIAssistantProps>(
+  function AIAssistant({ isOpen, onClose, onNavigate, onVoiceStateChange }, ref) {
   const app = useApp();
 
-  // Language preference persisted to localStorage
   const [lang, setLang] = useState<Language>(() => {
-    try {
-      const stored = localStorage.getItem('cw_assistant_lang');
-      return (stored === 'en' || stored === 'tw') ? stored : 'en';
-    } catch {
-      return 'en';
-    }
+    try { const s = localStorage.getItem('cw_assistant_lang'); return (s === 'en' || s === 'tw') ? s : 'en'; } catch { return 'en'; }
   });
-
   const cfg = LANG_CONFIG[lang];
 
-  // Restore conversation history from localStorage so it survives drawer close/reopen.
-  // Timestamps are stored as ISO strings — parse them back to Date objects on load.
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
-      const stored = localStorage.getItem('cw_assistant_messages');
-      if (!stored) return [];
-      const parsed = JSON.parse(stored) as Message[];
-      // Revive Date objects and strip any pending/loading messages from a previous session
-      return parsed
-        .filter(m => !m.pending)
-        .map(m => ({ ...m, timestamp: new Date(m.timestamp) }));
-    } catch {
-      return [];
-    }
+      const s = localStorage.getItem('cw_assistant_messages');
+      if (!s) return [];
+      return (JSON.parse(s) as Message[]).filter(m => !m.pending).map(m => ({ ...m, timestamp: new Date(m.timestamp) }));
+    } catch { return []; }
   });
-  const [input,           setInput]           = useState('');
-  const [isLoading,       setIsLoading]       = useState(false);
-  const [pendingAction,   setPendingAction]   = useState<{ action: AIAction; msgId: string } | null>(null);
-  const [showQuickChips,  setShowQuickChips]  = useState(true);
-  const [showSettingsTray, setShowSettingsTray] = useState(false);  // collapsed by default — opens when user taps the Settings2 icon
 
-  // Voice state
-  const [voiceState,      setVoiceState]      = useState<VoiceState>('idle');
-  const [isMuted,         setIsMuted]         = useState(false);
-  const [sttSupported,       setSttSupported]       = useState(false);
-  const [isAnalysingImage,   setIsAnalysingImage]   = useState(false);
-  const [ttsSupported,    setTtsSupported]    = useState(false);
+  const [input,            setInput]            = useState('');
+  const [isLoading,        setIsLoading]        = useState(false);
+  const [pendingAction,    setPendingAction]    = useState<{ action: AIAction; msgId: string } | null>(null);
+  const [showQuickChips,   setShowQuickChips]   = useState(true);
+  const [showSettingsTray, setShowSettingsTray] = useState(false);
+  const [voiceState,       setVoiceState]       = useState<VoiceState>('idle');
+  const [sttSupported,     setSttSupported]     = useState(false);
+  const [ttsSupported,     setTtsSupported]     = useState(false);
+  const [isAnalysingImage, setIsAnalysingImage] = useState(false);
 
-  const recognitionRef    = useRef<SpeechRecognitionInstance | null>(null);
-  const cameraInputRef    = useRef<HTMLInputElement>(null);
-  const autoSendTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const messagesEndRef    = useRef<HTMLDivElement>(null);
-  const inputRef          = useRef<HTMLInputElement>(null);
-  const drawerRef         = useRef<HTMLDivElement>(null);
+  // isMuted persisted to localStorage — survives page refresh
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    try { return localStorage.getItem('cw_assistant_muted') === 'true'; } catch { return false; }
+  });
 
-  // ── Feature detection on mount ──────────────────────────────────────────────
+  const recognitionRef   = useRef<SpeechRecognitionInstance | null>(null);
+  const cameraInputRef   = useRef<HTMLInputElement>(null);
+  const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messagesEndRef   = useRef<HTMLDivElement>(null);
+  const inputRef         = useRef<HTMLInputElement>(null);
+  const drawerRef        = useRef<HTMLDivElement>(null);
+  const urgencyFiredRef  = useRef<Set<string>>(new Set());
 
+  // ── Feature detection ────────────────────────────────────────────────────────
+  useEffect(() => { setSttSupported(getSpeechRecognition() !== null); setTtsSupported('speechSynthesis' in window); }, []);
+
+  // ── Persist preferences ──────────────────────────────────────────────────────
+  useEffect(() => { try { localStorage.setItem('cw_assistant_lang',  lang);          } catch { /* */ } }, [lang]);
+  useEffect(() => { try { localStorage.setItem('cw_assistant_muted', String(isMuted)); } catch { /* */ } }, [isMuted]);
   useEffect(() => {
-    setSttSupported(getSpeechRecognition() !== null);
-    setTtsSupported('speechSynthesis' in window);
-  }, []);
-
-  // Persist language preference
-  useEffect(() => {
-    try { localStorage.setItem('cw_assistant_lang', lang); } catch { /* */ }
-  }, [lang]);
-
-  // Persist conversation history — skip pending messages (they're transient)
-  useEffect(() => {
-    try {
-      const toStore = messages.filter(m => !m.pending).slice(-MAX_HISTORY);
-      localStorage.setItem('cw_assistant_messages', JSON.stringify(toStore));
-    } catch { /* storage quota or private mode — fail silently */ }
+    try { localStorage.setItem('cw_assistant_messages', JSON.stringify(messages.filter(m => !m.pending).slice(-MAX_HISTORY))); }
+    catch { /* quota / private mode */ }
   }, [messages]);
 
-  // ── Smart greeting — reads live app state on open ─────────────────────────
-  // Instead of a static "Hello", the AI opens with an actual assessment of the
-  // current conditions so the user immediately gets value.
-  const sendSmartGreeting = useCallback(async () => {
-    const greetingId = 'greeting';
-    // Show a brief loading state while the greeting is being generated
-    setMessages([{
-      id:         greetingId,
-      role:       'assistant',
-      content:    cfg.thinking,
-      rawContent: '',
-      timestamp:  new Date(),
-      pending:    true,
-    }]);
+  // ── Notify parent of voice state ─────────────────────────────────────────────
+  useEffect(() => { onVoiceStateChange?.(voiceState === 'listening'); }, [voiceState, onVoiceStateChange]);
 
-    if (!GROQ_API_KEY) {
-      // Fallback to static greeting if no key
-      setMessages([{
-        id:         greetingId,
-        role:       'assistant',
-        content:    cfg.greeting,
-        rawContent: cfg.greeting,
-        timestamp:  new Date(),
-      }]);
-      return;
-    }
-
-    try {
-      const appCtx       = buildAppContext(app);
-      const systemPrompt = buildSystemPrompt(appCtx);
-      const hour         = new Date().getHours();
-      const timeOfDay    = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
-
-      const res = await fetch(GROQ_URL, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model:       GROQ_MODEL_CONVERSATION,
-          temperature: 0.6,
-          max_tokens:  200,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user',   content: `[SYSTEM NOTE: The user just opened the ColdWatch assistant. It is ${timeOfDay}. Greet them by name (${appCtx.user.name}), give a one-sentence status of their current storage conditions (good, warning, or critical), mention the most urgent issue if any, and end with one practical question or offer to help. Keep it under 3 sentences total. Speak naturally as if you know their farm. Do not include any ACTION block. Reply in English only.]` },
-          ],
-        }),
-      });
-
-      const data    = res.ok ? await res.json() : null;
-      const rawText = data?.choices?.[0]?.message?.content ?? cfg.greeting;
-      const { display } = parseAction(rawText);
-
-      setMessages([{
-        id:         greetingId,
-        role:       'assistant',
-        content:    display || cfg.greeting,
-        rawContent: rawText,
-        timestamp:  new Date(),
-        pending:    false,
-      }]);
-      speak(display || cfg.greeting, isMuted, app.user.name);
-    } catch {
-      setMessages([{
-        id:         greetingId,
-        role:       'assistant',
-        content:    cfg.greeting,
-        rawContent: cfg.greeting,
-        timestamp:  new Date(),
-      }]);
-    }
-  }, [app, cfg, isMuted]);
-
-  // Trigger smart greeting when drawer opens or language changes
-  useEffect(() => {
-    if (!isOpen) return;
-    setPendingAction(null);
-
-    // If there is already a conversation in memory (restored from localStorage or
-    // from keeping the drawer state alive), don't wipe it with a new greeting.
-    // Only send the smart greeting on a truly fresh session (no saved messages).
-    if (messages.length === 0) {
-      setShowQuickChips(true);
-      sendSmartGreeting();
-    }
-    // If language changed, always reset and re-greet in the new language
-  }, [isOpen, lang]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cancel speech and recognition when drawer closes
-  useEffect(() => {
-    if (!isOpen) {
-      cancelSpeech();
-      stopRecognition();
-    }
-  }, [isOpen]);
-
-  // Auto-scroll to latest message
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Focus input when drawer opens (on desktop only — on mobile we skip this
-  // to prevent the software keyboard from immediately popping up)
-  useEffect(() => {
-    if (isOpen && window.innerWidth > 768) {
-      setTimeout(() => inputRef.current?.focus(), 300);
-    }
-  }, [isOpen]);
-
-  // Trap focus and close on Escape
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { handleClose(); }
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [isOpen, onClose]);
-
-  // Preload TTS voices — browsers load them asynchronously on first call
+  // ── TTS voice preload ────────────────────────────────────────────────────────
   useEffect(() => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.getVoices();
-      window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.getVoices(); // cache voices after they load
-      };
+      window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
     }
   }, []);
 
-  // ── Send message ────────────────────────────────────────────────────────────
+  // ── Auto-scroll ──────────────────────────────────────────────────────────────
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
+  // ── Desktop focus ────────────────────────────────────────────────────────────
+  useEffect(() => { if (isOpen && window.innerWidth > 768) setTimeout(() => inputRef.current?.focus(), 300); }, [isOpen]);
+
+  // ── Centralised Groq fetch with 429 retry ────────────────────────────────────
+  // All internal API calls route through here for consistent rate-limit handling.
+  const groqFetch = useCallback(async (
+    msgs: Array<{ role: string; content: string }>,
+    opts: { temperature?: number; max_tokens?: number } = {}
+  ): Promise<string> => {
+    if (!GROQ_API_KEY) return '';
+    const payload = { model: GROQ_MODEL_CONVERSATION, temperature: opts.temperature ?? 0.4, max_tokens: opts.max_tokens ?? 512, messages: msgs };
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` };
+    let res = await fetch(GROQ_URL, { method: 'POST', headers, body: JSON.stringify(payload) });
+    if (res.status === 429) {
+      const wait = Math.min((parseInt(res.headers.get('retry-after') ?? '15', 10) || 15) * 1000, 20000);
+      await new Promise(r => setTimeout(r, wait));
+      res = await fetch(GROQ_URL, { method: 'POST', headers, body: JSON.stringify(payload) });
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const msg  = res.status === 429
+        ? "I'm getting a lot of requests right now. Please wait a moment and try again."
+        : ((body as { error?: { message?: string } })?.error?.message ?? `HTTP ${res.status}`);
+      throw new Error(msg);
+    }
+    return ((await res.json())?.choices?.[0]?.message?.content ?? '') as string;
+  }, []);
+
+  // ── Page summary — spoken tour of newly navigated page ───────────────────────
+  const sendPageSummary = useCallback(async (page: string) => {
+    if (!GROQ_API_KEY) return;
+    try {
+      const ctx     = buildAppContext(app);
+      const rawText = await groqFetch([
+        { role: 'system', content: buildSystemPrompt(ctx) },
+        { role: 'user',   content: buildPageSummaryPrompt(page, ctx) },
+      ], { temperature: 0.5, max_tokens: 180 });
+      const { display } = parseAction(rawText);
+      if (display) speak(display, isMuted, app.user.name);
+    } catch { /* silent — navigation already succeeded */ }
+  }, [app, isMuted, groqFetch]);
+
+  // ── Smart greeting ───────────────────────────────────────────────────────────
+  const sendSmartGreeting = useCallback(async () => {
+    const id = 'greeting';
+    setMessages([{ id, role: 'assistant', content: cfg.thinking, rawContent: '', timestamp: new Date(), pending: true }]);
+    if (!GROQ_API_KEY) { setMessages([{ id, role: 'assistant', content: cfg.greeting, rawContent: cfg.greeting, timestamp: new Date() }]); return; }
+    try {
+      const ctx = buildAppContext(app);
+      const h   = new Date().getHours();
+      const tod = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
+      const raw = await groqFetch([
+        { role: 'system', content: buildSystemPrompt(ctx) },
+        { role: 'user',   content: `[SYSTEM NOTE: It is ${tod}. Greet ${ctx.user.name} warmly by name. Give a one-sentence status of current storage conditions. Mention the most urgent issue if any. End with one practical question or offer. Under 3 sentences. Natural, as if you know their farm. No ACTION block. English only.]` },
+      ], { temperature: 0.6, max_tokens: 200 });
+      const { display } = parseAction(raw);
+      const content     = display || cfg.greeting;
+      setMessages([{ id, role: 'assistant', content, rawContent: raw, timestamp: new Date(), pending: false }]);
+      speak(content, isMuted, app.user.name);
+    } catch {
+      setMessages([{ id: 'greeting', role: 'assistant', content: cfg.greeting, rawContent: cfg.greeting, timestamp: new Date() }]);
+    }
+  }, [app, cfg, isMuted, groqFetch]);
+
+  // Trigger greeting on open (fresh session only) or language change
+  useEffect(() => {
+    if (!isOpen) return;
+    setPendingAction(null);
+    if (messages.length === 0) { setShowQuickChips(true); sendSmartGreeting(); }
+  }, [isOpen, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cancel speech + recognition when drawer closes
+  useEffect(() => {
+    if (!isOpen) {
+      cancelSpeech();
+      if (recognitionRef.current) { recognitionRef.current.abort(); recognitionRef.current = null; }
+      if (autoSendTimerRef.current) { clearTimeout(autoSendTimerRef.current); autoSendTimerRef.current = null; }
+      setVoiceState('idle');
+    }
+  }, [isOpen]);
+
+  // ── stopRecognition — defined BEFORE handleClose to avoid TDZ error ──────────
+  const stopRecognition = useCallback(() => {
+    if (autoSendTimerRef.current) { clearTimeout(autoSendTimerRef.current); autoSendTimerRef.current = null; }
+    if (recognitionRef.current)   { recognitionRef.current.abort(); recognitionRef.current = null; }
+    setVoiceState('idle');
+  }, []);
+
+  // ── Close handler ────────────────────────────────────────────────────────────
+  const handleClose = useCallback(() => { cancelSpeech(); stopRecognition(); onClose(); }, [onClose, stopRecognition]);
+
+  // Escape key — deps reference handleClose (not onClose)
+  useEffect(() => {
+    if (!isOpen) return;
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [isOpen, handleClose]);
+
+  // ── Send message ─────────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || isLoading) return;
-
-    // Input sanitisation — strip HTML/script tags, cap at 1000 chars
     const sanitised = trimmed.replace(/<[^>]*>/g, '').slice(0, 1000);
+    setInput(''); setShowQuickChips(false);
 
-    setInput('');
-    setShowQuickChips(false);
-
-    const userMsg: Message = {
-      id:         `u-${Date.now()}`,
-      role:       'user',
-      content:    sanitised,    // always display the original text the user sent
-      rawContent: sanitised,
-      timestamp:  new Date(),
-    };
-
-    // Thinking bubble — starts with the appropriate phase label.
-    // For non-English messages it shows "translating" first, then updates to
-    // "thinking" once translation is done and the main call is in flight.
-    const thinkingId  = `a-${Date.now()}`;
+    const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: sanitised, rawContent: sanitised, timestamp: new Date() };
+    const thinkingId = `a-${Date.now()}`;
     const thinkingMsg: Message = {
-      id:         thinkingId,
-      role:       'assistant',
-      content:    lang !== 'en' ? cfg.translating : cfg.thinking,
-      rawContent: '',
-      timestamp:  new Date(),
-      pending:    true,
+      id: thinkingId, role: 'assistant',
+      content: lang !== 'en' ? cfg.translating : cfg.thinking,
+      rawContent: '', timestamp: new Date(), pending: true,
     };
-
     setMessages(prev => {
-      const history = prev.length >= MAX_HISTORY
-        ? [prev[0], ...prev.slice(-(MAX_HISTORY - 2))]
-        : prev;
-      return [...history, userMsg, thinkingMsg];
+      const h = prev.length >= MAX_HISTORY ? [prev[0], ...prev.slice(-(MAX_HISTORY - 2))] : prev;
+      return [...h, userMsg, thinkingMsg];
     });
     setIsLoading(true);
 
     if (!GROQ_API_KEY) {
-      setMessages(prev => prev.map(m =>
-        m.pending ? { ...m, content: cfg.errorKey, rawContent: cfg.errorKey, pending: false } : m
-      ));
-      setIsLoading(false);
-      speak(cfg.errorKey, isMuted, app.user.name);
-      return;
+      setMessages(prev => prev.map(m => m.pending ? { ...m, content: cfg.errorKey, rawContent: cfg.errorKey, pending: false } : m));
+      setIsLoading(false); speak(cfg.errorKey, isMuted, app.user.name); return;
     }
 
     try {
-      // ── Build all synchronous context immediately ──────────────────────────
-      // This work happens while the translation call is in flight (for non-English)
-      // so it does not add to the user-perceived wait time.
-      // Map conversation history to OpenAI-compatible message format (Groq)
-      const historyForGroq = messages
+      const history = messages
         .filter(m => m.id !== 'greeting' && !m.pending)
-        .map(m => ({
-          role:    m.role === 'user' ? 'user' : 'assistant',
-          content: m.rawContent,
-        }));
+        .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.rawContent || m.content }));
+      const ctx       = buildAppContext(app);
+      const sysprompt = buildSystemPrompt(ctx);
 
-      const appCtx       = buildAppContext(app);
-      const systemPrompt = buildSystemPrompt(appCtx);
+      const queryForAI = lang !== 'en' ? await translateToEnglish(sanitised) : sanitised;
+      if (lang !== 'en') setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: cfg.thinking } : m));
 
-      // ── Parallel optimisation ──────────────────────────────────────────────
-      // For non-English messages we fire the translation call immediately.
-      // All synchronous preparation above happens at the same time (no await
-      // until this point), so by the time translation resolves the main request
-      // body is already fully assembled and the fetch fires with zero extra delay.
-      // For English messages we skip the translation entirely — one call only.
-      const queryForAI = lang !== 'en'
-        ? await translateToEnglish(sanitised)
-        : sanitised;
+      const rawText = await groqFetch([
+        { role: 'system', content: sysprompt },
+        ...history,
+        { role: 'user', content: `${queryForAI}\n\n[REMINDER: Reply in English only.]` },
+      ], { temperature: 0.4, max_tokens: 512 });
 
-      // Translation done — update the thinking bubble to the "thinking" phase
-      // so the user sees that we understood their message and are now processing.
-      if (lang !== 'en') {
-        setMessages(prev => prev.map(m =>
-          m.id === thinkingId ? { ...m, content: cfg.thinking } : m
-        ));
-      }
-
-      // ── Main assistant call (Groq — OpenAI-compatible) ────────────────────
-      const body = {
-        model:       GROQ_MODEL_CONVERSATION,
-        temperature: 0.4,
-        max_tokens:  512,
-        messages: [
-          { role: 'system',    content: systemPrompt },
-          ...historyForGroq,
-          { role: 'user',      content: `${queryForAI}\n\n[REMINDER: Reply in English only, regardless of the language above.]` },
-        ],
-      };
-
-      const res = await fetch(GROQ_URL, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        const errMsg  = (errBody as any)?.error?.message ?? `HTTP ${res.status}`;
-        throw new Error(errMsg);
-      }
-
-      const data    = await res.json();
-      const rawText = data?.choices?.[0]?.message?.content ?? '';
       const { display, action } = parseAction(rawText);
-
-      const assistantMsg: Message = {
-        id:         thinkingId,
-        role:       'assistant',
-        content:    display,
-        rawContent: rawText,
-        timestamp:  new Date(),
-        pending:    false,
-      };
-
+      const assistantMsg: Message = { id: thinkingId, role: 'assistant', content: display, rawContent: rawText, timestamp: new Date(), pending: false };
       setMessages(prev => prev.map(m => m.id === thinkingId ? assistantMsg : m));
-
-      // Speak the response aloud in English
       speak(display, isMuted, app.user.name);
 
-      // If AI wants to take an action, queue it for user confirmation
       if (action) {
-        setPendingAction({ action, msgId: assistantMsg.id });
+        // NAVIGATE executes immediately — no confirmation banner
+        if (action.type === 'NAVIGATE' && typeof action.value === 'string' &&
+            (VALID_PAGES as readonly string[]).includes(action.value)) {
+          setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, actionTaken: `Going to ${action.value}` } : m));
+          onNavigate?.(action.value); onClose();
+          setTimeout(() => sendPageSummary(action.value as string), 500);
+        } else {
+          setPendingAction({ action, msgId: assistantMsg.id });
+        }
       }
-
     } catch (err) {
-      const errorText = err instanceof Error && err.message.includes('fetch')
-        ? cfg.errorNet
-        : `${cfg.errorNet} (${err instanceof Error ? err.message : 'Unknown error'})`;
-
-      setMessages(prev => prev.map(m =>
-        m.id === thinkingId
-          ? { ...m, content: errorText, rawContent: errorText, pending: false }
-          : m
-      ));
+      const msg     = err instanceof Error ? err.message : 'Unknown error';
+      const display = msg.includes('fetch') || msg.includes('network') ? cfg.errorNet : `${cfg.errorNet} (${msg})`;
+      setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: display, rawContent: display, pending: false } : m));
       speak(cfg.errorNet, isMuted, app.user.name);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [app, isLoading, lang, messages, cfg, isMuted]);
+    } finally { setIsLoading(false); }
+  }, [app, isLoading, lang, messages, cfg, isMuted, groqFetch, sendPageSummary, onNavigate, onClose]);
 
-  // ── Confirm pending action ──────────────────────────────────────────────────
-
-  // ── Follow-up after action confirmed ────────────────────────────────────────
-  // Fires a short AI call so the assistant acknowledges completion and asks
-  // if there is anything else — instead of going silent after an action.
+  // ── Follow-up after action confirmed ─────────────────────────────────────────
+  // Fires a short AI call so Nix acknowledges completion and asks what is next
+  // rather than going silent after a confirmed action.
   const sendFollowUp = useCallback(async (actionLabel: string) => {
     if (!GROQ_API_KEY) return;
-
-    const followUpId = `a-follow-${Date.now()}`;
-    const thinkingMsg: Message = {
-      id:         followUpId,
-      role:       'assistant',
-      content:    cfg.thinking,
-      rawContent: '',
-      timestamp:  new Date(),
-      pending:    true,
-    };
-    setMessages(prev => [...prev, thinkingMsg]);
+    const id = `a-follow-${Date.now()}`;
+    setMessages(prev => [...prev, { id, role: 'assistant', content: cfg.thinking, rawContent: '', timestamp: new Date(), pending: true }]);
     setIsLoading(true);
-
     try {
-      const appCtx       = buildAppContext(app);
-      const systemPrompt = buildSystemPrompt(appCtx);
-
-      const res = await fetch(GROQ_URL, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model:       GROQ_MODEL_CONVERSATION,
-          temperature: 0.5,
-          max_tokens:  180,  // Keep follow-ups brief
-          messages: [
-            { role: 'system',    content: systemPrompt },
-            // Tell the AI exactly what just happened so it can acknowledge naturally
-            { role: 'user',      content: `[SYSTEM NOTE: The user just confirmed the following action which has now been successfully applied to their device: "${actionLabel}". Acknowledge this was done in one short, warm sentence, then ask one relevant follow-up question based on the current app state. Do not include any ACTION block. Reply in English only.]` },
-          ],
-        }),
-      });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const data      = await res.json();
-      const rawText   = data?.choices?.[0]?.message?.content ?? '';
-      const { display } = parseAction(rawText); // strip any accidental action tags
-
-      const followUpMsg: Message = {
-        id:         followUpId,
-        role:       'assistant',
-        content:    display,
-        rawContent: rawText,
-        timestamp:  new Date(),
-        pending:    false,
-      };
-
-      setMessages(prev => prev.map(m => m.id === followUpId ? followUpMsg : m));
-      speak(display, isMuted, app.user.name);
+      const ctx     = buildAppContext(app);
+      const rawText = await groqFetch([
+        { role: 'system', content: buildSystemPrompt(ctx) },
+        { role: 'user',   content: `[SYSTEM NOTE: The user confirmed this action which is now applied: "${actionLabel}". Acknowledge in one short warm sentence, then ask one relevant follow-up question based on current app state. No ACTION block. English only.]` },
+      ], { temperature: 0.5, max_tokens: 180 });
+      const { display } = parseAction(rawText);
+      setMessages(prev => prev.map(m => m.id === id ? { ...m, content: display || cfg.actionDone, rawContent: rawText, pending: false } : m));
+      if (display) speak(display, isMuted, app.user.name);
     } catch {
-      // Follow-up failure is silent — the action already succeeded, this is just polish
-      setMessages(prev => prev.filter(m => m.id !== followUpId));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [app, cfg, isMuted]);
+      setMessages(prev => prev.filter(m => m.id !== id));
+    } finally { setIsLoading(false); }
+  }, [app, cfg, isMuted, groqFetch]);
 
+  // ── Confirm / dismiss pending action ─────────────────────────────────────────
   const confirmAction = useCallback(() => {
     if (!pendingAction) return;
     const { action, msgId } = pendingAction;
+    const isNav = action.type === 'NAVIGATE';
     const success = executeAction(action, app);
     if (success) {
       const label = describeAction(action);
-      setMessages(prev => prev.map(m =>
-        m.id === msgId ? { ...m, actionTaken: label } : m
-      ));
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, actionTaken: label } : m));
       app.addToast({ id: `ai-action-${Date.now()}`, type: 'success', message: label });
-      // Fire follow-up AI message so the assistant acknowledges completion
-      // and asks if there is anything else — instead of going silent
-      sendFollowUp(label);
-    }
-    setPendingAction(null);
-  }, [pendingAction, app, sendFollowUp]);
-
-  const dismissAction = useCallback(() => {
-    setPendingAction(null);
-  }, []);
-
-  // stopRecognition defined here (before handleClose) so handleClose can reference it
-  // in its useCallback dependency array without a stale closure error.
-  const stopRecognition = useCallback(() => {
-    if (autoSendTimerRef.current) {
-      clearTimeout(autoSendTimerRef.current);
-      autoSendTimerRef.current = null;
-    }
-    if (recognitionRef.current) {
-      recognitionRef.current.abort();
-      recognitionRef.current = null;
-    }
-    setVoiceState('idle');
-  }, []);
-
-  // ── Session summary on close ───────────────────────────────────────────────
-  // If anything happened during the session (actions taken, messages exchanged),
-  // fire a brief summary before closing so the user knows what changed.
-  const handleClose = useCallback(async () => {
-    cancelSpeech();
-    stopRecognition();
-
-    const actionsTaken = messages.filter(m => m.actionTaken).map(m => m.actionTaken);
-    const hasActivity  = messages.length > 2; // more than just greeting + one message
-
-    if (!hasActivity || !GROQ_API_KEY || actionsTaken.length === 0) {
-      onClose();
-      return;
-    }
-
-    // Show a quick summary message before closing
-    const summaryId = `summary-${Date.now()}`;
-    const summaryMsg: Message = {
-      id:         summaryId,
-      role:       'assistant',
-      content:    'One moment, summarising your session...',
-      rawContent: '',
-      timestamp:  new Date(),
-      pending:    true,
-    };
-    setMessages(prev => [...prev, summaryMsg]);
-
-    try {
-      const appCtx = buildAppContext(app);
-      const res    = await fetch(GROQ_URL, {
-        method:  'POST',
-        headers: {
-          'Content-Type':  'application/json',
-          'Authorization': `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model:       GROQ_MODEL_CONVERSATION,
-          temperature: 0.3,
-          max_tokens:  120,
-          messages: [
-            { role: 'system', content: buildSystemPrompt(appCtx) },
-            { role: 'user',   content: `[SYSTEM NOTE: The user is closing the assistant. Actions taken this session: ${actionsTaken.join(', ')}. Give a one or two sentence closing summary of what was done and wish them well with their storage. Keep it brief and warm. No ACTION block. English only.]` },
-          ],
-        }),
-      });
-
-      const data    = res.ok ? await res.json() : null;
-      const rawText = data?.choices?.[0]?.message?.content ?? '';
-      const { display } = parseAction(rawText);
-
-      if (display) {
-        setMessages(prev => prev.map(m =>
-          m.id === summaryId ? { ...m, content: display, rawContent: rawText, pending: false } : m
-        ));
-        speak(display, isMuted, app.user.name);
-        // Let the user read/hear the summary before closing
-        await new Promise(resolve => setTimeout(resolve, 2800));
+      if (isNav && typeof action.value === 'string') {
+        onNavigate?.(action.value); onClose();
+        setTimeout(() => sendPageSummary(action.value as string), 500);
+      } else {
+        sendFollowUp(label);
       }
-    } catch { /* silent — just close */ }
+    }
+    setPendingAction(null);
+  }, [pendingAction, app, onNavigate, onClose, sendPageSummary, sendFollowUp]);
 
-    onClose();
-  }, [messages, app, isMuted, onClose, stopRecognition]);
+  const dismissAction = useCallback(() => setPendingAction(null), []);
 
-  // ── Produce urgency trigger ────────────────────────────────────────────────
-  // Proactively fires when meat or almost-damaged produce readings are unsafe.
-  // Only fires once per session per device to avoid spamming the user.
-  const urgencyFiredRef = useRef<Set<string>>(new Set());
-
+  // ── Urgency trigger ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !GROQ_API_KEY) return;
-
     const device = app.devices.find(d => d.id === app.selectedDeviceId);
     if (!device?.produceMode || !device?.produceSetupComplete) return;
-
-    const isMeat       = device.produceMode === 'meat';
-    const isAlmostGone = device.produceState === 'almost-damaged';
-    const tempTooHigh  = app.currentTemperature > app.targetTemperature + 1.5;
-    const shouldWarn   = (isMeat && tempTooHigh) || (isAlmostGone && tempTooHigh);
-
-    const deviceKey = `${device.id}-urgency`;
-    if (!shouldWarn || urgencyFiredRef.current.has(deviceKey)) return;
-
-    urgencyFiredRef.current.add(deviceKey);
-
-    // Small delay so it doesn't fire at the exact same moment as the greeting
+    const isMeat   = device.produceMode === 'meat';
+    const isAlmost = device.produceState === 'almost-damaged';
+    const tempHigh = app.currentTemperature > app.targetTemperature + 1.5;
+    const should   = (isMeat && tempHigh) || (isAlmost && tempHigh);
+    const key      = `${device.id}-urgency`;
+    if (!should || urgencyFiredRef.current.has(key)) return;
+    urgencyFiredRef.current.add(key);
     const timer = setTimeout(async () => {
-      const appCtx = buildAppContext(app);
-      const urgencyId = `urgency-${Date.now()}`;
-
-      setMessages(prev => [...prev, {
-        id:         urgencyId,
-        role:       'assistant',
-        content:    '⚠️ Checking urgent condition...',
-        rawContent: '',
-        timestamp:  new Date(),
-        pending:    true,
-      }]);
-
+      const uid = `urgency-${Date.now()}`;
+      setMessages(prev => [...prev, { id: uid, role: 'assistant', content: '⚠️ Checking urgent condition...', rawContent: '', timestamp: new Date(), pending: true }]);
       try {
-        const res = await fetch(GROQ_URL, {
-          method:  'POST',
-          headers: {
-            'Content-Type':  'application/json',
-            'Authorization': `Bearer ${GROQ_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model:       GROQ_MODEL_CONVERSATION,
-            temperature: 0.2,
-            max_tokens:  160,
-            messages: [
-              { role: 'system', content: buildSystemPrompt(appCtx) },
-              { role: 'user',   content: `[SYSTEM ALERT: Urgent condition detected. Produce: ${device.produceMode}, state: ${device.produceState}. Current temperature: ${app.currentTemperature}°C, target: ${app.targetTemperature}°C. This is above the safe threshold. Send a short urgent but calm warning to the user explaining the risk to their specific produce and recommend one immediate action. 2 sentences max. No ACTION block. English only.]` },
-            ],
-          }),
-        });
-
-        const data    = res.ok ? await res.json() : null;
-        const rawText = data?.choices?.[0]?.message?.content ?? '';
-        const { display } = parseAction(rawText);
-
-        setMessages(prev => prev.map(m =>
-          m.id === urgencyId
-            ? { ...m, content: display || 'Warning: temperature is above safe range for your produce.', rawContent: rawText, pending: false }
-            : m
-        ));
+        const ctx  = buildAppContext(app);
+        const raw  = await groqFetch([
+          { role: 'system', content: buildSystemPrompt(ctx) },
+          { role: 'user',   content: `[SYSTEM ALERT: ${device.produceMode}, state: ${device.produceState}. Temp: ${app.currentTemperature}°C vs target ${app.targetTemperature}°C. Short urgent calm warning — risk + one immediate action. 2 sentences max. No ACTION block. English only.]` },
+        ], { temperature: 0.2, max_tokens: 160 });
+        const { display } = parseAction(raw);
+        const content     = display || 'Warning: temperature is above the safe range for your produce.';
+        setMessages(prev => prev.map(m => m.id === uid ? { ...m, content, rawContent: raw, pending: false } : m));
         if (display) speak(display, isMuted, app.user.name);
-      } catch {
-        setMessages(prev => prev.filter(m => m.id !== urgencyId));
-      }
+      } catch { setMessages(prev => prev.filter(m => m.id !== uid)); }
     }, 3500);
-
     return () => clearTimeout(timer);
   }, [isOpen, app.selectedDeviceId, app.currentTemperature]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Reset conversation ──────────────────────────────────────────────────────
-
+  // ── Reset conversation ────────────────────────────────────────────────────────
   const resetConversation = useCallback(() => {
     cancelSpeech();
-    // Clear persisted history so the next open starts truly fresh
     try { localStorage.removeItem('cw_assistant_messages'); } catch { /* */ }
-    setMessages([{
-      id:         'greeting',
-      role:       'assistant',
-      content:    cfg.greeting,
-      rawContent: cfg.greeting,
-      timestamp:  new Date(),
-    }]);
-    setInput('');
-    setShowQuickChips(true);
-    setPendingAction(null);
+    setMessages([]); setInput(''); setShowQuickChips(true); setPendingAction(null);
     sendSmartGreeting();
-  }, [cfg, sendSmartGreeting]);
+  }, [sendSmartGreeting]);
 
-
+  // ── Voice recognition ─────────────────────────────────────────────────────────
   const startRecognition = useCallback(() => {
-    const SpeechRecognition = getSpeechRecognition();
-    if (!SpeechRecognition) return;
-
-    // If already listening, stop
-    if (voiceState === 'listening') {
-      stopRecognition();
-      return;
-    }
-
-    cancelSpeech(); // stop any TTS playing before the user speaks
-
-    const recognition = new SpeechRecognition();
-
-    // en-GH is the Ghana English locale — best for Ghanaian accents and
-    // gives Twi the best chance of being picked up correctly.
-    recognition.lang            = 'en-GH';
-    recognition.continuous      = false;
-    recognition.interimResults  = true;
-    recognition.maxAlternatives = 1;
-
-    recognition.onstart = () => setVoiceState('listening');
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let transcript = '';
-      for (let i = 0; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
-      }
-      setInput(transcript);
-
-      // If this is a final result, start the auto-send countdown
-      if (event.results[event.results.length - 1]?.isFinal) {
+    const SR = getSpeechRecognition();
+    if (!SR) return;
+    if (voiceState === 'listening') { stopRecognition(); return; }
+    cancelSpeech();
+    const r = new SR();
+    r.lang = 'en-GH'; r.continuous = false; r.interimResults = true; r.maxAlternatives = 1;
+    r.onstart  = () => setVoiceState('listening');
+    r.onresult = (e: SpeechRecognitionEvent) => {
+      let t = '';
+      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      setInput(t);
+      if (e.results[e.results.length - 1]?.isFinal) {
         if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
-        autoSendTimerRef.current = setTimeout(() => {
-          setVoiceState('processing');
-          // sendMessage reads from the latest input state via closure capture —
-          // we pass transcript directly to avoid stale state issues
-          sendMessage(transcript);
-          autoSendTimerRef.current = null;
-        }, VOICE_AUTOSEND_DELAY);
+        autoSendTimerRef.current = setTimeout(() => { setVoiceState('processing'); sendMessage(t); autoSendTimerRef.current = null; }, VOICE_AUTOSEND_DELAY);
       }
     };
-
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      // 'no-speech' and 'aborted' are normal — the user just didn't say anything
-      // or we called abort() ourselves. Don't show an error for these.
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        console.warn('Speech recognition error:', event.error);
-      }
-      stopRecognition();
-    };
-
-    recognition.onend = () => {
-      // Only reset to idle if auto-send timer hasn't fired yet
-      if (!autoSendTimerRef.current) {
-        setVoiceState('idle');
-      }
-    };
-
-    recognitionRef.current = recognition;
-
-    try {
-      recognition.start();
-    } catch (err) {
-      // Can throw if called while another instance is running
-      console.warn('Speech recognition start failed:', err);
-      setVoiceState('idle');
-    }
+    r.onerror = (e: SpeechRecognitionErrorEvent) => { if (e.error !== 'no-speech' && e.error !== 'aborted') console.warn('STT error:', e.error); stopRecognition(); };
+    r.onend   = () => { if (!autoSendTimerRef.current) setVoiceState('idle'); };
+    recognitionRef.current = r;
+    try { r.start(); } catch (e) { console.warn('STT start failed:', e); setVoiceState('idle'); }
   }, [voiceState, stopRecognition, sendMessage]);
 
-  // Cleanup on unmount
+  // ── Expose imperative handle ──────────────────────────────────────────────────
+  // narratePage: call from App.tsx on every page change for spoken page tour
+  //   example: nixRef.current?.narratePage(newPage)
+  useImperativeHandle(ref, () => ({
+    startListening: () => startRecognition(),
+    stopListening:  () => stopRecognition(),
+    isListening:    () => voiceState === 'listening',
+    narratePage:    (page: string) => setTimeout(() => sendPageSummary(page), 300),
+  }), [startRecognition, stopRecognition, voiceState, sendPageSummary]);
+
+  // ── Cleanup on unmount ────────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       cancelSpeech();
-      stopRecognition();
+      if (recognitionRef.current) recognitionRef.current.abort();
+      if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
     };
-  }, [stopRecognition]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Image capture for produce assessment ──────────────────────────────────────
+  // ── Image capture ─────────────────────────────────────────────────────────────
   const handleImageCapture = useCallback(async (file: File) => {
     if (isAnalysingImage) return;
-    setIsAnalysingImage(true);
-    cancelSpeech();
-
-    // Show user message with indicator that photo was shared
-    const photoMsg: Message = {
-      id:         `u-photo-${Date.now()}`,
-      role:       'user',
-      content:    '📷 [Photo shared for produce assessment]',
-      rawContent: '📷 [Photo shared for produce assessment]',
-      timestamp:  new Date(),
-    };
-
-    const thinkingId  = `a-photo-${Date.now()}`;
-    const thinkingMsg: Message = {
-      id:         thinkingId,
-      role:       'assistant',
-      content:    'Analysing your photo…',
-      rawContent: '',
-      timestamp:  new Date(),
-      pending:    true,
-    };
-
-    setMessages(prev => [...prev, photoMsg, thinkingMsg]);
+    setIsAnalysingImage(true); cancelSpeech();
+    const pid = `u-photo-${Date.now()}`;
+    const tid = `a-photo-${Date.now()}`;
+    setMessages(prev => [...prev,
+      { id: pid, role: 'user', content: '📷 [Photo shared for produce assessment]', rawContent: '📷 [Photo shared for produce assessment]', timestamp: new Date() },
+      { id: tid, role: 'assistant', content: 'Analysing your photo…', rawContent: '', timestamp: new Date(), pending: true },
+    ]);
     setShowQuickChips(false);
-
     try {
       const { base64, mimeType } = await fileToBase64Chat(file);
-      // Use selected device produce mode as context if available
-      const selectedDevice = app.devices.find(d => d.id === app.selectedDeviceId);
-      const produceLabel   = selectedDevice?.produceMode
-        ? `${selectedDevice.produceMode} (${selectedDevice.produceState ?? 'condition unknown'})`
-        : 'produce (type not set for this device)';
-
-      const result = await analyseProduceImageForChat(base64, mimeType, produceLabel);
-
+      const dev    = app.devices.find(d => d.id === app.selectedDeviceId);
+      const label  = dev?.produceMode ? `${dev.produceMode} (${dev.produceState ?? 'condition unknown'})` : 'produce (type not set)';
+      const result = await analyseProduceImageForChat(base64, mimeType, label);
       let responseText: string;
       if (!result) {
         responseText = GROQ_API_KEY
-          ? 'I had trouble reading that photo — it may be too dark or the produce too small in frame. Try holding it closer and in better light, or just describe what you see to me.'
+          ? "I had trouble reading that photo — it may be too dark or the produce too small in frame. Try holding it closer and in better light, or just describe what you see to me."
           : 'Image analysis is not configured. Please describe the produce condition to me instead.';
       } else {
-        const confLabel = result.confidence === 'high'
-          ? 'I am fairly confident about this'
-          : result.confidence === 'medium'
-            ? 'there is some uncertainty here'
-            : 'the image quality makes this difficult to assess';
-
-        responseText = `From the photo, the produce appears to be in ${result.state} condition — ${result.explanation} (${confLabel}). `
-          + (result.state === 'almost-damaged'
-            ? 'This is urgent. I recommend starting aggressive cooling immediately to slow further deterioration. Would you like me to update the temperature target for this device?'
-            : result.state === 'in-between'
-              ? 'The produce is still marketable but needs careful monitoring. Would you like me to check if your current temperature settings are appropriate?'
-              : result.state === 'dried'
-                ? 'Dried produce has different storage requirements — lower humidity is more important than aggressive cold. Shall I adjust the targets?'
-                : 'Fresh produce is in good shape. Your current conditions should preserve it well. Is there anything specific you would like me to check?');
+        const conf = result.confidence === 'high' ? "I'm fairly confident about this"
+          : result.confidence === 'medium' ? "there's some uncertainty here"
+          : 'the image quality makes a definitive call difficult';
+        const next = result.state === 'almost-damaged'
+          ? "This is urgent — I'd recommend starting aggressive cooling right away. Want me to update the temperature target?"
+          : result.state === 'in-between'
+            ? "Still marketable but needs monitoring. Want me to check if your current settings are right for it?"
+            : result.state === 'dried'
+              ? "Dried produce needs low humidity more than cold. Shall I adjust the targets?"
+              : "Looking good — current conditions should preserve it well. Anything specific you'd like me to check?";
+        responseText = `From the photo, ${result.explanation} — that puts it in ${result.state} condition (${conf}). ${next}`;
       }
-
-      const assistantMsg: Message = {
-        id:         thinkingId,
-        role:       'assistant',
-        content:    responseText,
-        rawContent: responseText,
-        timestamp:  new Date(),
-        pending:    false,
-      };
-      setMessages(prev => prev.map(m => m.id === thinkingId ? assistantMsg : m));
+      setMessages(prev => prev.map(m => m.id === tid ? { ...m, content: responseText, rawContent: responseText, pending: false } : m));
       speak(responseText, isMuted, app.user.name);
-
     } catch {
-      const errText = 'I had trouble reading that photo. Please try again or describe the condition in words.';
-      setMessages(prev => prev.map(m =>
-        m.id === thinkingId ? { ...m, content: errText, rawContent: errText, pending: false } : m
-      ));
-    } finally {
-      setIsAnalysingImage(false);
-    }
+      const err = 'I had trouble reading that photo. Please try again or describe the condition in words.';
+      setMessages(prev => prev.map(m => m.id === tid ? { ...m, content: err, rawContent: err, pending: false } : m));
+    } finally { setIsAnalysingImage(false); }
   }, [app, isAnalysingImage, isMuted]);
 
-  // ── Toggle mute ─────────────────────────────────────────────────────────────
+  const toggleMute    = useCallback(() => setIsMuted(p => { if (!p) cancelSpeech(); return !p; }), []);
+  // replayMessage passes app.user.name so Ghanaian name phonetics apply correctly
+  const replayMessage = useCallback((text: string) => speak(text, isMuted, app.user.name), [isMuted, app.user.name]);
 
-  const toggleMute = useCallback(() => {
-    setIsMuted(prev => {
-      if (!prev) cancelSpeech(); // immediately stop any current speech when muting
-      return !prev;
-    });
-  }, []);
-
-  // ── Replay message ──────────────────────────────────────────────────────────
-
-  const replayMessage = useCallback((text: string) => {
-    speak(text, isMuted);
-  }, [isMuted]);
-
-  // ── Render ──────────────────────────────────────────────────────────────────
-
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
-          <motion.div
-            key="backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <motion.div key="backdrop"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             className="fixed inset-0 z-[55]"
             style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)' }}
-            onClick={handleClose}
-            aria-hidden="true"
-          />
+            onClick={handleClose} aria-hidden="true" />
 
-          {/* Drawer */}
-          <motion.div
-            key="drawer"
-            ref={drawerRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="ColdWatch AI Assistant"
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
+          <motion.div key="drawer" ref={drawerRef}
+            role="dialog" aria-modal="true" aria-label="ColdWatch AI Assistant"
+            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
             transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
             className="fixed top-0 right-0 bottom-0 z-[60] flex flex-col"
-            style={{
-              width: 'min(420px, 100vw)',
-              backgroundColor: '#FFFFFF',
-              boxShadow: '-8px 0 40px rgba(0,0,0,0.12)',
-            }}
-          >
-            {/* ── Header ── */}
-            {/* Two-row layout:
-                Row 1 — avatar | name + status | close
-                Row 2 (settings tray, toggleable) — language | mute | reset —
-                collapsed by default, slides open via Settings2 icon on Row 1.
-                This gives the name room to breathe at full width, while keeping
-                all controls accessible without cluttering the title.            */}
-            <div
-              className="flex flex-col flex-shrink-0"
-              style={{
-                borderBottom: '1px solid #DBEAFE',
-                background: 'linear-gradient(135deg, #EBF4FF 0%, #F0F7FF 60%, #FFFFFF 100%)',
-              }}
-            >
-              {/* Row 1: identity + close */}
+            style={{ width: 'min(420px, 100vw)', backgroundColor: '#FFFFFF', boxShadow: '-8px 0 40px rgba(0,0,0,0.12)' }}>
+
+            {/* ── Header — two rows: identity / settings tray ── */}
+            <div className="flex flex-col flex-shrink-0"
+              style={{ borderBottom: '1px solid #DBEAFE', background: 'linear-gradient(135deg, #EBF4FF 0%, #F0F7FF 60%, #FFFFFF 100%)' }}>
+
+              {/* Row 1: avatar | name + status | gear | close */}
               <div className="flex items-center gap-3 px-4 py-3.5">
-                {/* Animated snowflake avatar */}
-                <div
-                  className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0"
-                  style={{
-                    background: 'linear-gradient(135deg, #0984E3 0%, #0652a0 100%)',
-                    boxShadow: '0 4px 12px rgba(9,132,227,0.35)',
-                  }}
-                >
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}
-                  >
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #0984E3 0%, #0652a0 100%)', boxShadow: '0 4px 12px rgba(9,132,227,0.35)' }}>
+                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}>
                     <Snowflake className="w-5 h-5 text-white" />
                   </motion.div>
                 </div>
 
-                {/* Name + status — takes all remaining width */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-1.5">
-                    <p
-                      className="text-base font-extrabold tracking-tight"
-                      style={{
-                        background: 'linear-gradient(90deg, #0652a0 0%, #0984E3 100%)',
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        backgroundClip: 'text',
-                      }}
-                    >
-                      Nix 
+                    <p className="text-base font-extrabold tracking-tight"
+                      style={{ background: 'linear-gradient(90deg, #0652a0 0%, #0984E3 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+                      Nix
                     </p>
                     <span className="text-[10px] font-medium text-[#93C5FD]">by ColdWatch</span>
                   </div>
                   <p className="text-xs font-medium flex items-center gap-1"
                     style={{ color: GROQ_API_KEY ? '#16A34A' : '#DC2626' }}>
-                    <motion.span
-                      className="w-1.5 h-1.5 rounded-full inline-block"
+                    <motion.span className="w-1.5 h-1.5 rounded-full inline-block"
                       style={{ backgroundColor: GROQ_API_KEY ? '#16A34A' : '#DC2626' }}
                       animate={GROQ_API_KEY ? { opacity: [1, 0.4, 1] } : { opacity: 1 }}
-                      transition={{ duration: 2, repeat: Infinity }}
-                    />
+                      transition={{ duration: 2, repeat: Infinity }} />
                     {GROQ_API_KEY ? 'Online' : 'API key missing'}
                   </p>
                 </div>
 
-                {/* Settings tray toggle — opens Row 2 */}
-                <button
-                  onClick={() => setShowSettingsTray(t => !t)}
+                <button onClick={() => setShowSettingsTray(t => !t)}
                   className="w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95"
-                  style={{
-                    border: `1px solid ${showSettingsTray ? '#BFDBFE' : '#E4E7EC'}`,
-                    backgroundColor: showSettingsTray ? '#EBF4FF' : '#F9FAFB',
-                  }}
-                  aria-label="Assistant settings"
-                  aria-expanded={showSettingsTray}
-                  title="Language, voice, and reset"
-                >
+                  style={{ border: `1px solid ${showSettingsTray ? '#BFDBFE' : '#E4E7EC'}`, backgroundColor: showSettingsTray ? '#EBF4FF' : '#F9FAFB' }}
+                  aria-label="Assistant settings" aria-expanded={showSettingsTray} title="Language, voice, and reset">
                   <Settings2 className="w-3.5 h-3.5" style={{ color: showSettingsTray ? '#0984E3' : '#6B7280' }} />
                 </button>
 
-                {/* Close */}
-                <button
-                  onClick={handleClose}
+                <button onClick={handleClose}
                   className="w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95"
-                  style={{ border: '1px solid #E4E7EC', backgroundColor: '#F9FAFB' }}
-                  aria-label="Close assistant"
-                >
+                  style={{ border: '1px solid #E4E7EC', backgroundColor: '#F9FAFB' }} aria-label="Close assistant">
                   <X className="w-4 h-4 text-[#374151]" />
                 </button>
               </div>
 
-              {/* Row 2: settings tray — language, mute, reset */}
+              {/* Row 2: settings tray — language | voice | reset */}
               <AnimatePresence initial={false}>
                 {showSettingsTray && (
-                  <motion.div
-                    key="settings-tray"
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
+                  <motion.div key="tray"
+                    initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.2, ease: [0.25, 0.46, 0.45, 0.94] }}
-                    style={{ overflow: 'hidden' }}
-                  >
-                    <div
-                      className="flex items-center gap-2 px-4 pb-3 pt-0"
-                      style={{ borderTop: '1px solid #DBEAFE' }}
-                    >
-                      {/* Language toggle */}
-                      <button
-                        onClick={() => setLang(l => l === 'en' ? 'tw' : 'en')}
+                    style={{ overflow: 'hidden' }}>
+                    <div className="flex items-center gap-2 px-4 pb-3 pt-0"
+                      style={{ borderTop: '1px solid #DBEAFE' }}>
+                      <button onClick={() => setLang(l => l === 'en' ? 'tw' : 'en')}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all active:scale-95 flex-1"
                         style={{ border: '1px solid #E4E7EC', backgroundColor: '#F9FAFB', color: '#374151' }}
-                        aria-label="Switch language"
-                        title={`Switch to ${lang === 'en' ? LANG_CONFIG.tw.label : LANG_CONFIG.en.label}`}
-                      >
+                        aria-label="Switch language">
                         <Globe className="w-3.5 h-3.5 text-[#6B7280]" />
                         {LANG_CONFIG[lang].flag} {LANG_CONFIG[lang].label}
                       </button>
-
-                      {/* Mute toggle — only when TTS is supported */}
                       {ttsSupported && (
-                        <button
-                          onClick={toggleMute}
+                        <button onClick={toggleMute}
                           className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all active:scale-95"
-                          style={{
-                            border: `1px solid ${isMuted ? '#FCA5A5' : '#E4E7EC'}`,
-                            backgroundColor: isMuted ? '#FEF2F2' : '#F9FAFB',
-                            color: isMuted ? '#EF4444' : '#374151',
-                          }}
-                          aria-label={isMuted ? 'Unmute voice' : 'Mute voice'}
-                          title={isMuted ? 'Voice muted — tap to unmute' : 'Voice on — tap to mute'}
-                        >
-                          {isMuted
-                            ? <VolumeX className="w-3.5 h-3.5" style={{ color: '#EF4444' }} />
-                            : <Volume2 className="w-3.5 h-3.5" style={{ color: '#0984E3' }} />
-                          }
+                          style={{ border: `1px solid ${isMuted ? '#FCA5A5' : '#E4E7EC'}`, backgroundColor: isMuted ? '#FEF2F2' : '#F9FAFB', color: isMuted ? '#EF4444' : '#374151' }}
+                          aria-label={isMuted ? 'Unmute voice' : 'Mute voice'}>
+                          {isMuted ? <VolumeX className="w-3.5 h-3.5" style={{ color: '#EF4444' }} /> : <Volume2 className="w-3.5 h-3.5" style={{ color: '#0984E3' }} />}
                           {isMuted ? 'Muted' : 'Voice on'}
                         </button>
                       )}
-
-                      {/* Reset conversation */}
-                      <button
-                        onClick={() => { resetConversation(); setShowSettingsTray(false); }}
+                      <button onClick={() => { resetConversation(); setShowSettingsTray(false); }}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all active:scale-95"
                         style={{ border: '1px solid #E4E7EC', backgroundColor: '#F9FAFB', color: '#374151' }}
-                        aria-label="Reset conversation"
-                        title="Clear chat and start fresh"
-                      >
+                        aria-label="Reset conversation">
                         <RotateCcw className="w-3.5 h-3.5 text-[#6B7280]" />
                         Reset
                       </button>
@@ -1906,26 +1160,16 @@ export default function AIAssistant({ isOpen, onClose }: AIAssistantProps) {
                 )}
               </AnimatePresence>
             </div>
-            {/* ── Live status bar ── */}
+
+            {/* ── Status bar ── */}
             <StatusBar app={app} />
 
             {/* ── Messages ── */}
-            <div
-              className="flex-1 overflow-y-auto px-3 py-4 space-y-3"
-              style={{ backgroundColor: '#F0F7FF' }}
-            >
-              {/* Empty state — shown while smart greeting is loading on first open */}
+            <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3" style={{ backgroundColor: '#F0F7FF' }}>
               {messages.length === 0 && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="flex flex-col items-center justify-center h-32 gap-3"
-                >
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
-                    style={{ color: '#BFDBFE' }}
-                  >
+                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                  className="flex flex-col items-center justify-center h-32 gap-3">
+                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 12, repeat: Infinity, ease: 'linear' }} style={{ color: '#BFDBFE' }}>
                     <Snowflake className="w-10 h-10" />
                   </motion.div>
                   <p className="text-xs text-[#93C5FD] font-medium">Starting up…</p>
@@ -1933,175 +1177,96 @@ export default function AIAssistant({ isOpen, onClose }: AIAssistantProps) {
               )}
 
               {messages.map(msg => (
-                <MessageBubble
-                  key={msg.id}
-                  msg={msg}
-                  muted={isMuted}
-                  onReplay={replayMessage}
-                />
+                <MessageBubble key={msg.id} msg={msg} muted={isMuted} userName={app.user.name} onReplay={replayMessage} />
               ))}
 
-              {/* Quick prompt chips — shown only on greeting */}
               {showQuickChips && messages.length === 1 && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="flex flex-col gap-2 pt-1"
-                >
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+                  className="flex flex-col gap-2 pt-1">
                   {QUICK_PROMPTS[lang].map((prompt, i) => {
-                    const isUrgentChip = prompt.startsWith('⚡');
+                    const urgent = prompt.startsWith('⚡');
                     return (
-                      <button
-                        key={i}
-                        onClick={() => sendMessage(prompt)}
+                      <button key={i} onClick={() => sendMessage(prompt)}
                         className="text-left px-3.5 py-2.5 rounded-2xl text-xs font-medium transition-all active:scale-[0.98]"
-                        style={isUrgentChip ? {
-                          border: '1px solid #FDE68A',
-                          backgroundColor: '#FFFBEB',
-                          color: '#92400E',
-                          fontWeight: 600,
-                        } : {
-                          border: '1px solid #BFDBFE',
-                          backgroundColor: '#F0F7FF',
-                          color: '#1E40AF',
-                        }}
-                      >
+                        style={urgent
+                          ? { border: '1px solid #FDE68A', backgroundColor: '#FFFBEB', color: '#92400E', fontWeight: 600 }
+                          : { border: '1px solid #BFDBFE', backgroundColor: '#F0F7FF', color: '#1E40AF' }}>
                         {prompt}
                       </button>
                     );
                   })}
                 </motion.div>
               )}
-
               <div ref={messagesEndRef} />
             </div>
 
-            {/* ── Voice listening status ── */}
+            {/* ── Voice status ── */}
             <AnimatePresence>
               {voiceState === 'listening' && (
-                <div className="px-3">
-                  <VoiceStatusPill voiceState={voiceState} lang={lang} />
-                </div>
+                <div className="px-3"><VoiceStatusPill voiceState={voiceState} lang={lang} /></div>
               )}
             </AnimatePresence>
 
             {/* ── Action confirm banner ── */}
             <AnimatePresence>
               {pendingAction && (
-                <ActionConfirmBanner
-                  key="action-banner"
-                  action={pendingAction.action}
-                  lang={lang}
-                  onConfirm={confirmAction}
-                  onDismiss={dismissAction}
-                />
+                <ActionConfirmBanner key="action-banner"
+                  action={pendingAction.action} lang={lang}
+                  onConfirm={confirmAction} onDismiss={dismissAction} />
               )}
             </AnimatePresence>
 
             {/* ── Input area ── */}
-            <div
-              className="flex-shrink-0 px-3 py-3"
-              style={{
-                borderTop: '1px solid #E4E7EC',
-                backgroundColor: '#FFFFFF',
-                paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)',
-              }}
-            >
-              {/* Hidden camera input — opens rear camera on mobile, file picker on desktop */}
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={e => {
-                  const file = e.target.files?.[0];
-                  if (file) handleImageCapture(file);
-                  e.target.value = '';
-                }}
-              />
+            <div className="flex-shrink-0 px-3 py-3"
+              style={{ borderTop: '1px solid #E4E7EC', backgroundColor: '#FFFFFF', paddingBottom: 'calc(env(safe-area-inset-bottom) + 12px)' }}>
+              <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleImageCapture(f); e.target.value = ''; }} />
 
-              <div
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl"
-                style={{
-                  border: `1px solid ${voiceState === 'listening' ? '#FCA5A5' : '#E4E7EC'}`,
-                  backgroundColor: '#F9FAFB',
-                  transition: 'border-color 0.2s',
-                }}
-              >
-                {/* Camera button — for produce photo assessment */}
-                <button
-                  onClick={() => cameraInputRef.current?.click()}
+              <div className="flex items-center gap-2 px-3 py-2 rounded-2xl"
+                style={{ border: `1px solid ${voiceState === 'listening' ? '#FCA5A5' : '#E4E7EC'}`, backgroundColor: '#F9FAFB', transition: 'border-color 0.2s' }}>
+
+                <button onClick={() => cameraInputRef.current?.click()}
                   disabled={isLoading || isAnalysingImage || voiceState !== 'idle'}
                   className="w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95 flex-shrink-0 disabled:opacity-40"
                   style={{ backgroundColor: '#F3F4F6', border: '1px solid #E5E7EB' }}
-                  aria-label="Share produce photo for AI assessment"
-                  title="Take or upload a photo of your produce for AI condition assessment"
-                >
-                  {isAnalysingImage
-                    ? <Loader2 className="w-4 h-4 text-[#0984E3] animate-spin" />
-                    : <Camera className="w-4 h-4 text-[#6B7280]" />
-                  }
+                  aria-label="Share produce photo for AI assessment">
+                  {isAnalysingImage ? <Loader2 className="w-4 h-4 text-[#0984E3] animate-spin" /> : <Camera className="w-4 h-4 text-[#6B7280]" />}
                 </button>
 
-                {/* Mic button — hidden if STT not supported */}
-                {sttSupported ? (
-                  <button
-                    onClick={startRecognition}
+                {sttSupported && (
+                  <button onClick={startRecognition}
                     disabled={isLoading || voiceState === 'processing'}
                     className="w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95 flex-shrink-0 disabled:opacity-40"
-                    style={{
-                      backgroundColor: voiceState === 'listening' ? '#FEE2E2' : '#F3F4F6',
-                      border: `1px solid ${voiceState === 'listening' ? '#FECACA' : '#E5E7EB'}`,
-                    }}
-                    aria-label={voiceState === 'listening' ? 'Stop listening' : cfg.voiceHint}
-                    title={sttSupported ? cfg.voiceHint : cfg.voiceNotSupported}
-                  >
-                    {voiceState === 'listening'
-                      ? <MicOff className="w-4 h-4" style={{ color: '#EF4444' }} />
-                      : <Mic className="w-4 h-4 text-[#6B7280]" />
-                    }
+                    style={{ backgroundColor: voiceState === 'listening' ? '#FEE2E2' : '#F3F4F6', border: `1px solid ${voiceState === 'listening' ? '#FECACA' : '#E5E7EB'}` }}
+                    aria-label={voiceState === 'listening' ? 'Stop listening' : cfg.voiceHint}>
+                    {voiceState === 'listening' ? <MicOff className="w-4 h-4" style={{ color: '#EF4444' }} /> : <Mic className="w-4 h-4 text-[#6B7280]" />}
                   </button>
-                ) : null}
+                )}
 
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={input}
+                <input ref={inputRef} type="text" value={input}
                   onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage(input);
-                    }
-                  }}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
                   placeholder={voiceState === 'listening' ? cfg.voiceListening : cfg.placeholder}
                   disabled={isLoading || voiceState === 'listening'}
                   maxLength={1000}
                   className="flex-1 bg-transparent outline-none text-sm text-[#111827] placeholder:text-[#9CA3AF] disabled:opacity-60"
-                  aria-label="Message input"
-                />
+                  aria-label="Message input" />
 
-                <button
-                  onClick={() => sendMessage(input)}
+                <button onClick={() => sendMessage(input)}
                   disabled={!input.trim() || isLoading || voiceState === 'listening'}
                   className="w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-95 disabled:opacity-40 flex-shrink-0"
-                  style={{ backgroundColor: '#0984E3' }}
-                  aria-label="Send message"
-                >
+                  style={{ backgroundColor: '#0984E3' }} aria-label="Send message">
                   {isLoading || voiceState === 'processing'
                     ? <Loader2 className="w-4 h-4 text-white animate-spin" />
-                    : <Send className="w-4 h-4 text-white" />
-                  }
+                    : <Send className="w-4 h-4 text-white" />}
                 </button>
               </div>
-
-
             </div>
           </motion.div>
         </>
       )}
     </AnimatePresence>
   );
-}
+});
+
+export default AIAssistant;
