@@ -28,7 +28,7 @@ const SECURITY_QUESTIONS = [
   "What is the name of the town where you were born?",
   "What is your mother's maiden name?",
   "What was the name of your primary school?",
-  "What was the make of your first car?",
+  "What was the name of your first car?",
 ];
 
 // ── Palette — Light / Clean 

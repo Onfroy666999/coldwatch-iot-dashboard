@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Cpu, MapPin, Wifi, WifiOff, Battery, Info, Plus, ChevronRight, ChevronLeft,
   Signal, Settings2, X, Check, Trash2, AlertTriangle, Camera, Upload,
-  Loader2, RefreshCw, CheckCircle2,
+  Loader2, RefreshCw, CheckCircle2, PackageCheck, Clock, Hash,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { Device, ProduceMode, ProduceState } from '../context/AppContext';
@@ -20,12 +20,25 @@ function timeAgo(d: Date) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+function daysSince(d: Date): number {
+  return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 const getBatteryColor = (level: number) =>
   level > 50 ? '#27AE60' : level > 20 ? '#E67E22' : '#C0392B';
 
+// ── Device code generation ────────────────────────────────────────────────────
+// Generates a short human-readable code like CW-047
+// The user can override this in the wizard
+
+function generateDeviceCode(existingCodes: string[]): string {
+  const num = Math.floor(Math.random() * 900) + 100; // 100–999
+  const code = `CW-${num}`;
+  if (existingCodes.includes(code)) return generateDeviceCode(existingCodes);
+  return code;
+}
+
 // ── Groq Vision image analysis ───────────────────────────────────────────────
-// Uses the same VITE_GROQ_API_KEY as the AI assistant — no extra key needed.
-// Routes through llama-4-scout which handles low-light / low-quality images well.
 
 const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY ?? '';
 const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
@@ -82,7 +95,6 @@ Respond with ONLY valid JSON (no markdown, no extra text):
   const clean  = text.replace(/```json|```/g, '').trim();
   const parsed = JSON.parse(clean);
 
-  // Validate the state value
   const validStates: ProduceState[] = ['fresh', 'in-between', 'dried', 'almost-damaged'];
   if (!validStates.includes(parsed.state)) throw new Error('Invalid state from AI');
 
@@ -93,7 +105,6 @@ Respond with ONLY valid JSON (no markdown, no extra text):
   };
 }
 
-// Convert a File to base64
 function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -107,15 +118,15 @@ function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }>
   });
 }
 
-// ── Wizard data ───────────────────────────────────────────────────────────────
+// ── Wizard / removal data ─────────────────────────────────────────────────────
 
 const WIZARD_PRODUCE = [
-  { id: 'mixed',   label: 'Mixed Produce',  tagline: 'Various crop types',        color: '#1A65B5', tint: '#EBF3FD', emoji: '🥕' },
-  { id: 'tubers',  label: 'Tubers',         tagline: 'Cassava, Yam, Cocoyam',     color: '#B84A00', tint: '#FEF0E7', emoji: '🥔' },
-  { id: 'fruits',  label: 'Fruits',         tagline: 'Mango, Pineapple, Banana',  color: '#1A7A3F', tint: '#E6F6EC', emoji: '🥭' },
+  { id: 'mixed',   label: 'Mixed Produce',  tagline: 'Various crop types',          color: '#1A65B5', tint: '#EBF3FD', emoji: '🥕' },
+  { id: 'tubers',  label: 'Tubers',         tagline: 'Cassava, Yam, Cocoyam',       color: '#B84A00', tint: '#FEF0E7', emoji: '🥔' },
+  { id: 'fruits',  label: 'Fruits',         tagline: 'Mango, Pineapple, Banana',    color: '#1A7A3F', tint: '#E6F6EC', emoji: '🥭' },
   { id: 'leafy',   label: 'Leafy Veg',      tagline: 'Lettuce, Cabbage, Kontomire', color: '#0E7A62', tint: '#E6F6F2', emoji: '🥬' },
-  { id: 'legumes', label: 'Legumes',        tagline: 'Cowpea, Groundnuts',        color: '#7A5A2E', tint: '#F8F2EA', emoji: '🌿' },
-  { id: 'meat',    label: 'Meat & Fish',    tagline: 'Chicken, Beef, Tilapia',    color: '#B91C1C', tint: '#FEF2F2', emoji: '🍗' },
+  { id: 'legumes', label: 'Legumes',        tagline: 'Cowpea, Groundnuts',          color: '#7A5A2E', tint: '#F8F2EA', emoji: '🌿' },
+  { id: 'meat',    label: 'Meat & Fish',    tagline: 'Chicken, Beef, Tilapia',      color: '#B91C1C', tint: '#FEF2F2', emoji: '🍗' },
 ] as const;
 
 const PRODUCE_STATES: { id: ProduceState; label: string; desc: string; color: string; tint: string; emoji: string }[] = [
@@ -124,6 +135,16 @@ const PRODUCE_STATES: { id: ProduceState; label: string; desc: string; color: st
   { id: 'dried',          label: 'Dried / Cured',  desc: 'Processed, dried, or cured produce',    color: '#7A5A2E', tint: '#F8F2EA', emoji: '🟤' },
   { id: 'almost-damaged', label: 'Almost Damaged', desc: 'Needs urgent cooling to slow spoilage', color: '#C0392B', tint: '#FDEDEC', emoji: '🔴' },
 ];
+
+// Condition on removal — maps to backend ProduceStorageRecord
+const REMOVAL_CONDITIONS = [
+  { id: 'fresh',                    label: 'Fresh / Good',            desc: 'Produce is in excellent condition',             color: '#1A7A3F', tint: '#E6F6EC', emoji: '🟢' },
+  { id: 'slightly_deteriorated',    label: 'Slightly Deteriorated',   desc: 'Minor quality loss, still marketable',          color: '#E67E22', tint: '#FEF5EC', emoji: '🟡' },
+  { id: 'significantly_deteriorated', label: 'Significantly Deteriorated', desc: 'Noticeable quality loss, limited shelf life', color: '#E07B00', tint: '#FFF3E0', emoji: '🟠' },
+  { id: 'spoiled',                  label: 'Spoiled',                 desc: 'Not fit for sale or consumption',              color: '#C0392B', tint: '#FDEDEC', emoji: '🔴' },
+] as const;
+
+type RemovalConditionId = typeof REMOVAL_CONDITIONS[number]['id'];
 
 const FACILITY_SIZES = [
   { id: 'small',  label: 'Small',  desc: 'Under 10 m²  ·  Personal or farm-scale',   color: '#0984E3' },
@@ -156,8 +177,7 @@ function estimateShelfLife(
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 
-function WizardPills({ step }: { step: number }) {
-  const labels = ['Device', 'Produce', 'Facility', 'Done'];
+function WizardPills({ step, labels }: { step: number; labels: string[] }) {
   return (
     <div className="flex gap-2 items-center">
       {labels.map((l, i) => (
@@ -184,21 +204,22 @@ function AIResultCard({
   previewUrl,
   onConfirm,
   onRetake,
+  confirmLabel = 'Confirm',
 }: {
   result: { state: ProduceState; confidence: 'high' | 'medium' | 'low'; explanation: string };
   previewUrl: string;
   onConfirm: (state: ProduceState) => void;
   onRetake: () => void;
+  confirmLabel?: string;
 }) {
   const stateInfo = PRODUCE_STATES.find(s => s.id === result.state)!;
   const confColor = result.confidence === 'high' ? '#27AE60' : result.confidence === 'medium' ? '#E67E22' : '#6B7280';
-  const confLabel = result.confidence === 'high' ? 'High confidence' : result.confidence === 'medium' ? 'Medium confidence' : 'Low confidence — consider verifying';
+  const confLabel = result.confidence === 'high' ? 'High confidence' : result.confidence === 'medium' ? 'Medium confidence' : 'Low confidence — verify';
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
       className="rounded-2xl overflow-hidden border border-[#E4E7EC]">
-      {/* Image preview */}
       <div className="relative h-40 bg-[#F3F4F6] overflow-hidden">
         <img src={previewUrl} alt="Produce photo" className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
@@ -210,8 +231,6 @@ function AIResultCard({
           </span>
         </div>
       </div>
-
-      {/* Result */}
       <div className="p-4 bg-white space-y-3">
         <div className="flex items-center gap-3">
           <span style={{ fontSize: 28 }}>{stateInfo.emoji}</span>
@@ -222,7 +241,6 @@ function AIResultCard({
             <p className="text-xs text-[#6B7280] mt-0.5 leading-relaxed">{result.explanation}</p>
           </div>
         </div>
-
         <div className="flex gap-2 pt-1">
           <button onClick={onRetake}
             className="flex-1 py-2.5 rounded-xl border border-[#E4E7EC] text-[#6B7280] text-xs font-semibold active:bg-[#F3F4F6] flex items-center justify-center gap-1.5">
@@ -231,7 +249,7 @@ function AIResultCard({
           <button onClick={() => onConfirm(result.state)}
             className="flex-1 py-2.5 rounded-xl text-white text-xs font-bold active:scale-[0.98] flex items-center justify-center gap-1.5"
             style={{ backgroundColor: stateInfo.color }}>
-            <CheckCircle2 className="w-3.5 h-3.5" /> Confirm
+            <CheckCircle2 className="w-3.5 h-3.5" /> {confirmLabel}
           </button>
         </div>
       </div>
@@ -239,28 +257,423 @@ function AIResultCard({
   );
 }
 
+// ── Remove Produce Sheet ──────────────────────────────────────────────────────
+// Multi-step flow: condition → photo (optional) → summary → confirm delete
+
+function RemoveProduceSheet({
+  device,
+  onClose,
+  onConfirm,
+}: {
+  device: Device;
+  onClose: () => void;
+  onConfirm: (record: {
+    conditionOnRemoval: RemovalConditionId;
+    conditionImageBase64?: string;
+    conditionImageMime?: string;
+    aiAssessment?: string;
+    notes: string;
+  }) => void;
+}) {
+  const [step, setStep] = useState(0); // 0=condition, 1=photo, 2=notes, 3=confirm
+  const STEP_LABELS = ['Condition', 'Photo', 'Notes', 'Confirm'];
+
+  const [condition,   setCondition]   = useState<RemovalConditionId>('fresh');
+  const [notes,       setNotes]       = useState('');
+  const [submitting,  setSubmitting]  = useState(false);
+
+  // Photo / AI state
+  const [previewUrl,    setPreviewUrl]    = useState<string | null>(null);
+  const [imageBase64,   setImageBase64]   = useState<string | null>(null);
+  const [imageMime,     setImageMime]     = useState<string | null>(null);
+  const [analysing,     setAnalysing]     = useState(false);
+  const [aiResult,      setAiResult]      = useState<{ state: ProduceState; confidence: 'high' | 'medium' | 'low'; explanation: string } | null>(null);
+  const [aiAssessment,  setAiAssessment]  = useState('');
+  const [aiError,       setAiError]       = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const storageDays = device.storedSince ? daysSince(device.storedSince) : 0;
+  const produceLabel = WIZARD_PRODUCE.find(p => p.id === device.produceMode)?.label ?? device.produceMode ?? 'Produce';
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  const handleImageSelected = async (file: File) => {
+    setAiError('');
+    setAiResult(null);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    setAnalysing(true);
+    try {
+      const { base64, mimeType } = await fileToBase64(file);
+      setImageBase64(base64);
+      setImageMime(mimeType);
+      const result = await analyseProduceImage(base64, mimeType, produceLabel);
+      setAiResult(result);
+    } catch {
+      setAiError('Could not analyse image. Select condition manually or try again.');
+      setPreviewUrl(null);
+    } finally {
+      setAnalysing(false);
+    }
+  };
+
+  const handleAiConfirm = (state: ProduceState) => {
+    // Map ProduceState to RemovalConditionId
+    const map: Record<ProduceState, RemovalConditionId> = {
+      'fresh':          'fresh',
+      'in-between':     'slightly_deteriorated',
+      'dried':          'slightly_deteriorated',
+      'almost-damaged': 'significantly_deteriorated',
+    };
+    setCondition(map[state]);
+    setAiAssessment(aiResult?.explanation ?? '');
+    setAiResult(null);
+  };
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    await onConfirm({
+      conditionOnRemoval:   condition,
+      conditionImageBase64: imageBase64 ?? undefined,
+      conditionImageMime:   imageMime   ?? undefined,
+      aiAssessment:         aiAssessment || undefined,
+      notes,
+    });
+    setSubmitting(false);
+  };
+
+  const inputBase = "w-full px-4 py-3 rounded-xl border border-[#E4E7EC] bg-[#F3F4F6] text-[#111827] outline-none focus:border-[#0984E3] focus:ring-2 focus:ring-[#0984E3]/20 transition-all text-sm";
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/50 z-[55] backdrop-blur-sm"
+        onClick={step < 3 ? onClose : undefined}
+      />
+      <motion.div
+        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+        transition={{ type: 'spring', stiffness: 380, damping: 38 }}
+        className="fixed bottom-0 left-0 right-0 z-[60] bg-white rounded-t-3xl shadow-2xl border-t border-[#E4E7EC] flex flex-col"
+        style={{ maxHeight: '92dvh' }}
+      >
+        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 rounded-full bg-[#D1D5DB]" />
+        </div>
+
+        <div className="px-5 pt-2 pb-3 flex items-center justify-between flex-shrink-0">
+          <div>
+            <p className="font-bold text-[#111827] text-lg">Remove Produce</p>
+            <WizardPills step={step} labels={STEP_LABELS} />
+          </div>
+          {step < 3 && (
+            <button onClick={onClose}
+              className="w-8 h-8 rounded-full bg-[#F3F4F6] flex items-center justify-center active:bg-[#E4E7EC]">
+              <X className="w-4 h-4 text-[#6B7280]" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto overscroll-contain">
+          <AnimatePresence mode="wait">
+
+            {/* Step 0 — Condition on removal */}
+            {step === 0 && (
+              <motion.div key="r0"
+                initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
+                className="px-5 pb-6 space-y-4">
+
+                {/* Storage summary */}
+                <div className="flex items-center gap-3 p-4 rounded-2xl"
+                  style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
+                  <PackageCheck className="w-5 h-5 text-[#0984E3] flex-shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-[#111827]">
+                      {device.unitName || device.name} · {device.deviceCode || device.id}
+                    </p>
+                    <p className="text-[11px] text-[#6B7280] mt-0.5">
+                      {produceLabel} stored for <span className="font-semibold text-[#111827]">{storageDays} day{storageDays !== 1 ? 's' : ''}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">
+                  Condition on removal
+                </p>
+                <div className="space-y-2">
+                  {REMOVAL_CONDITIONS.map(c => (
+                    <button key={c.id} onClick={() => setCondition(c.id)}
+                      className="w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all active:scale-[0.98]"
+                      style={{
+                        border: `1.5px solid ${condition === c.id ? c.color + '60' : '#E4E7EC'}`,
+                        backgroundColor: condition === c.id ? c.tint : '#FFFFFF',
+                      }}>
+                      <span style={{ fontSize: 18 }}>{c.emoji}</span>
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold" style={{ color: condition === c.id ? c.color : '#111827' }}>
+                          {c.label}
+                        </p>
+                        <p className="text-[10px] text-[#6B7280]">{c.desc}</p>
+                      </div>
+                      {condition === c.id && <Check className="w-4 h-4 flex-shrink-0" style={{ color: c.color }} />}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Step 1 — Photo */}
+            {step === 1 && (
+              <motion.div key="r1"
+                initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
+                className="px-5 pb-6 space-y-4">
+
+                <div className="p-3 rounded-xl"
+                  style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
+                  <p className="text-xs text-[#1E40AF] leading-relaxed">
+                    <span className="font-semibold">Optional but valuable.</span> A photo helps our AI build better storage estimates for future batches of {produceLabel.toLowerCase()}.
+                  </p>
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImageSelected(file);
+                    e.target.value = '';
+                  }}
+                />
+
+                {analysing && (
+                  <div className="flex flex-col items-center gap-3 py-8 rounded-2xl border border-[#E4E7EC] bg-[#F9FAFB]">
+                    <Loader2 className="w-8 h-8 text-[#0984E3] animate-spin" />
+                    <p className="text-sm font-semibold text-[#111827]">Analysing your photo…</p>
+                    <p className="text-xs text-[#6B7280]">AI is assessing the produce condition</p>
+                  </div>
+                )}
+
+                {!analysing && aiResult && previewUrl && (
+                  <AIResultCard
+                    result={aiResult}
+                    previewUrl={previewUrl}
+                    onConfirm={handleAiConfirm}
+                    onRetake={() => { setPreviewUrl(null); setAiResult(null); fileInputRef.current?.click(); }}
+                    confirmLabel="Use this condition"
+                  />
+                )}
+
+                {!analysing && !aiResult && (
+                  <div className="space-y-3">
+                    {previewUrl && (
+                      <div className="relative rounded-xl overflow-hidden h-36">
+                        <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                        <div className="absolute top-2 right-2">
+                          <span className="px-2 py-1 rounded-full text-[10px] font-bold text-white bg-[#27AE60]">
+                            Photo saved
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl border-2 border-dashed border-[#0984E3] active:bg-[#EBF4FF] transition-colors"
+                      style={{ backgroundColor: 'rgba(9,132,227,0.04)' }}>
+                      <Camera className="w-5 h-5 text-[#0984E3]" />
+                      <div className="text-left">
+                        <p className="text-sm font-semibold text-[#0984E3]">
+                          {previewUrl ? 'Retake Photo' : 'Take or Upload a Photo'}
+                        </p>
+                        <p className="text-xs text-[#6B7280] mt-0.5">AI will assess the produce condition</p>
+                      </div>
+                    </button>
+                    {aiError && (
+                      <div className="flex items-start gap-2 p-3 rounded-xl"
+                        style={{ backgroundColor: 'rgba(192,57,43,0.07)', border: '1px solid rgba(192,57,43,0.2)' }}>
+                        <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                        <p className="text-xs text-red-600">{aiError}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* Step 2 — Notes */}
+            {step === 2 && (
+              <motion.div key="r2"
+                initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
+                className="px-5 pb-6 space-y-4">
+                <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">
+                  Additional notes (optional)
+                </p>
+                <p className="text-xs text-[#6B7280] leading-relaxed">
+                  Any observations about the storage period? Issues noticed, temperature problems, anything unusual? This helps our AI improve future recommendations.
+                </p>
+                <textarea
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder="e.g. Temperature fluctuated during the first week due to door being left open..."
+                  rows={5}
+                  className={inputBase + ' resize-none'}
+                  style={{ lineHeight: '1.5' }}
+                />
+                <p className="text-[10px] text-[#9CA3AF] text-right">{notes.length}/500</p>
+              </motion.div>
+            )}
+
+            {/* Step 3 — Confirm removal */}
+            {step === 3 && (
+              <motion.div key="r3"
+                initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
+                className="px-5 pb-6 space-y-4">
+
+                {/* Warning */}
+                <div className="flex items-start gap-3 p-4 rounded-2xl"
+                  style={{ backgroundColor: 'rgba(192,57,43,0.06)', border: '1px solid rgba(192,57,43,0.2)' }}>
+                  <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-bold text-red-700">This action cannot be undone</p>
+                    <p className="text-xs text-red-600 mt-1 leading-relaxed">
+                      The device will be removed from your dashboard and its ID ({device.deviceCode || 'CW-???'}) will be freed for reuse with a new batch of produce.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Summary */}
+                <div className="rounded-2xl border border-[#E4E7EC] overflow-hidden">
+                  <div className="px-4 py-2.5 bg-[#F3F4F6]">
+                    <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Removal Summary</p>
+                  </div>
+                  <div className="px-4 py-3 space-y-2.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#6B7280]">Device</span>
+                      <span className="font-semibold text-[#111827]">{device.deviceCode || device.id}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#6B7280]">Storage Unit</span>
+                      <span className="font-semibold text-[#111827]">{device.unitName || device.name}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#6B7280]">Produce</span>
+                      <span className="font-semibold text-[#111827]">{produceLabel}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#6B7280]">Days stored</span>
+                      <span className="font-semibold text-[#111827]">{storageDays} days</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#6B7280]">Condition</span>
+                      <span className="font-semibold" style={{ color: REMOVAL_CONDITIONS.find(c => c.id === condition)?.color }}>
+                        {REMOVAL_CONDITIONS.find(c => c.id === condition)?.label}
+                      </span>
+                    </div>
+                    {previewUrl && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-[#6B7280]">Photo</span>
+                        <span className="font-semibold text-[#27AE60]">✓ Included</span>
+                      </div>
+                    )}
+                    {aiAssessment && (
+                      <div className="pt-1">
+                        <p className="text-[10px] text-[#6B7280] mb-1">AI Assessment</p>
+                        <p className="text-[11px] text-[#374151] leading-relaxed italic">"{aiAssessment}"</p>
+                      </div>
+                    )}
+                    {notes && (
+                      <div className="pt-1">
+                        <p className="text-[10px] text-[#6B7280] mb-1">Notes</p>
+                        <p className="text-[11px] text-[#374151] leading-relaxed">{notes}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl"
+                  style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
+                  <p className="text-[11px] text-[#1E40AF] leading-relaxed">
+                    This information will be stored and used by ColdWatch AI to improve shelf life estimates for future {produceLabel.toLowerCase()} storage batches.
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Bottom actions */}
+        <div className="px-5 pb-8 pt-3 flex gap-2.5 flex-shrink-0" style={{ borderTop: '1px solid #F3F4F6' }}>
+          {step > 0 && step < 3 && (
+            <button onClick={() => setStep(s => s - 1)}
+              className="w-11 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 active:bg-[#E4E7EC]"
+              style={{ border: '1.5px solid #E4E7EC' }}>
+              <ChevronLeft className="w-5 h-5 text-[#6B7280]" />
+            </button>
+          )}
+
+          {step < 3 && (
+            <button onClick={() => setStep(s => s + 1)}
+              className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98] flex items-center justify-center gap-2"
+              style={{ backgroundColor: '#0984E3' }}>
+              {step === 2 ? 'Review Summary' : 'Continue'}
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          )}
+
+          {step === 3 && (
+            <>
+              <button onClick={onClose}
+                className="flex-1 h-12 rounded-2xl border border-[#E4E7EC] text-[#6B7280] text-sm font-semibold active:bg-[#F3F4F6]">
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-60"
+                style={{ backgroundColor: '#C0392B' }}>
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {submitting ? 'Removing…' : 'Remove Device'}
+              </button>
+            </>
+          )}
+        </div>
+      </motion.div>
+    </>
+  );
+}
+
 // ── Add Device Wizard ─────────────────────────────────────────────────────────
 
 function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGoToSettings: () => void }) {
-  const { addDevice, addToast } = useApp();
+  const { addDevice, addToast, devices } = useApp();
 
   const [step, setStep] = useState(0);
+  const STEP_LABELS = ['Device', 'Produce', 'Facility', 'Done'];
 
-  // Step 0
-  const [name,     setName]     = useState('');
-  const [location, setLocation] = useState('');
-  const [error,    setError]    = useState('');
+  // Step 0 — device identity
+  const existingCodes = devices.map(d => d.deviceCode).filter(Boolean) as string[];
+  const [deviceCode, setDeviceCode] = useState(() => generateDeviceCode(existingCodes));
+  const [codeError,  setCodeError]  = useState('');
+  const [unitName,   setUnitName]   = useState('');
+  const [location,   setLocation]   = useState('');
+  const [error,      setError]      = useState('');
 
   // Step 1 — produce
   const [produceId,    setProduceId]    = useState<WizardProduceId>('mixed');
   const [produceState, setProduceState] = useState<ProduceState>('fresh');
   const [skipProduce,  setSkipProduce]  = useState(false);
 
-  // Step 1 — AI image analysis
-  const [capturePreview,  setCapturePreview]  = useState<string | null>(null);
-  const [analysing,       setAnalysing]       = useState(false);
-  const [aiResult,        setAiResult]        = useState<{ state: ProduceState; confidence: 'high' | 'medium' | 'low'; explanation: string } | null>(null);
-  const [aiError,         setAiError]         = useState('');
+  // Step 1 — AI image
+  const [capturePreview, setCapturePreview] = useState<string | null>(null);
+  const [analysing,      setAnalysing]      = useState(false);
+  const [aiResult,       setAiResult]       = useState<{ state: ProduceState; confidence: 'high' | 'medium' | 'low'; explanation: string } | null>(null);
+  const [aiError,        setAiError]        = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2 — facility
@@ -278,21 +691,17 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
 
   const shelfLife = estimateShelfLife(produceId, produceState, transportHours);
 
-  // ── Image capture / upload ─────────────────────────────────────────────────
-
   const handleImageSelected = async (file: File) => {
     setAiError('');
     setAiResult(null);
-    const previewUrl = URL.createObjectURL(file);
-    setCapturePreview(previewUrl);
+    setCapturePreview(URL.createObjectURL(file));
     setAnalysing(true);
-
     try {
       const { base64, mimeType } = await fileToBase64(file);
       const produceLabel = WIZARD_PRODUCE.find(p => p.id === produceId)?.label ?? produceId;
       const result = await analyseProduceImage(base64, mimeType, produceLabel);
       setAiResult(result);
-    } catch (err) {
+    } catch {
       setAiError('Could not analyse the image. Please select a condition manually or try a clearer photo.');
       setCapturePreview(null);
     } finally {
@@ -303,22 +712,23 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
   const handleAiConfirm = (state: ProduceState) => {
     setProduceState(state);
     setAiResult(null);
-    // Don't clear preview — keep it as visual reference
   };
 
-  const handleRetake = () => {
-    setCapturePreview(null);
-    setAiResult(null);
-    setAiError('');
-    fileInputRef.current?.click();
+  const validateCode = (code: string) => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) return 'Device ID is required.';
+    if (!/^CW-\d{3,6}$/.test(trimmed)) return 'Format must be CW-XXX (e.g. CW-042).';
+    if (existingCodes.includes(trimmed)) return 'This Device ID is already in use. Choose another.';
+    return '';
   };
-
-  // ── Navigation ─────────────────────────────────────────────────────────────
 
   const handleStep0 = () => {
     setError('');
-    if (!name.trim())     { setError('Device name is required.'); return; }
+    const cErr = validateCode(deviceCode);
+    if (cErr) { setCodeError(cErr); return; }
+    if (!unitName.trim()) { setError('Storage Unit Name is required.'); return; }
     if (!location.trim()) { setError('Location is required.'); return; }
+    setDeviceCode(deviceCode.trim().toUpperCase());
     setStep(1);
   };
 
@@ -326,14 +736,14 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
     setSaving(true);
     setTimeout(() => {
       if (skipProduce) {
-        addDevice(name.trim(), location.trim());
+        addDevice(unitName.trim(), location.trim(), undefined, deviceCode.trim().toUpperCase(), unitName.trim());
       } else {
-        addDevice(name.trim(), location.trim(), {
+        addDevice(unitName.trim(), location.trim(), {
           produceMode:  produceId,
           produceState,
           facilitySize,
           transportHours,
-        });
+        }, deviceCode.trim().toUpperCase(), unitName.trim());
       }
       setSaving(false);
       setStep(3);
@@ -355,16 +765,13 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
         className="fixed bottom-0 left-0 right-0 z-[60] bg-white rounded-t-3xl shadow-2xl border-t border-[#E4E7EC] flex flex-col"
         style={{ maxHeight: '92dvh' }}
       >
-        {/* Handle */}
         <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
           <div className="w-10 h-1 rounded-full bg-[#D1D5DB]" />
         </div>
-
-        {/* Header */}
         <div className="px-5 pt-2 pb-3 flex items-center justify-between flex-shrink-0">
           <div>
             <p className="font-bold text-[#111827] text-lg">Add New Device</p>
-            <WizardPills step={step} />
+            <WizardPills step={step} labels={STEP_LABELS} />
           </div>
           {step < 3 && (
             <button onClick={onClose}
@@ -377,22 +784,63 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
         <div className="flex-1 overflow-y-auto overscroll-contain">
           <AnimatePresence mode="wait">
 
-            {/* ── STEP 0: Device basics ───────────────────────────────── */}
+            {/* STEP 0: Device identity */}
             {step === 0 && (
               <motion.div key="s0"
                 initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
                 transition={{ duration: 0.22 }} className="px-5 pb-6 space-y-4">
 
+                {/* Device ID */}
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Device Name</label>
-                  <input value={name} onChange={e => setName(e.target.value)}
-                    placeholder="e.g. Cold Room A" className={inputBase} style={{ fontSize: 16, height: 52 }} />
+                  <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide flex items-center gap-1.5">
+                    <Hash className="w-3.5 h-3.5" /> Device ID
+                  </label>
+                  <div className="relative">
+                    <input
+                      value={deviceCode}
+                      onChange={e => { setDeviceCode(e.target.value.toUpperCase()); setCodeError(''); }}
+                      placeholder="e.g. CW-042"
+                      className={inputBase + ' font-mono'}
+                      style={{ fontSize: 16, height: 52 }}
+                    />
+                    <button
+                      onClick={() => { setDeviceCode(generateDeviceCode(existingCodes)); setCodeError(''); }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-[#0984E3] active:bg-[#EBF4FF]"
+                      style={{ backgroundColor: 'rgba(9,132,227,0.08)' }}>
+                      Regenerate
+                    </button>
+                  </div>
+                  {codeError
+                    ? <p className="text-xs text-red-500 font-medium">{codeError}</p>
+                    : <p className="text-[10px] text-[#6B7280]">Auto-generated. You can edit it — format must be CW-XXX.</p>
+                  }
                 </div>
+
+                {/* Storage Unit Name */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Storage Unit Name</label>
+                  <input
+                    value={unitName}
+                    onChange={e => setUnitName(e.target.value)}
+                    placeholder="e.g. Cold Room A, Warehouse Bay 3"
+                    className={inputBase}
+                    style={{ fontSize: 16, height: 52 }}
+                  />
+                  <p className="text-[10px] text-[#6B7280]">The physical space where the device is installed.</p>
+                </div>
+
+                {/* Location */}
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Location</label>
-                  <input value={location} onChange={e => setLocation(e.target.value)}
-                    placeholder="e.g. Kumasi Warehouse, Bay 3" className={inputBase} style={{ fontSize: 16, height: 52 }} />
+                  <input
+                    value={location}
+                    onChange={e => setLocation(e.target.value)}
+                    placeholder="e.g. Kumasi Central Market"
+                    className={inputBase}
+                    style={{ fontSize: 16, height: 52 }}
+                  />
                 </div>
+
                 {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
 
                 <div className="rounded-2xl p-4" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
@@ -405,13 +853,12 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
               </motion.div>
             )}
 
-            {/* ── STEP 1: Produce type + AI image analysis ─────────────── */}
+            {/* STEP 1: Produce */}
             {step === 1 && (
               <motion.div key="s1"
                 initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
                 transition={{ duration: 0.22 }} className="px-5 pb-6 space-y-5">
 
-                {/* Produce type grid */}
                 <div>
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">What are you storing?</p>
                   <div className="grid grid-cols-2 gap-2">
@@ -435,13 +882,10 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                   </div>
                 </div>
 
-                {/* AI image capture */}
                 <div>
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">
                     Condition — take a photo for AI assessment
                   </p>
-
-                  {/* Hidden file input — accepts camera and gallery */}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -454,30 +898,22 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                       e.target.value = '';
                     }}
                   />
-
-                  {/* Analysing spinner */}
                   {analysing && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                       className="flex flex-col items-center gap-3 py-8 rounded-2xl border border-[#E4E7EC] bg-[#F9FAFB]">
                       <Loader2 className="w-8 h-8 text-[#0984E3] animate-spin" />
-                      <div className="text-center">
-                        <p className="text-sm font-semibold text-[#111827]">Analysing your photo…</p>
-                        <p className="text-xs text-[#6B7280] mt-1">The AI is assessing the produce condition</p>
-                      </div>
+                      <p className="text-sm font-semibold text-[#111827]">Analysing your photo…</p>
+                      <p className="text-xs text-[#6B7280]">AI is assessing the produce condition</p>
                     </motion.div>
                   )}
-
-                  {/* AI result card */}
                   {!analysing && aiResult && capturePreview && (
                     <AIResultCard
                       result={aiResult}
                       previewUrl={capturePreview}
                       onConfirm={handleAiConfirm}
-                      onRetake={handleRetake}
+                      onRetake={() => { setCapturePreview(null); setAiResult(null); fileInputRef.current?.click(); }}
                     />
                   )}
-
-                  {/* Camera button — shown when no result yet */}
                   {!analysing && !aiResult && (
                     <div className="space-y-3">
                       <button
@@ -487,33 +923,26 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                         <Camera className="w-5 h-5 text-[#0984E3]" />
                         <div className="text-left">
                           <p className="text-sm font-semibold text-[#0984E3]">Take or Upload a Photo</p>
-                          <p className="text-xs text-[#6B7280] mt-0.5">AI will assess the produce condition from the image</p>
+                          <p className="text-xs text-[#6B7280] mt-0.5">AI will assess the produce condition</p>
                         </div>
                       </button>
-
-                      {/* Preview thumbnail if photo taken but no AI result (e.g. after retake) */}
                       {capturePreview && !aiResult && (
                         <div className="relative rounded-xl overflow-hidden h-28">
                           <img src={capturePreview} alt="Preview" className="w-full h-full object-cover" />
                         </div>
                       )}
-
                       {aiError && (
                         <div className="flex items-start gap-2 p-3 rounded-xl"
                           style={{ backgroundColor: 'rgba(192,57,43,0.07)', border: '1px solid rgba(192,57,43,0.2)' }}>
                           <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                          <p className="text-xs text-red-600 leading-relaxed">{aiError}</p>
+                          <p className="text-xs text-red-600">{aiError}</p>
                         </div>
                       )}
-
-                      <p className="text-[10px] text-[#6B7280] text-center">
-                        Or select condition manually below
-                      </p>
+                      <p className="text-[10px] text-[#6B7280] text-center">Or select condition manually below</p>
                     </div>
                   )}
                 </div>
 
-                {/* Manual condition selection — always visible */}
                 <div>
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">
                     {aiResult ? 'Confirmed Condition' : 'Manual Selection'}
@@ -540,9 +969,7 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                   </div>
                 </div>
 
-                {/* Dashboard targets preview */}
-                <div className="rounded-xl p-3"
-                  style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
+                <div className="rounded-xl p-3" style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
                   <p className="text-[10px] text-[#6B7280] uppercase tracking-wide mb-1.5">Dashboard targets that will be applied</p>
                   {(() => {
                     const targets = getStateAdjustedTargets(produceId as ProduceMode, produceState);
@@ -562,7 +989,7 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
               </motion.div>
             )}
 
-            {/* ── STEP 2: Facility size + transport time ──────────────── */}
+            {/* STEP 2: Facility */}
             {step === 2 && !skipProduce && (
               <motion.div key="s2"
                 initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
@@ -619,7 +1046,7 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
               </motion.div>
             )}
 
-            {/* ── STEP 2 skip path ────────────────────────────────────── */}
+            {/* STEP 2 skip path */}
             {step === 2 && skipProduce && (
               <motion.div key="s2skip"
                 initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
@@ -633,27 +1060,25 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
               </motion.div>
             )}
 
-            {/* ── STEP 3: Success — point to Settings ─────────────────── */}
+            {/* STEP 3: Success */}
             {step === 3 && (
               <motion.div key="s3"
                 initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.28 }} className="px-5 pb-8 space-y-4">
 
-                {/* Success */}
                 <div className="flex items-center gap-3 p-4 rounded-2xl"
                   style={{ backgroundColor: '#E6F6EC', border: '1px solid #A7D7B6' }}>
                   <div className="w-10 h-10 rounded-xl bg-[#27AE60]/15 flex items-center justify-center flex-shrink-0">
                     <CheckCircle2 className="w-5 h-5 text-[#27AE60]" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-[#166534]">{name} added successfully</p>
+                    <p className="text-sm font-bold text-[#166534]">{unitName} added successfully</p>
                     <p className="text-xs text-[#166534]/70 mt-0.5">
-                      {skipProduce ? 'Complete produce setup from the device card when ready.' : 'Dashboard targets have been updated for your produce.'}
+                      Device ID: <span className="font-mono font-bold">{deviceCode}</span>
                     </p>
                   </div>
                 </div>
 
-                {/* Shelf life if produce was set */}
                 {!skipProduce && (
                   <div className="rounded-2xl p-4"
                     style={{ backgroundColor: shelfLife.color + '10', border: `1px solid ${shelfLife.color}25` }}>
@@ -662,11 +1087,10 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                   </div>
                 )}
 
-                {/* Connect prompt */}
                 <div className="rounded-2xl p-4" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
                   <p className="text-xs font-semibold text-[#1D4ED8] mb-1">Ready to connect your ESP32?</p>
                   <p className="text-xs text-[#1E40AF] leading-relaxed mb-3">
-                    The full step-by-step connection guide — including device ID, API endpoint, firmware flashing, and WiFi setup — is available in Settings.
+                    The full step-by-step connection guide — including your Device ID <span className="font-mono font-bold">{deviceCode}</span>, API endpoint, firmware flashing, and WiFi setup — is available in Settings.
                   </p>
                   <button
                     onClick={() => { onClose(); onGoToSettings(); }}
@@ -700,35 +1124,30 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
 
           {step === 0 && (
             <button onClick={handleStep0}
-              className="flex-1 h-12 rounded-2xl text-white text-sm font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98]"
+              className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98] flex items-center justify-center gap-2"
               style={{ backgroundColor: '#0984E3' }}>
               Continue <ChevronRight className="w-4 h-4" />
             </button>
           )}
           {step === 1 && (
-            <button
-              onClick={() => { setSkipProduce(false); setStep(2); }}
-              disabled={analysing}
-              className="flex-1 h-12 rounded-2xl text-white text-sm font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] disabled:opacity-50"
+            <button onClick={() => { setSkipProduce(false); setStep(2); }}
+              className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98] flex items-center justify-center gap-2"
               style={{ backgroundColor: '#0984E3' }}>
               Continue <ChevronRight className="w-4 h-4" />
             </button>
           )}
           {step === 2 && (
             <button onClick={handleStep2} disabled={saving}
-              className="flex-1 h-12 rounded-2xl text-white text-sm font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98] disabled:opacity-50"
+              className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-60"
               style={{ backgroundColor: '#0984E3' }}>
-              {saving
-                ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</>
-                : <>Save Device <ChevronRight className="w-4 h-4" /></>
-              }
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Save Device <Check className="w-4 h-4" /></>}
             </button>
           )}
           {step === 3 && (
             <button onClick={onClose}
-              className="flex-1 h-12 rounded-2xl text-white text-sm font-semibold flex items-center justify-center gap-1.5 active:scale-[0.98]"
-              style={{ backgroundColor: '#27AE60' }}>
-              Done <Check className="w-4 h-4" />
+              className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98]"
+              style={{ backgroundColor: '#0984E3' }}>
+              Done
             </button>
           )}
         </div>
@@ -737,14 +1156,47 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
   );
 }
 
-// ── Configure Sheet ────────────────────────────────────────────────────────────
+// ── Configure Sheet ───────────────────────────────────────────────────────────
+// Tabbed bottom sheet letting users update all device settings after creation:
+// Identity (name/location), Produce setup, Alert thresholds, Sensor offsets
+
+const CONFIG_TABS = [
+  { id: 'identity',   label: 'Identity'   },
+  { id: 'produce',    label: 'Produce'    },
+  { id: 'thresholds', label: 'Thresholds' },
+  { id: 'offsets',    label: 'Offsets'    },
+] as const;
+type ConfigTab = typeof CONFIG_TABS[number]['id'];
+
+const CONFIGURE_PRODUCE = WIZARD_PRODUCE;
+const CONFIGURE_STATES  = PRODUCE_STATES;
 
 function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => void }) {
-  const { updateDevice, addToast } = useApp();
-  const [name,     setName]     = useState(device.name);
-  const [location, setLocation] = useState(device.location);
-  const [saving,   setSaving]   = useState(false);
-  const isDirty = name.trim() !== device.name || location.trim() !== device.location;
+  const { updateDevice, updateProduceSetup, addToast, isAdvancedUser } = useApp();
+  const [activeTab, setActiveTab] = useState<ConfigTab>('identity');
+  const [saving,    setSaving]    = useState(false);
+
+  // Identity
+  const [unitName,  setUnitName]  = useState(device.unitName || device.name);
+  const [location,  setLocation]  = useState(device.location);
+
+  // Produce
+  const [produceId,    setProduceId]    = useState<WizardProduceId>((device.produceMode as WizardProduceId) || 'mixed');
+  const [produceState, setProduceState] = useState<ProduceState>(device.produceState || 'fresh');
+  const [facilitySize, setFacilitySize] = useState<FacilitySizeId>((device.facilitySize as FacilitySizeId) || 'small');
+  const [transportHours, setTransportHours] = useState(device.transportHours ?? 2);
+
+  // Thresholds
+  const [useCustom,    setUseCustom]    = useState(device.useCustomThresholds ?? false);
+  const [warnTemp,     setWarnTemp]     = useState(String(device.warningTemperature  ?? 10));
+  const [critTemp,     setCritTemp]     = useState(String(device.criticalTemperature ?? 15));
+  const [warnHumid,    setWarnHumid]    = useState(String(device.warningHumidity     ?? 80));
+  const [critHumid,    setCritHumid]    = useState(String(device.criticalHumidity    ?? 90));
+  const [humidHigh,    setHumidHigh]    = useState(device.humidAlertHigh !== false);
+
+  // Offsets
+  const [tempOffset,  setTempOffset]  = useState(String(device.tempOffset  ?? 0));
+  const [humidOffset, setHumidOffset] = useState(String(device.humidOffset ?? 0));
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -753,18 +1205,59 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
   }, []);
 
   const handleSave = () => {
-    if (!name.trim()) return;
-    if (!isDirty) { onClose(); return; }
     setSaving(true);
     setTimeout(() => {
-      updateDevice(device.id, { name: name.trim(), location: location.trim() });
-      addToast({ id: `toast-${Date.now()}`, type: 'success', message: `${name.trim()} updated` });
+      // Identity
+      updateDevice(device.id, {
+        name:     unitName.trim(),
+        unitName: unitName.trim(),
+        location: location.trim(),
+      });
+
+      // Produce
+      updateProduceSetup(device.id, {
+        produceMode:  produceId,
+        produceState,
+        facilitySize,
+        transportHours,
+      });
+
+      // Thresholds
+      updateDevice(device.id, {
+        useCustomThresholds: useCustom,
+        warningTemperature:  parseFloat(warnTemp)  || 10,
+        criticalTemperature: parseFloat(critTemp)  || 15,
+        warningHumidity:     parseFloat(warnHumid) || 80,
+        criticalHumidity:    parseFloat(critHumid) || 90,
+        humidAlertHigh:      humidHigh,
+      });
+
+      // Offsets (advanced users only)
+      if (isAdvancedUser) {
+        updateDevice(device.id, {
+          tempOffset:  parseFloat(tempOffset)  || 0,
+          humidOffset: parseFloat(humidOffset) || 0,
+        });
+      }
+
+      addToast({ id: `cfg-${Date.now()}`, type: 'success', message: `${unitName.trim()} updated` });
       setSaving(false);
       onClose();
     }, 500);
   };
 
-  const inputBase = "w-full px-4 rounded-xl border border-[#E4E7EC] bg-[#F3F4F6] text-[#111827] outline-none focus:border-[#0984E3] focus:ring-2 focus:ring-[#0984E3]/20 transition-all";
+  const inputBase = "w-full px-4 py-3 rounded-xl border border-[#E4E7EC] bg-[#F3F4F6] text-[#111827] outline-none focus:border-[#0984E3] focus:ring-2 focus:ring-[#0984E3]/20 transition-all text-sm";
+  const numInput  = (val: string, set: (v: string) => void, placeholder: string) => (
+    <input
+      type="number"
+      inputMode="decimal"
+      value={val}
+      onChange={e => set(e.target.value)}
+      placeholder={placeholder}
+      className={inputBase}
+      style={{ height: 48 }}
+    />
+  );
 
   return (
     <>
@@ -773,64 +1266,324 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
       <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         transition={{ type: 'spring', stiffness: 380, damping: 38 }}
         className="fixed bottom-0 left-0 right-0 z-[60] bg-white rounded-t-3xl shadow-2xl border-t border-[#E4E7EC] flex flex-col"
-        style={{ maxHeight: '85dvh' }}>
-        <div className="flex justify-center pt-4 pb-2 flex-shrink-0">
-          <div className="w-12 h-1.5 rounded-full bg-[#D1D5DB]" />
+        style={{ maxHeight: '92dvh' }}>
+
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 rounded-full bg-[#D1D5DB]" />
         </div>
-        <div className="px-5 pt-2 overflow-y-auto flex-1 overscroll-contain">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-[#0984E3]/10 flex items-center justify-center flex-shrink-0">
-                <Settings2 style={{ width: 24, height: 24, color: '#0984E3' }} />
-              </div>
-              <div>
-                <p className="font-bold text-[#111827]" style={{ fontSize: 18 }}>Configure Device</p>
-                <p className="text-[#6B7280] font-mono mt-0.5" style={{ fontSize: 13 }}>{device.id}</p>
-              </div>
-            </div>
-            <button onClick={onClose}
-              className="rounded-full bg-[#F3F4F6] flex items-center justify-center active:opacity-70"
-              style={{ width: 44, height: 44 }}>
-              <X className="w-5 h-5 text-[#6B7280]" />
-            </button>
+
+        {/* Header */}
+        <div className="px-5 pt-2 pb-3 flex items-center justify-between flex-shrink-0">
+          <div>
+            <p className="font-bold text-[#111827] text-lg">Configure Device</p>
+            <p className="text-[#6B7280] font-mono text-xs mt-0.5">{device.deviceCode || device.id.slice(0, 8)}</p>
           </div>
-          <div className="space-y-5 mb-5">
-            <div>
-              <label className="block font-semibold text-[#111827] mb-2 uppercase tracking-wide" style={{ fontSize: 14 }}>
-                Device Name
-              </label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)}
-                className={inputBase} placeholder="e.g. Storage Unit A"
-                maxLength={40} autoComplete="off" style={{ fontSize: 16, height: 56 }} />
-            </div>
-            <div>
-              <label className="block font-semibold text-[#111827] mb-2 uppercase tracking-wide" style={{ fontSize: 14 }}>
-                Location
-              </label>
-              <input type="text" value={location} onChange={e => setLocation(e.target.value)}
-                className={inputBase} placeholder="e.g. Kumasi Central Market"
-                maxLength={60} autoComplete="off" style={{ fontSize: 16, height: 56 }} />
-            </div>
-          </div>
-          <p className="text-[#6B7280] pb-6 leading-relaxed" style={{ fontSize: 14 }}>
-            Calibration offsets and custom thresholds can be adjusted in{' '}
-            <span className="text-[#0984E3] font-semibold">Settings → Device Configuration</span>.
-          </p>
+          <button onClick={onClose}
+            className="w-8 h-8 rounded-full bg-[#F3F4F6] flex items-center justify-center active:bg-[#E4E7EC]">
+            <X className="w-4 h-4 text-[#6B7280]" />
+          </button>
         </div>
+
+        {/* Tabs */}
+        <div className="px-5 pb-2 flex-shrink-0">
+          <div className="flex gap-1 p-1 rounded-xl bg-[#F3F4F6]">
+            {CONFIG_TABS.filter(t => t.id !== 'offsets' || isAdvancedUser).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className="flex-1 py-2 rounded-lg text-xs font-semibold transition-all"
+                style={{
+                  backgroundColor: activeTab === tab.id ? '#FFFFFF' : 'transparent',
+                  color:           activeTab === tab.id ? '#111827'  : '#6B7280',
+                  boxShadow:       activeTab === tab.id ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-4">
+          <AnimatePresence mode="wait">
+
+            {/* ── Identity ── */}
+            {activeTab === 'identity' && (
+              <motion.div key="identity"
+                initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
+                className="space-y-4 pt-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Storage Unit Name</label>
+                  <input value={unitName} onChange={e => setUnitName(e.target.value)}
+                    placeholder="e.g. Cold Room A" className={inputBase} style={{ height: 52, fontSize: 16 }} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Location</label>
+                  <input value={location} onChange={e => setLocation(e.target.value)}
+                    placeholder="e.g. Kumasi Central Market" className={inputBase} style={{ height: 52, fontSize: 16 }} />
+                </div>
+                <div className="p-3 rounded-xl" style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
+                  <p className="text-[11px] text-[#6B7280]">
+                    Device ID <span className="font-mono font-bold text-[#111827]">{device.deviceCode || '—'}</span> is permanent and cannot be changed here. To reuse this ID, remove and re-add the device.
+                  </p>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── Produce ── */}
+            {activeTab === 'produce' && (
+              <motion.div key="produce"
+                initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
+                className="space-y-5 pt-2">
+
+                <div>
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">What are you storing?</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {CONFIGURE_PRODUCE.map(p => (
+                      <button key={p.id} onClick={() => setProduceId(p.id)}
+                        className="flex items-center gap-2 p-3 rounded-xl text-left transition-all active:scale-[0.97]"
+                        style={{
+                          border:           `1.5px solid ${produceId === p.id ? p.color + '80' : '#E4E7EC'}`,
+                          backgroundColor:  produceId === p.id ? p.tint : '#FFFFFF',
+                        }}>
+                        <span className="text-xl">{p.emoji}</span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold truncate" style={{ color: produceId === p.id ? p.color : '#111827' }}>
+                            {p.label}
+                          </p>
+                          <p className="text-[10px] text-[#6B7280] truncate">{p.tagline}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">Produce Condition</p>
+                  <div className="space-y-2">
+                    {CONFIGURE_STATES.map(ps => (
+                      <button key={ps.id} onClick={() => setProduceState(ps.id)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all active:scale-[0.98]"
+                        style={{
+                          border:          `1.5px solid ${produceState === ps.id ? ps.color + '60' : '#E4E7EC'}`,
+                          backgroundColor: produceState === ps.id ? ps.tint : '#FFFFFF',
+                        }}>
+                        <span style={{ fontSize: 18 }}>{ps.emoji}</span>
+                        <div className="flex-1">
+                          <p className="text-xs font-semibold" style={{ color: produceState === ps.id ? ps.color : '#111827' }}>
+                            {ps.label}
+                          </p>
+                          <p className="text-[10px] text-[#6B7280]">{ps.desc}</p>
+                        </div>
+                        {produceState === ps.id && <Check className="w-4 h-4 flex-shrink-0" style={{ color: ps.color }} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">Facility Size</p>
+                  <div className="space-y-2">
+                    {FACILITY_SIZES.map(fs => (
+                      <button key={fs.id} onClick={() => setFacilitySize(fs.id)}
+                        className="w-full flex items-center gap-3 p-3 rounded-xl text-left active:scale-[0.98]"
+                        style={{
+                          border:          `1.5px solid ${facilitySize === fs.id ? '#0984E380' : '#E4E7EC'}`,
+                          backgroundColor: facilitySize === fs.id ? '#EBF4FF' : '#FFFFFF',
+                        }}>
+                        <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                          style={{ borderColor: facilitySize === fs.id ? '#0984E3' : '#C8CDD8', backgroundColor: facilitySize === fs.id ? '#0984E3' : 'transparent' }}>
+                          {facilitySize === fs.id && <Check className="w-2.5 h-2.5 text-white" />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold" style={{ color: facilitySize === fs.id ? '#0984E3' : '#111827' }}>{fs.label}</p>
+                          <p className="text-[10px] text-[#6B7280]">{fs.desc}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Transport Time</p>
+                    <span className="text-sm font-bold text-[#0984E3]">{transportHours}h</span>
+                  </div>
+                  <input type="range" min={0} max={48} step={1} value={transportHours}
+                    onChange={e => setTransportHours(Number(e.target.value))}
+                    className="w-full accent-[#0984E3]" />
+                  <div className="flex justify-between text-[9px] text-[#9CA3AF] mt-1">
+                    <span>0h</span><span>12h</span><span>24h</span><span>36h</span><span>48h</span>
+                  </div>
+                </div>
+
+                {/* Target preview */}
+                <div className="p-3 rounded-xl" style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
+                  <p className="text-[10px] text-[#6B7280] uppercase tracking-wide mb-1.5">Targets that will be applied</p>
+                  {(() => {
+                    const targets = getStateAdjustedTargets(produceId as ProduceMode, produceState);
+                    return (
+                      <div className="flex gap-4">
+                        <span className="text-sm font-bold text-[#0984E3]">🌡 {targets.targetTemperature}°C</span>
+                        <span className="text-sm font-bold text-[#0984E3]">💧 {targets.targetHumidity}% RH</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── Thresholds ── */}
+            {activeTab === 'thresholds' && (
+              <motion.div key="thresholds"
+                initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
+                className="space-y-5 pt-2">
+
+                {/* Custom threshold toggle */}
+                <div className="flex items-center justify-between p-4 rounded-2xl"
+                  style={{ backgroundColor: useCustom ? '#EBF4FF' : '#F3F4F6', border: `1.5px solid ${useCustom ? '#0984E380' : '#E4E7EC'}` }}>
+                  <div>
+                    <p className="text-sm font-semibold text-[#111827]">Custom Thresholds</p>
+                    <p className="text-[11px] text-[#6B7280] mt-0.5">
+                      {useCustom ? 'Using device-specific thresholds' : 'Using global settings thresholds'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setUseCustom(v => !v)}
+                    className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0"
+                    style={{ backgroundColor: useCustom ? '#0984E3' : '#D1D5DB' }}>
+                    <motion.div
+                      animate={{ x: useCustom ? 20 : 2 }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                      className="absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm"
+                    />
+                  </button>
+                </div>
+
+                {useCustom && (
+                  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                    {/* Temperature */}
+                    <div>
+                      <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                        🌡 Temperature Thresholds
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[11px] text-[#6B7280] font-medium">Warning (°C)</label>
+                          {numInput(warnTemp, setWarnTemp, '10')}
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] text-[#6B7280] font-medium">Critical (°C)</label>
+                          {numInput(critTemp, setCritTemp, '15')}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Humidity */}
+                    <div>
+                      <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                        💧 Humidity Thresholds
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[11px] text-[#6B7280] font-medium">Warning (%)</label>
+                          {numInput(warnHumid, setWarnHumid, '80')}
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] text-[#6B7280] font-medium">Critical (%)</label>
+                          {numInput(critHumid, setCritHumid, '90')}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Humidity alert direction */}
+                    <div>
+                      <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">Alert when humidity is…</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { val: true,  label: 'Too High', desc: 'Tubers, legumes, meat', emoji: '💧⬆️' },
+                          { val: false, label: 'Too Low',  desc: 'Leafy veg, fruits',     emoji: '💧⬇️' },
+                        ].map(opt => (
+                          <button key={String(opt.val)} onClick={() => setHumidHigh(opt.val)}
+                            className="p-3 rounded-xl text-left transition-all active:scale-[0.97]"
+                            style={{
+                              border:          `1.5px solid ${humidHigh === opt.val ? '#0984E380' : '#E4E7EC'}`,
+                              backgroundColor: humidHigh === opt.val ? '#EBF4FF' : '#FFFFFF',
+                            }}>
+                            <p className="text-base mb-1">{opt.emoji}</p>
+                            <p className="text-xs font-semibold" style={{ color: humidHigh === opt.val ? '#0984E3' : '#111827' }}>
+                              {opt.label}
+                            </p>
+                            <p className="text-[10px] text-[#6B7280]">{opt.desc}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {!useCustom && (
+                  <div className="p-3 rounded-xl" style={{ backgroundColor: '#FFF8F0', border: '1px solid #F5CBA7' }}>
+                    <p className="text-[11px] text-[#7A3010] leading-relaxed">
+                      Global thresholds are used. Enable custom thresholds above to set values specific to this device.
+                    </p>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* ── Offsets (advanced users only) ── */}
+            {activeTab === 'offsets' && isAdvancedUser && (
+              <motion.div key="offsets"
+                initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
+                className="space-y-4 pt-2">
+
+                <div className="p-3 rounded-xl" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
+                  <p className="text-xs font-semibold text-[#1D4ED8] mb-1">What are sensor offsets?</p>
+                  <p className="text-[11px] text-[#1E40AF] leading-relaxed">
+                    The SHT31 sensor can read slightly high due to self-heating inside the enclosure. Offsets are added to every raw reading before alert evaluation. Use a reference thermometer to measure the discrepancy, then set the correction here.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Temperature Offset (°C)</label>
+                  <p className="text-[10px] text-[#6B7280] mb-1.5">e.g. -1.5 if sensor reads 1.5°C too high</p>
+                  {numInput(tempOffset, setTempOffset, '0')}
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Humidity Offset (%)</label>
+                  <p className="text-[10px] text-[#6B7280] mb-1.5">e.g. +2 if sensor reads 2% too low</p>
+                  {numInput(humidOffset, setHumidOffset, '0')}
+                </div>
+
+                <div className="p-3 rounded-xl" style={{ backgroundColor: 'rgba(192,57,43,0.06)', border: '1px solid rgba(192,57,43,0.2)' }}>
+                  <p className="text-[11px] text-red-600 leading-relaxed">
+                    ⚠️ Large offsets can mask real temperature problems. Only set these if you have verified the discrepancy with a calibrated reference thermometer.
+                  </p>
+                </div>
+              </motion.div>
+            )}
+
+          </AnimatePresence>
+        </div>
+
+        {/* Save button */}
         <div className="flex-shrink-0 px-5 border-t border-[#E4E7EC] bg-white"
           style={{ paddingTop: 14, paddingBottom: 'calc(env(safe-area-inset-bottom) + 14px)' }}>
           <div className="flex gap-3">
             <button onClick={onClose}
               className="flex-1 rounded-2xl border-2 border-[#E4E7EC] text-[#6B7280] font-semibold active:bg-[#F3F4F6]"
-              style={{ fontSize: 17, minHeight: 58 }}>
+              style={{ fontSize: 16, minHeight: 54 }}>
               Cancel
             </button>
-            <button onClick={handleSave} disabled={!name.trim() || saving}
+            <button onClick={handleSave} disabled={saving || !unitName.trim()}
               className="flex-1 rounded-2xl text-white font-bold active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
-              style={{ fontSize: 17, minHeight: 58, backgroundColor: isDirty ? '#0984E3' : '#27AE60' }}>
+              style={{ fontSize: 16, minHeight: 54, backgroundColor: '#0984E3' }}>
               {saving
                 ? <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />Saving…</>
-                : isDirty ? 'Save Changes' : <><Check className="w-5 h-5" />No Changes</>
+                : <><Check className="w-5 h-5" />Save Changes</>
               }
             </button>
           </div>
@@ -843,26 +1596,44 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
 // ── Main Devices Page ─────────────────────────────────────────────────────────
 
 export default function Devices() {
-  const { devices, setActivePage, setSelectedDeviceId, isAdvancedUser, deleteDevice, addToast } = useApp();
-  const [configuringDevice, setConfiguringDevice] = useState<Device | null>(null);
-  const [showAddModal,      setShowAddModal]      = useState(false);
-  const [confirmingDelete,  setConfirmingDelete]  = useState<string | null>(null);
-  const isLoading = usePageLoading();
+  const {
+    devices, deleteDevice, addToast, setActivePage, setSelectedDeviceId,
+    isAdvancedUser, updateDevice,
+  } = useApp();
 
-  if (isLoading) return <DevicesSkeleton />;
+ // Hooks must be declared before any conditional return (Rules of Hooks)
+const [showAddModal,       setShowAddModal]       = useState(false);
+const [configuringDevice,  setConfiguringDevice]  = useState<Device | null>(null);
+const [removingDevice,     setRemovingDevice]     = useState<Device | null>(null);
 
+const isLoading = usePageLoading();
+if (isLoading) return <DevicesSkeleton />;
   const handleViewDashboard = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
     setActivePage('dashboard');
   };
 
-  const handleDelete = (device: Device) => {
+  const handleRemoveConfirm = async (
+    device: Device,
+    record: {
+      conditionOnRemoval: RemovalConditionId;
+      conditionImageBase64?: string;
+      conditionImageMime?: string;
+      aiAssessment?: string;
+      notes: string;
+    }
+  ) => {
+    // In the real backend integration this will POST to /produce-records first,
+    // then DELETE /devices/:id. For now we just delete locally and show a toast.
     deleteDevice(device.id);
-    setConfirmingDelete(null);
-    addToast({ id: `toast-${Date.now()}`, type: 'info', message: `${device.name} removed` });
+    setRemovingDevice(null);
+    addToast({
+      id:       `toast-remove-${Date.now()}`,
+      type:     'success',
+      message:  `${device.deviceCode || device.id} removed. Produce record saved.`,
+      duration: 5000,
+    });
   };
-
-  const handleGoToSettings = () => setActivePage('settings');
 
   return (
     <div className="space-y-6">
@@ -886,14 +1657,24 @@ export default function Devices() {
           <motion.div layout key={device.id} className="bg-white rounded-2xl p-5 shadow-sm border border-[#E4E7EC]">
 
             {/* Card Header */}
-            <div className="flex items-start justify-between mb-5">
+            <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center"
                   style={{ backgroundColor: device.status === 'online' ? 'rgba(9,132,227,0.1)' : 'rgba(192,57,43,0.08)' }}>
                   <Cpu className="w-6 h-6" style={{ color: device.status === 'online' ? '#0984E3' : '#C0392B' }} />
                 </div>
                 <div>
-                  <h3 className="text-[#111827] font-medium text-sm">{device.name}</h3>
+                  {/* Device ID badge */}
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md"
+                      style={{ backgroundColor: '#F3F4F6', color: '#374151' }}>
+                      {device.deviceCode || device.id.slice(0, 8)}
+                    </span>
+                  </div>
+                  {/* Storage Unit Name */}
+                  <h3 className="text-[#111827] font-semibold text-sm leading-tight">
+                    {device.unitName || device.name}
+                  </h3>
                   <div className="flex items-center gap-1 text-xs text-[#6B7280] mt-0.5">
                     <MapPin className="w-3 h-3" />
                     <span className="truncate max-w-[140px]">{device.location}</span>
@@ -917,9 +1698,9 @@ export default function Devices() {
               </div>
             )}
 
-            {/* Produce badge */}
+            {/* Produce badge + storage duration */}
             {device.produceSetupComplete && device.produceMode && (
-              <div className="flex items-center gap-2 mb-4">
+              <div className="flex items-center gap-2 mb-4 flex-wrap">
                 <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold"
                   style={{ backgroundColor: '#EBF4FF', color: '#1A65B5' }}>
                   {device.produceMode.charAt(0).toUpperCase() + device.produceMode.slice(1)}
@@ -931,6 +1712,12 @@ export default function Devices() {
                       color: device.produceState === 'fresh' ? '#1A7A3F' : device.produceState === 'almost-damaged' ? '#C0392B' : '#E67E22',
                     }}>
                     {device.produceState === 'in-between' ? 'In-Between' : device.produceState.charAt(0).toUpperCase() + device.produceState.slice(1)}
+                  </span>
+                )}
+                {device.storedSince && (
+                  <span className="flex items-center gap-1 text-[10px] text-[#6B7280]">
+                    <Clock className="w-3 h-3" />
+                    {daysSince(device.storedSince)}d stored
                   </span>
                 )}
               </div>
@@ -978,54 +1765,24 @@ export default function Devices() {
             </div>
 
             {/* Actions */}
-            <AnimatePresence mode="wait">
-              {confirmingDelete === device.id ? (
-                <motion.div key="confirm"
-                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
-                  className="rounded-xl p-3 border"
-                  style={{ backgroundColor: 'rgba(192,57,43,0.06)', borderColor: 'rgba(192,57,43,0.2)' }}>
-                  <div className="flex items-center gap-2 mb-2.5">
-                    <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
-                    <p className="text-xs font-semibold text-red-600">Remove this device?</p>
-                  </div>
-                  <p className="text-[11px] text-[#6B7280] mb-3 leading-relaxed">
-                    This removes it from your dashboard. The ESP32 hardware is unaffected.
-                  </p>
-                  <div className="flex gap-2">
-                    <button onClick={() => setConfirmingDelete(null)}
-                      className="flex-1 py-2 rounded-lg text-xs font-semibold text-[#6B7280] border border-[#E4E7EC] active:bg-[#F3F4F6]">
-                      Cancel
-                    </button>
-                    <button onClick={() => handleDelete(device)}
-                      className="flex-1 py-2 rounded-lg text-xs font-semibold text-white active:scale-[0.98]"
-                      style={{ backgroundColor: '#C0392B' }}>
-                      Remove
-                    </button>
-                  </div>
-                </motion.div>
-              ) : (
-                <motion.div key="actions"
-                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}
-                  className="flex gap-2">
-                  <button onClick={() => handleViewDashboard(device.id)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-white text-xs font-semibold active:scale-[0.98]"
-                    style={{ backgroundColor: '#0984E3' }}>
-                    Dashboard <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                  <button onClick={() => setConfiguringDevice(device)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-[#E4E7EC] rounded-xl text-[#6B7280] text-xs font-semibold active:bg-[#F3F4F6]">
-                    <Settings2 className="w-3.5 h-3.5" /> Configure
-                  </button>
-                  {isAdvancedUser && (
-                    <button onClick={() => setConfirmingDelete(device.id)}
-                      className="w-10 flex items-center justify-center border border-[#E4E7EC] rounded-xl text-red-400 active:bg-red-50"
-                      aria-label={`Remove ${device.name}`}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <div className="flex gap-2">
+              <button onClick={() => handleViewDashboard(device.id)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-white text-xs font-semibold active:scale-[0.98]"
+                style={{ backgroundColor: '#0984E3' }}>
+                Dashboard <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => setConfiguringDevice(device)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-[#E4E7EC] rounded-xl text-[#6B7280] text-xs font-semibold active:bg-[#F3F4F6]">
+                <Settings2 className="w-3.5 h-3.5" /> Configure
+              </button>
+              <button
+                onClick={() => setRemovingDevice(device)}
+                className="w-10 flex items-center justify-center border border-[#E4E7EC] rounded-xl text-red-400 active:bg-red-50"
+                aria-label={`Remove ${device.unitName || device.name}`}
+                title="Remove produce & device">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </motion.div>
         ))}
 
@@ -1038,7 +1795,7 @@ export default function Devices() {
           </div>
           <p className="text-[#111827] font-medium text-sm mb-1">Add New Device</p>
           <p className="text-[#6B7280] text-xs text-center max-w-[180px] leading-relaxed">
-            Connect an ESP32 + DHT22 cold storage unit
+            Connect an ESP32 + SHT31 cold storage unit
           </p>
         </button>
       </div>
@@ -1049,7 +1806,15 @@ export default function Devices() {
           <ConfigureSheet key="configure" device={configuringDevice} onClose={() => setConfiguringDevice(null)} />
         )}
         {showAddModal && (
-          <AddDeviceModal key="add" onClose={() => setShowAddModal(false)} onGoToSettings={handleGoToSettings} />
+          <AddDeviceModal key="add" onClose={() => setShowAddModal(false)} onGoToSettings={() => { setShowAddModal(false); setActivePage('settings'); }} />
+        )}
+        {removingDevice && (
+          <RemoveProduceSheet
+            key="remove"
+            device={removingDevice}
+            onClose={() => setRemovingDevice(null)}
+            onConfirm={(record) => handleRemoveConfirm(removingDevice, record)}
+          />
         )}
       </AnimatePresence>
     </div>

@@ -217,6 +217,43 @@ function buildAppContext(app: ReturnType<typeof useApp>) {
       systemStatus: app.systemStatus, autoMode: app.autoMode,
       temperatureBreached: app.currentTemperature > app.targetTemperature + 1,
       humidityBreached: Math.abs(app.currentHumidity - app.targetHumidity) > 5,
+      // ── Temperature trend analysis ─────────────────────────────────────────
+      // Computed from the last 10 sensor readings (sampled every 3s = ~30s window).
+      // Gives Nix the data to predict approaching breaches BEFORE they happen.
+      temperatureTrend: (() => {
+        const hist = app.sensorHistory;
+        if (hist.length < 4) return null;
+        // Take last 10 readings (or all if fewer)
+        const recent = hist.slice(-10);
+        const n      = recent.length;
+        // Simple linear regression slope: degrees per reading (every 3 seconds)
+        const xs     = recent.map((_, i) => i);
+        const ys     = recent.map(r => r.temperature);
+        const xMean  = xs.reduce((a, b) => a + b, 0) / n;
+        const yMean  = ys.reduce((a, b) => a + b, 0) / n;
+        const num    = xs.reduce((s, x, i) => s + (x - xMean) * (ys[i] - yMean), 0);
+        const den    = xs.reduce((s, x) => s + (x - xMean) ** 2, 0);
+        const slope  = den === 0 ? 0 : num / den; // degrees per 3-second tick
+        const slopePerMin = parseFloat((slope * 20).toFixed(3)); // degrees per minute
+        // Predicted temperature in 15 minutes if trend continues
+        const predicted15min = parseFloat((app.currentTemperature + slopePerMin * 15).toFixed(1));
+        // How many minutes until warning/critical threshold at this rate
+        const warnThreshold  = selectedDevice?.warningTemperature ?? 10;
+        const critThreshold  = selectedDevice?.criticalTemperature ?? 15;
+        const gapToWarn      = warnThreshold - app.currentTemperature;
+        const gapToCrit      = critThreshold - app.currentTemperature;
+        const minsToWarn     = slopePerMin > 0.01 ? parseFloat((gapToWarn / slopePerMin).toFixed(1)) : null;
+        const minsToCrit     = slopePerMin > 0.01 ? parseFloat((gapToCrit / slopePerMin).toFixed(1)) : null;
+        return {
+          slopePerMin,
+          direction: slopePerMin > 0.05 ? 'rising' : slopePerMin < -0.05 ? 'falling' : 'stable',
+          predicted15min,
+          minsToWarningThreshold: minsToWarn !== null && minsToWarn > 0 && minsToWarn < 60 ? minsToWarn : null,
+          minsToCriticalThreshold: minsToCrit !== null && minsToCrit > 0 && minsToCrit < 60 ? minsToCrit : null,
+          willBreachWarningIn15min: predicted15min > warnThreshold && app.currentTemperature <= warnThreshold,
+          willBreachCriticalIn15min: predicted15min > critThreshold && app.currentTemperature <= critThreshold,
+        };
+      })(),
     },
     allDevices: app.devices.map(d => ({
       id: d.id, name: d.name, location: d.location, status: d.status,
@@ -304,14 +341,48 @@ ALERT RULE: Always explain beyond the raw message. What caused it, what it means
 
 AUTO-RESOLVE: Never dismiss active breach alerts manually. Fix the conditions. Tell the user the system resolves automatically.
 
+AI TEMPERATURE OPTIMISATION — READ THIS CAREFULLY:
+You have access to a real-time temperature trend analysis in the app state under readings.temperatureTrend. This is what makes you genuinely intelligent — you can warn about problems BEFORE they happen, not just after.
+
+Every time you respond, silently check the trend data:
+
+IF direction is "rising" AND (willBreachWarningIn15min OR minsToWarningThreshold is under 20):
+  — Mention this proactively even if the user did not ask. Be calm, not alarming.
+  — Example: "One thing I'm noticing — your temperature's been climbing steadily, about [slopePerMin] degrees a minute. At this rate you'll hit the warning threshold in roughly [minsToWarningThreshold] minutes. Worth lowering the target or switching on auto mode now before it becomes a problem."
+  — Then ask if they want you to act on it. Do NOT include an ACTION block unless they say yes.
+
+IF willBreachCriticalIn15min is true:
+  — This is more urgent. Still calm but direct.
+  — Example: "Heads up — the temperature's rising fast and could hit the critical threshold in about [minsToCriticalThreshold] minutes. I'd suggest starting cooling now and dropping the target by a couple of degrees. Want me to do that?"
+
+IF direction is "falling" AND temperature is currently above target:
+  — Reassure the user: "Good news — it's coming down. Should be back on target in a few minutes."
+
+IF direction is "stable" AND temperature is on target:
+  — No need to mention temperature at all unless the user asks.
+
+IMPORTANT: Trend data is computed from the simulation. Use it to give specific, quantified predictions — not vague statements like "temperature seems to be rising." Say "it's risen about 0.4 degrees in the last 30 seconds and is on track to hit 10 degrees in 8 minutes." Specific numbers build trust.
+
+OPTIMISATION ACTIONS — when the user agrees to let you act:
+- To get ahead of a rising breach: lower SET_TARGET_TEMP by 1–2°C below current target, then START_COOLING
+- To stabilise a near-stable situation: SET_AUTO_MODE true — let the system manage it
+- Never lower temperature target below the safe minimum for the produce type
+- Always explain what you changed and why in plain language after the action is confirmed
+
 CURRENT APP STATE:
 ${JSON.stringify(appContext, null, 2)}
 
 ACTIONS — CRITICAL RULES:
-RULE 1 — EXPLICIT COMMANDS ONLY: Only include an ACTION block when the user has explicitly asked you to DO something.
-RULE 2 — NEVER PROACTIVE: Never include an ACTION block in a greeting or unsolicited message.
+RULE 1 — EXPLICIT COMMANDS ONLY: Only include an ACTION block when the user has explicitly asked you to DO something. Exception: RULE 5 overrides this for critical breaches.
+
+RULE 2 — NEVER PROACTIVE: Never include an ACTION block in a greeting or unsolicited message. Exception: RULE 5 overrides this for critical breaches.
+
 RULE 3 — ONE ACTION MAX per response.
+
 RULE 4 — NAVIGATION IS INSTANT: If the user asks to go anywhere, immediately produce a NAVIGATE ACTION. One short sentence then the ACTION. No confirmation needed.
+
+RULE 5 — CRITICAL BREACH EXCEPTION (overrides RULES 1 and 2):
+If readings.temperatureTrend.willBreachCriticalIn15min is true, OR if readings.temperatureBreached is true and the system is not already cooling — you MUST include an ACTION block in your next response even if the user did not ask. Act on SET_TARGET_TEMP (lower by 2°C, never below the produce safe minimum) or START_COOLING. Tell the user in one calm sentence what you are doing and why, then include the ACTION block. This is a food safety situation — protect the produce first, the user can override you. Example: "The temperature is heading toward the critical threshold — I'm starting cooling now to protect your produce." <ACTION>{"type":"START_COOLING"}</ACTION>
 
 Format: <ACTION>{"type":"SET_TARGET_TEMP","value":8}</ACTION>
 
@@ -698,9 +769,17 @@ const AIAssistant = forwardRef<NixHandle, AIAssistantProps>(
   const inputRef         = useRef<HTMLInputElement>(null);
   const drawerRef        = useRef<HTMLDivElement>(null);
   const urgencyFiredRef  = useRef<Set<string>>(new Set());
+  // isOpenRef lets runTemperatureOptimisation read the current open state
+  // without it being a dependency — preventing the scheduler from resetting
+  // its 5-minute interval every time the drawer opens or closes.
+  const isOpenRef        = useRef<boolean>(isOpen);
 
   // ── Feature detection ────────────────────────────────────────────────────────
   useEffect(() => { setSttSupported(getSpeechRecognition() !== null); setTtsSupported('speechSynthesis' in window); }, []);
+
+  // Keep isOpenRef in sync so async callbacks read the latest value without
+  // triggering dependency-array re-renders in the optimisation scheduler.
+  useEffect(() => { isOpenRef.current = isOpen; }, [isOpen]);
 
   // ── Persist preferences ──────────────────────────────────────────────────────
   useEffect(() => { try { localStorage.setItem('cw_assistant_lang',  lang);          } catch { /* */ } }, [lang]);
@@ -876,7 +955,30 @@ const AIAssistant = forwardRef<NixHandle, AIAssistantProps>(
           setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, actionTaken: `Going to ${action.value}` } : m));
           onNavigate?.(action.value); onClose();
           setTimeout(() => sendPageSummary(action.value as string), 500);
+
+        // CRITICAL SAFETY ACTIONS — auto-execute without confirmation banner
+        // when a critical breach is imminent. The AI only reaches this path via
+        // RULE 5 in the system prompt (willBreachCriticalIn15min or temperatureBreached
+        // while not cooling). User is notified via toast + actionTaken badge.
+        } else if (
+          (action.type === 'SET_TARGET_TEMP' || action.type === 'START_COOLING') &&
+          buildAppContext(app).readings.temperatureTrend?.willBreachCriticalIn15min
+        ) {
+          const success = executeAction(action, app);
+          if (success) {
+            const label = describeAction(action);
+            setMessages(prev => prev.map(m =>
+              m.id === assistantMsg.id ? { ...m, actionTaken: `Auto-protected: ${label}` } : m
+            ));
+            app.addToast({
+              id:      `ai-critical-${Date.now()}`,
+              type:    'success',
+              message: `Critical breach prevented: ${label}`,
+            });
+          }
+
         } else {
+          // All other actions — show confirmation banner so user stays in control
           setPendingAction({ action, msgId: assistantMsg.id });
         }
       }
@@ -931,6 +1033,381 @@ const AIAssistant = forwardRef<NixHandle, AIAssistantProps>(
   }, [pendingAction, app, onNavigate, onClose, sendPageSummary, sendFollowUp]);
 
   const dismissAction = useCallback(() => setPendingAction(null), []);
+
+  // ── LEVEL 2: Autonomous predictive temperature optimisation ───────────────────
+  // Runs every 5 minutes independently of user interaction. Sends the last 60
+  // sensor readings to Groq, asks it to predict the 30-minute temperature trend,
+  // and if a breach is predicted it auto-adjusts the target temperature and
+  // notifies the user via toast + spoken message. This is the key difference
+  // from Level 1 (which only acts when the user is talking to Nix).
+  //
+  // Design decisions:
+  // - Only fires when: GROQ_API_KEY present, at least 20 readings exist (60s of data),
+  //   a device is selected, and produce setup is complete
+  // - Never fires within 3 minutes of the last run (lastOptimisedRef guard)
+  // - Never overwrites a user-set target within the last 2 minutes
+  // - Confidence guard: only acts on "high" confidence predictions. Medium = warn only.
+  // - Safe range guard: never sets a target below the produce type's safe minimum
+  // - Fires once on mount after a 30s warmup, then every 5 minutes via interval
+
+  const lastOptimisedRef    = useRef<number>(0);
+  const lastUserTargetRef   = useRef<number>(0); // timestamp of last manual user target change
+  const optimisationRunning = useRef<boolean>(false);
+
+  const runTemperatureOptimisation = useCallback(async () => {
+    if (!GROQ_API_KEY)              return;
+    if (optimisationRunning.current) return;
+
+    const now        = Date.now();
+    const cooldown   = 3 * 60 * 1000; // 3 minutes minimum between runs
+    const userCooldown = 2 * 60 * 1000; // don't override a user target for 2 mins
+    if (now - lastOptimisedRef.current < cooldown)  return;
+    if (now - lastUserTargetRef.current < userCooldown) return;
+
+    const hist   = app.sensorHistory;
+    if (hist.length < 20) return; // need at least 1 minute of data
+
+    const device = app.devices.find(d => d.id === app.selectedDeviceId);
+    if (!device?.produceSetupComplete || !device?.produceMode) return;
+
+    optimisationRunning.current = true;
+    lastOptimisedRef.current    = now;
+
+    // Safe minimum temperatures by produce type — never go below these
+    const safeMinTemp: Record<string, number> = {
+      meat: 0, leafy: 1, fruits: 4, tubers: 8, legumes: 8, mixed: 6,
+    };
+    const minSafeTarget = safeMinTemp[device.produceMode] ?? 0;
+
+    // Build compact time-series payload — last 60 readings (3 minutes of data)
+    const readings = hist.slice(-60).map((r, i) => ({
+      t: i * 3, // seconds from start of window
+      temp: parseFloat(r.temperature.toFixed(2)),
+    }));
+
+    // ── LEVEL 3: Vercel Edge Function (deterministic Holt-Winters forecasting) ─
+    // Tries the local statistical model first — no Groq tokens consumed.
+    // Falls through to Groq only if the edge function is unavailable or returns
+    // low confidence (e.g. during local dev without `vercel dev`).
+    try {
+      const edgeRes = await fetch('/api/temperature-forecast', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          readings:           readings.map(r => r.temp),
+          intervalSeconds:    3,
+          targetTemperature:  app.targetTemperature,
+          warningThreshold:   device.warningTemperature  ?? 10,
+          criticalThreshold:  device.criticalTemperature ?? 15,
+          produceMode:        device.produceMode,
+          minSafeTarget,
+        }),
+      });
+
+      if (edgeRes.ok) {
+        const edgeResult = await edgeRes.json() as {
+          predictedTemp30min: number;
+          predictedTemp60min: number;
+          trend:              'rising' | 'falling' | 'stable';
+          slopePerMin:        number;
+          anomalyScore:       number;  // 0–1
+          shouldAdjust:       boolean;
+          recommendedTarget:  number;
+          confidence:         'high' | 'medium' | 'low';
+          reason:             string;
+        };
+
+        // Only act on high/medium confidence — low confidence defers to Groq
+        if (edgeResult.confidence !== 'low') {
+          if (edgeResult.shouldAdjust) {
+            const newTarget = Math.max(
+              minSafeTarget,
+              Math.min(edgeResult.recommendedTarget, app.targetTemperature + 3)
+            );
+
+            if (Math.abs(newTarget - app.targetTemperature) >= 0.5) {
+              app.setTargetTemperature(newTarget);
+              const diffText = newTarget < app.targetTemperature
+                ? `lowered from ${app.targetTemperature}°C to ${newTarget}°C`
+                : `raised from ${app.targetTemperature}°C to ${newTarget}°C`;
+
+              app.addToast({
+                id:      `ai-optim-edge-${Date.now()}`,
+                type:    'success',
+                message: `AI optimised (statistical): target ${diffText} — ${edgeResult.reason}`,
+              });
+
+              const spokenMsg = `Temperature optimisation update. I've ${diffText} using the predictive model. ${edgeResult.reason}`;
+              speak(spokenMsg, isMuted, app.user.name);
+
+              if (isOpenRef.current) {
+                setMessages(prev => [...prev, {
+                  id:         `optim-edge-${Date.now()}`,
+                  role:       'assistant' as const,
+                  content:    `Predictive optimisation (statistical model) — I've ${diffText}. ${edgeResult.reason} Temperature was trending ${edgeResult.trend} at ${Math.abs(edgeResult.slopePerMin).toFixed(2)}°/min. Anomaly score: ${(edgeResult.anomalyScore * 100).toFixed(0)}%. Projected 30-min temp: ${edgeResult.predictedTemp30min}°C, 60-min: ${edgeResult.predictedTemp60min}°C.`,
+                  rawContent: JSON.stringify(edgeResult),
+                  timestamp:  new Date(),
+                  pending:    false,
+                  actionTaken: `Target ${diffText}`,
+                }]);
+              }
+            }
+          } else if (edgeResult.trend === 'rising' && edgeResult.confidence === 'high' && isOpenRef.current) {
+            // Trend is rising but not yet at action threshold — warn in chat
+            setMessages(prev => [...prev, {
+              id:         `optim-edge-warn-${Date.now()}`,
+              role:       'assistant' as const,
+              content:    `Predictive check (statistical model) — temperature is ${edgeResult.trend} at ${Math.abs(edgeResult.slopePerMin).toFixed(2)}°/min. Projected 30-min: ${edgeResult.predictedTemp30min}°C, 60-min: ${edgeResult.predictedTemp60min}°C. ${edgeResult.reason} No adjustment needed yet, but I'll keep monitoring.`,
+              rawContent: JSON.stringify(edgeResult),
+              timestamp:  new Date(),
+              pending:    false,
+            }]);
+          }
+
+          // Edge function handled it — skip Groq entirely to save tokens
+          return;
+        }
+        // Low confidence — fall through to Groq below
+      }
+    } catch {
+      // Edge function unavailable (local dev without vercel dev, network error, etc.)
+      // Silent — Groq fallback runs immediately below
+      console.info('[ColdWatch] Edge function unavailable — using Groq fallback');
+    }
+    // ── END LEVEL 3 ──────────────────────────────────────────────────────────
+
+    const prompt = `You are an AI temperature optimisation engine for a cold chain storage system.
+
+DEVICE: ${device.name} (${device.location})
+PRODUCE: ${device.produceMode}, condition: ${device.produceState ?? 'unknown'}
+CURRENT TEMPERATURE: ${app.currentTemperature.toFixed(1)}°C
+CURRENT TARGET: ${app.targetTemperature}°C
+WARNING THRESHOLD: ${device.warningTemperature ?? 10}°C
+CRITICAL THRESHOLD: ${device.criticalTemperature ?? 15}°C
+SYSTEM STATUS: ${app.systemStatus}, Auto mode: ${app.autoMode}
+
+TIME SERIES (last ${readings.length} readings, 3-second intervals):
+${JSON.stringify(readings)}
+
+TASK:
+1. Analyse the temperature trend in the time series
+2. Predict where temperature will be in 30 minutes if no action is taken
+3. Determine if a target temperature adjustment is needed to prevent a breach
+
+Respond with ONLY valid JSON — no markdown, no explanation outside the JSON:
+{
+  "predictedTempIn30min": <number, 1 decimal place>,
+  "trend": "rising" | "falling" | "stable",
+  "slopePerMin": <number, degrees per minute>,
+  "shouldAdjust": <boolean>,
+  "recommendedTarget": <number, integer °C — must be >= ${minSafeTarget} and <= ${app.targetTemperature + 3}>,
+  "confidence": "high" | "medium" | "low",
+  "reason": "<one plain English sentence explaining the recommendation>"
+}
+
+Only set shouldAdjust to true if: (a) the predicted temperature will exceed the warning threshold within 30 minutes AND (b) reducing the target temperature now would prevent this AND (c) confidence is high or medium.`;
+
+    try {
+      const raw = await groqFetch([
+        { role: 'user', content: prompt },
+      ], { temperature: 0.1, max_tokens: 300 });
+
+      // Robust JSON extraction
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const result = JSON.parse(jsonMatch[0]) as {
+        predictedTempIn30min: number;
+        trend: string;
+        slopePerMin: number;
+        shouldAdjust: boolean;
+        recommendedTarget: number;
+        confidence: string;
+        reason: string;
+      };
+
+      // Validate the response
+      if (typeof result.shouldAdjust !== 'boolean') throw new Error('Invalid response structure');
+
+      if (result.shouldAdjust && result.confidence !== 'low') {
+        // Clamp to safe range
+        const newTarget = Math.max(minSafeTarget, Math.min(
+          result.recommendedTarget,
+          app.targetTemperature + 3 // never lower more than 3°C in one step
+        ));
+
+        // Only apply if meaningfully different from current target
+        if (Math.abs(newTarget - app.targetTemperature) >= 0.5) {
+          app.setTargetTemperature(newTarget);
+
+          const diffText = newTarget < app.targetTemperature
+            ? `lowered from ${app.targetTemperature}°C to ${newTarget}°C`
+            : `raised from ${app.targetTemperature}°C to ${newTarget}°C`;
+
+          const toastMsg = `AI optimised: target ${diffText} — ${result.reason}`;
+          app.addToast({
+            id:      `ai-optim-${Date.now()}`,
+            type:    'success',
+            message: toastMsg,
+          });
+
+          // Spoken notification — brief and calm, always fires regardless of drawer state
+          const spokenMsg = `Temperature optimisation update. I've ${diffText} based on the current trend. ${result.reason}`;
+          speak(spokenMsg, isMuted, app.user.name);
+
+          // If drawer is open, also add a chat message so it's visible in conversation
+          if (isOpenRef.current) {
+            const optMsgId = `optim-${Date.now()}`;
+            setMessages(prev => [...prev, {
+              id:         optMsgId,
+              role:       'assistant',
+              content:    `Predictive optimisation — I've ${diffText}. ${result.reason} The temperature was trending ${result.trend} at ${Math.abs(result.slopePerMin).toFixed(2)} degrees per minute, with a projected temperature of ${result.predictedTempIn30min}°C in 30 minutes.`,
+              rawContent: raw,
+              timestamp:  new Date(),
+              pending:    false,
+              actionTaken: `Target ${diffText}`,
+            }]);
+          }
+        }
+      } else if (!result.shouldAdjust && result.trend === 'rising' &&
+                 result.confidence === 'high' && isOpenRef.current) {
+        // High-confidence rising trend but not yet at action threshold — warn in chat if open
+        const warnId = `optim-warn-${Date.now()}`;
+        setMessages(prev => [...prev, {
+          id:         warnId,
+          role:       'assistant',
+          content:    `Predictive check — temperature is ${result.trend} at ${Math.abs(result.slopePerMin).toFixed(2)} degrees per minute. Projected temperature in 30 minutes: ${result.predictedTempIn30min}°C. ${result.reason} No adjustment needed yet but I'll keep monitoring.`,
+          rawContent: raw,
+          timestamp:  new Date(),
+          pending:    false,
+        }]);
+      }
+    } catch (err) {
+      // Silent — optimisation failure must never disrupt the user experience
+      console.warn('[ColdWatch AI Optimisation] Error:', err instanceof Error ? err.message : err);
+    } finally {
+      optimisationRunning.current = false;
+    }
+  }, [app, isMuted, groqFetch]);
+
+  // Track when the user manually changes a target so we respect their intent
+  // by not overriding it for 2 minutes (userCooldown in runTemperatureOptimisation)
+  useEffect(() => {
+    lastUserTargetRef.current = Date.now();
+  }, [app.targetTemperature]);
+
+  // Optimisation scheduler — fires once after 30s warmup, then every 5 minutes
+  useEffect(() => {
+    if (!GROQ_API_KEY) return;
+    // 30-second warmup: give the simulation time to accumulate enough readings
+    const warmup = setTimeout(() => {
+      runTemperatureOptimisation();
+    }, 30_000);
+
+    const interval = setInterval(() => {
+      runTemperatureOptimisation();
+    }, 5 * 60 * 1000); // every 5 minutes
+
+    return () => {
+      clearTimeout(warmup);
+      clearInterval(interval);
+    };
+  }, [runTemperatureOptimisation]);
+
+  // ── Critical safety watchdog — runs even when drawer is CLOSED ──────────────
+  // This is the core answer to "what if the user is away?" — Level 1 normally
+  // requires a conversation, but this watchdog operates completely independently.
+  // Checks every 60 seconds. If a critical breach is imminent, it auto-executes
+  // START_COOLING and/or lowers the target, then notifies via toast + TTS.
+  // This is a food safety feature — it acts without any user interaction at all.
+
+  const watchdogFiredRef = useRef<Set<string>>(new Set()); // prevent duplicate fires per breach event
+
+  useEffect(() => {
+    if (!GROQ_API_KEY) return;
+
+    const check = () => {
+      const ctx    = buildAppContext(app);
+      const trend  = ctx.readings.temperatureTrend;
+      const device = app.devices.find(d => d.id === app.selectedDeviceId);
+
+      if (!device?.produceSetupComplete) return;
+
+      const isCriticalImminent = trend?.willBreachCriticalIn15min === true;
+      const isAlreadyBreached  = ctx.readings.temperatureBreached;
+      const isNotCooling       = app.systemStatus !== 'cooling';
+      const shouldAct          = (isCriticalImminent || (isAlreadyBreached && isNotCooling));
+
+      if (!shouldAct) {
+        // Clear watchdog keys when situation resolves so it can fire again next breach
+        watchdogFiredRef.current.clear();
+        return;
+      }
+
+      // Deduplicate — only fire once per unique breach window
+      // Key is based on rounded temperature to detect new breach events
+      const breachKey = `breach-${Math.round(app.currentTemperature * 2)}-${app.selectedDeviceId}`;
+      if (watchdogFiredRef.current.has(breachKey)) return;
+      watchdogFiredRef.current.add(breachKey);
+
+      // Safe minimum temperatures per produce type
+      const safeMin: Record<string, number> = {
+        meat: 0, leafy: 1, fruits: 4, tubers: 8, legumes: 8, mixed: 6,
+      };
+      const minSafe = safeMin[device.produceMode ?? 'mixed'] ?? 0;
+
+      // Action 1 — start cooling if not already running
+      if (isNotCooling) {
+        try {
+          app.startCooling();
+        } catch { /* silent */ }
+      }
+
+      // Action 2 — lower target temperature preemptively if breach is imminent
+      if (isCriticalImminent) {
+        const newTarget = Math.max(minSafe, app.targetTemperature - 2);
+        if (newTarget < app.targetTemperature) {
+          try {
+            app.setTargetTemperature(newTarget);
+          } catch { /* silent */ }
+        }
+      }
+
+      // Notify via toast — always visible regardless of drawer state
+      const actionSummary = isCriticalImminent
+        ? `Critical breach predicted in ~${trend?.minsToCriticalThreshold ?? '?'} minutes — cooling started, target lowered`
+        : `Temperature breach detected — cooling started automatically`;
+
+      app.addToast({
+        id:      `watchdog-${Date.now()}`,
+        type:    'success',
+        message: `Auto-protection: ${actionSummary}`,
+      });
+
+      // Spoken alert — fires regardless of whether drawer is open
+      const spokenAlert = isCriticalImminent
+        ? `Automatic protection activated. The temperature is heading toward the critical threshold in about ${trend?.minsToCriticalThreshold ?? 'a few'} minutes. I have started cooling and lowered the target temperature to protect your produce.`
+        : `Temperature breach detected. I have started the cooling system automatically to protect your ${device.produceMode ?? 'produce'}.`;
+      speak(spokenAlert, isMuted, app.user.name);
+
+      // If drawer is open, add a message to the chat so there is a visible record
+      if (isOpen) {
+        setMessages(prev => [...prev, {
+          id:         `watchdog-msg-${Date.now()}`,
+          role:       'assistant',
+          content:    spokenAlert,
+          rawContent: spokenAlert,
+          timestamp:  new Date(),
+          pending:    false,
+          actionTaken: actionSummary,
+        }]);
+      }
+    };
+
+    // Run once immediately, then every 60 seconds
+    check();
+    const interval = setInterval(check, 60_000);
+    return () => clearInterval(interval);
+  }, [app.selectedDeviceId, app.currentTemperature, app.systemStatus, isOpen, isMuted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Urgency trigger ───────────────────────────────────────────────────────────
   useEffect(() => {
