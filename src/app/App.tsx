@@ -38,9 +38,19 @@ function AppContent() {
   const [showSurvey, setShowSurvey] = useState(false);
   const [showAssistant,  setShowAssistant]  = useState(false);
   const [nixListening,   setNixListening]   = useState(false);
+  // True while the user is holding down the Nix button (before long-press fires)
+  const [nixHolding,     setNixHolding]     = useState(false);
 
   // Ref to AIAssistant — lets the floating button trigger voice directly
-  const nixRef = useRef<NixHandle>(null);
+  const nixRef          = useRef<NixHandle>(null);
+  // Timer fires after HOLD_THRESHOLD ms to activate voice
+  const holdTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Flag: set when long-press threshold crossed — prevents pointer-up also firing a tap
+  const didLongPressRef = useRef(false);
+
+  // Long-press threshold — 450ms feels intentional without being slow
+  const HOLD_THRESHOLD = 450;
+
 
   // Called by AIAssistant when it navigates — updates activePage and closes drawer
   const handleNixNavigate = useCallback((page: string) => {
@@ -201,67 +211,70 @@ function AppContent() {
       <BottomNav />
       <ToastContainer />
 
-      {/* ── Nix AI floating button — persistent voice trigger on every page ── */}
-      {/*
-          Behaviour:
-          • Tap when idle        → start listening immediately (no drawer opens)
-          • Tap when listening   → stop listening
-          • Long press / tap icon label → open full chat drawer
-          • nixListening = true  → three pulsing ripple rings animate on button
-          • unreadAlertCount > 0 → red badge shows alert count
-          Nix responds, acts, and navigates entirely from this button.
-          The chat drawer is still available for longer conversations.
+      {/* ── Nix AI floating button ──────────────────────────────────────────────────
+          Interaction model (mobile-first):
+          • Tap (< 450 ms)   → open / close chat drawer
+          • Hold (≥ 450 ms)  → start voice (Nix listens; release to send)
+          • Tap while voice  → cancel listening
+          Visual states:
+          • Idle             → blue snowflake
+          • Holding          → scale 1.12 + conic fill ring charging up
+          • Listening        → three pulse rings + slow snowflake spin
+          • Alerts badge     → red number, alert ping animation
       */}
       <div className="fixed right-4 bottom-20 md:bottom-8 md:right-8 z-40 flex flex-col items-center gap-2">
 
-        {/* "Nix is listening" label — appears above button while mic is open */}
+        {/* Status label — changes text based on current state */}
         <AnimatePresence>
-          {nixListening && (
+          {(nixListening || nixHolding) && (
             <motion.div
-              key="nix-listening-label"
+              key="nix-status-label"
               initial={{ opacity: 0, y: 6, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 6, scale: 0.9 }}
               transition={{ duration: 0.18 }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white select-none"
               style={{
-                background: 'linear-gradient(135deg, #0984E3, #0652a0)',
+                background: nixListening
+                  ? 'linear-gradient(135deg, #0984E3, #0652a0)'
+                  : 'linear-gradient(135deg, #0652a0, #0984E3)',
                 boxShadow: '0 2px 12px rgba(9,132,227,0.5)',
               }}
             >
-              {/* Animated mic dot */}
               <motion.span
                 className="w-2 h-2 rounded-full bg-white"
-                animate={{ opacity: [1, 0.3, 1] }}
-                transition={{ duration: 0.9, repeat: Infinity }}
+                animate={nixListening
+                  ? { opacity: [1, 0.3, 1] }
+                  : { scale: [1, 1.4, 1] }}
+                transition={{ duration: nixListening ? 0.9 : 0.5, repeat: Infinity }}
               />
-              Nix is listening…
+              {nixListening ? 'Nix is listening…' : 'Hold to talk…'}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Button wrapper — positions pulse rings relative to button */}
+        {/* Button wrapper — pulse rings positioned relative to button */}
         <div className="relative">
 
-          {/* ── Pulse rings — three expanding rings while Nix is listening ── */}
+          {/* Pulse rings — three expanding rings while listening */}
           {nixListening && (
             <>
               <motion.span
-                className="absolute inset-0 rounded-full"
+                className="absolute inset-0 rounded-full pointer-events-none"
                 style={{ backgroundColor: '#0984E3' }}
                 animate={{ scale: [1, 2.2], opacity: [0.5, 0] }}
                 transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut' }}
                 aria-hidden="true"
               />
               <motion.span
-                className="absolute inset-0 rounded-full"
+                className="absolute inset-0 rounded-full pointer-events-none"
                 style={{ backgroundColor: '#0984E3' }}
                 animate={{ scale: [1, 1.8], opacity: [0.35, 0] }}
                 transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut', delay: 0.3 }}
                 aria-hidden="true"
               />
               <motion.span
-                className="absolute inset-0 rounded-full"
+                className="absolute inset-0 rounded-full pointer-events-none"
                 style={{ backgroundColor: '#0984E3' }}
                 animate={{ scale: [1, 1.4], opacity: [0.2, 0] }}
                 transition={{ duration: 1.4, repeat: Infinity, ease: 'easeOut', delay: 0.6 }}
@@ -270,43 +283,100 @@ function AppContent() {
             </>
           )}
 
-          {/* Alert urgency ping — shown when NOT listening but alerts exist */}
-          {!nixListening && unreadAlertCount > 0 && (
+          {/* Alert urgency ping — shown only when idle with unread alerts */}
+          {!nixListening && !nixHolding && unreadAlertCount > 0 && (
             <span
-              className="absolute inset-0 rounded-full animate-ping"
+              className="absolute inset-0 rounded-full animate-ping pointer-events-none"
               style={{ backgroundColor: '#EF4444', opacity: 0.35 }}
               aria-hidden="true"
             />
           )}
 
+          {/* Hold-to-talk charging ring — conic-gradient arc fills over 450 ms */}
+          {nixHolding && !nixListening && (
+            <motion.span
+              className="absolute rounded-full pointer-events-none"
+              style={{
+                inset: -4,
+                background: 'conic-gradient(#0984E3 0deg, #0984E3 0deg, transparent 0deg)',
+              }}
+              animate={{ background: [
+                'conic-gradient(#0984E3 0deg, #0984E3 0deg, transparent 0deg)',
+                'conic-gradient(#0984E3 0deg, #0984E3 360deg, transparent 360deg)',
+              ]}}
+              transition={{ duration: 0.45, ease: 'linear' }}
+              aria-hidden="true"
+            />
+          )}
+
           {/* ── Main Nix button ── */}
-          <button
-            onClick={() => {
-              if (nixListening) {
-                // Already listening — stop
-                nixRef.current?.stopListening();
-              } else if (showAssistant) {
-                // Drawer open — close it
-                setShowAssistant(false);
-              } else {
-                // Idle — start listening directly (no drawer)
+          <motion.button
+            animate={nixHolding && !nixListening ? { scale: 1.12 } : { scale: 1 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            onPointerDown={(e) => {
+              // Only react to primary pointer (touch or left-click)
+              if (e.button !== 0 && e.pointerType !== 'touch') return;
+              // If already listening, a tap cancels — don't start hold timer
+              if (nixListening) return;
+              didLongPressRef.current = false;
+              setNixHolding(true);
+              holdTimerRef.current = setTimeout(() => {
+                didLongPressRef.current = true;
+                setNixHolding(false);
                 nixRef.current?.startListening();
+              }, HOLD_THRESHOLD);
+            }}
+            onPointerUp={() => {
+              // Cancel hold timer
+              if (holdTimerRef.current) {
+                clearTimeout(holdTimerRef.current);
+                holdTimerRef.current = null;
               }
+              setNixHolding(false);
+              if (nixListening) {
+                // Tap while listening → stop
+                nixRef.current?.stopListening();
+              } else if (!didLongPressRef.current) {
+                // Short tap (long press did NOT fire) → toggle chat drawer
+                setShowAssistant(prev => !prev);
+              }
+              // If long press fired, voice already started — nothing to do on release
             }}
-            onDoubleClick={() => {
-              // Double tap opens the full chat drawer
-              setShowAssistant(true);
+            onPointerLeave={() => {
+              // Finger slid off button before long press fired — cancel
+              if (holdTimerRef.current) {
+                clearTimeout(holdTimerRef.current);
+                holdTimerRef.current = null;
+              }
+              setNixHolding(false);
             }}
-            aria-label={nixListening ? 'Stop Nix' : 'Talk to Nix'}
-            title="Tap to talk · Double-tap to open chat"
-            className="relative w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95"
+            onPointerCancel={() => {
+              // System cancelled gesture (e.g. incoming call)
+              if (holdTimerRef.current) {
+                clearTimeout(holdTimerRef.current);
+                holdTimerRef.current = null;
+              }
+              setNixHolding(false);
+            }}
+            aria-label={
+              nixListening ? 'Tap to stop Nix' :
+              showAssistant ? 'Tap to close chat' :
+              'Tap to open chat · Hold to talk to Nix'
+            }
+            title="Tap to open chat · Hold to talk"
+            className="relative w-14 h-14 rounded-full flex items-center justify-center select-none touch-none"
             style={{
               background: nixListening
                 ? 'linear-gradient(135deg, #0652a0 0%, #0984E3 100%)'
                 : 'linear-gradient(135deg, #0984E3 0%, #0652a0 100%)',
               boxShadow: nixListening
                 ? '0 4px 32px rgba(9,132,227,0.7), 0 2px 8px rgba(0,0,0,0.25)'
-                : '0 4px 24px rgba(9,132,227,0.45), 0 2px 8px rgba(0,0,0,0.18)',
+                : nixHolding
+                  ? '0 4px 28px rgba(9,132,227,0.6), 0 2px 8px rgba(0,0,0,0.2)'
+                  : '0 4px 24px rgba(9,132,227,0.45), 0 2px 8px rgba(0,0,0,0.18)',
+              // Prevent iOS callout and text selection on long press
+              WebkitUserSelect: 'none',
+              WebkitTouchCallout: 'none',
             }}
           >
             <motion.div
@@ -322,15 +392,15 @@ function AppContent() {
             </motion.div>
 
             {/* Alert count badge */}
-            {unreadAlertCount > 0 && !nixListening && (
+            {unreadAlertCount > 0 && !nixListening && !nixHolding && (
               <span
-                className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white pointer-events-none"
                 style={{ backgroundColor: '#EF4444', border: '2px solid #F8FAFC' }}
               >
                 {unreadAlertCount > 9 ? '9+' : unreadAlertCount}
               </span>
             )}
-          </button>
+          </motion.button>
         </div>
       </div>
 
