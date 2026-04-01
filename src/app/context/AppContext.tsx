@@ -51,6 +51,9 @@ export interface Device {
   facilitySize?: 'small' | 'medium' | 'large';
   transportHours?: number;
   produceSetupComplete?: boolean;
+  deviceCode?: string;
+  unitName?: string;
+  storedSince?: Date;
 }
 
 // Backward-compat alias so Settings.tsx import stays unchanged
@@ -179,7 +182,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 const DEFAULT_DEVICES: Device[] = [
   {
-    id: 'device-001', name: 'Storage Unit A', location: 'Kumasi Central Market',
+    id: 'device-001', deviceCode: 'CW-001', name: 'Storage Unit A', storedSince: new Date(Date.now() - 7 * 86400000), location: 'Kumasi Central Market',
     status: 'online', lastSeen: new Date(), firmwareVersion: '2.1.3', batteryLevel: 87,
     tempOffset: 0, humidOffset: 0, useCustomThresholds: false,
     warningTemperature: 10, criticalTemperature: 15, warningHumidity: 80, criticalHumidity: 90,
@@ -284,7 +287,7 @@ interface AppContextType {
   updateDeviceConfig: (id: string, patch: Partial<Device>) => void;
   updateUser: (patch: Partial<User>) => void;
   completeSurvey: (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => void;
-  addDevice: (name: string, location: string, produceInfo?: { produceMode: ProduceMode; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number }) => void;
+  addDevice: (name: string, location: string, produceInfo?: { produceMode: ProduceMode; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number }, deviceCode?: string, unitName?: string, storedSince?: Date) => void;
   updateProduceSetup: (deviceId: string, produceInfo: { produceMode: ProduceMode; produceState: ProduceState; facilitySize?: 'small' | 'medium' | 'large'; transportHours?: number }) => void;
   deleteDevice: (id: string) => void;
   login: (email: string, name: string, id: string, avatar: string) => void;
@@ -765,7 +768,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const addDevice = useCallback((name: string, location: string, produceInfo?: { produceMode: ProduceMode; produceState: 'fresh' | 'dried' | 'in-between' | 'almost-damaged'; facilitySize: 'small' | 'medium' | 'large'; transportHours: number }) => {
+  const addDevice = useCallback((name: string, location: string, produceInfo?: { produceMode: ProduceMode; produceState: 'fresh' | 'dried' | 'in-between' | 'almost-damaged'; facilitySize: 'small' | 'medium' | 'large'; transportHours: number }, deviceCode?: string, unitName?: string) => {
     const newId = `device-${Date.now()}`;
     const newDevice: Device = {
       id: newId, name, location, status: 'offline', lastSeen: new Date(),
@@ -777,6 +780,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       warningHumidity:     (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].warningHumidity     : settings.warningHumidity),
       criticalHumidity:    (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].criticalHumidity    : settings.criticalHumidity),
       humidAlertHigh:      produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].humidAlertHigh : undefined,
+      deviceCode: deviceCode ?? undefined,
+      unitName:   unitName   ?? name,
       // Store state-adjusted targets on device so they persist across sessions
       ...(produceInfo ? { _adjustedTargets: getStateAdjustedTargets(produceInfo.produceMode, produceInfo.produceState) } : {}),
       ...(produceInfo ? {
@@ -785,6 +790,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         facilitySize: produceInfo.facilitySize,
         transportHours: produceInfo.transportHours,
         produceSetupComplete: true,
+        storedSince: new Date(),
       } : {}),
     };
     setDevices(prev => { const next = [...prev, newDevice]; saveDevices(next); return next; });
