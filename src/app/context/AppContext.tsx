@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { enqueueAction, clearQueue } from '../Lib/ActionQueue';
+import { authApi } from '../Lib/api';
+import { clearTokens } from '../Lib/tokenStorage';
 export interface SensorReading {
   timestamp: Date;
   temperature: number;
@@ -306,18 +308,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Authentication State
   const getInitialAuth = () => {
+    // First check for valid JWT token from backend auth
+    const { getToken, getUserId } = require('../Lib/tokenStorage');
+    const token = getToken();
+    const userId = getUserId();
+    
+    if (token && userId) {
+      // Valid JWT token found — user is authenticated via backend
+      try {
+        const session = JSON.parse(localStorage.getItem('cw_session') || 'null');
+        const users = JSON.parse(localStorage.getItem('cw_users') || '[]');
+        const stored = users.find((u: any) => u.id === userId);
+        
+        if (stored) {
+          const correctAvatar = stored.name
+            ? stored.name.trim().split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
+            : stored.avatar;
+          
+          return {
+            authed: true,
+            user: {
+              id: stored.id,
+              name: stored.name,
+              email: stored.email || '',
+              avatar: correctAvatar || stored.avatar,
+              profilePicture: stored.profilePicture || '',
+              role: stored.role,
+              surveyComplete: stored.surveyComplete ?? false,
+              notificationEmail: stored.notificationEmail || '',
+            },
+          };
+        }
+      } catch (err) {
+        console.warn('[AppContext] Failed to restore JWT session:', err);
+      }
+    }
+    
+    // Fall back to localStorage session if available
     try {
       const session = JSON.parse(localStorage.getItem('cw_session') || 'null');
       const users   = JSON.parse(localStorage.getItem('cw_users')   || '[]');
       if (session?.remember && session?.userId) {
         const stored = users.find((u: any) => u.id === session.userId);
         if (stored) {
-          // Migration: recompute initials from the stored name in case the avatar
-          // is stale (e.g. name was changed before the avatar-sync fix was applied).
           const correctAvatar = stored.name
             ? stored.name.trim().split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
             : stored.avatar;
-          // Persist the corrected avatar back to localStorage so it stays fixed
           if (correctAvatar && correctAvatar !== stored.avatar) {
             try {
               const corrected = users.map((u: any) => u.id === stored.id ? { ...u, avatar: correctAvatar } : u);
@@ -900,7 +936,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActivePage('dashboard');
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      // Call backend logout to clear push tokens
+      await authApi.logout();
+    } catch (err) {
+      console.warn('[Logout] Backend logout failed:', err);
+    }
+    
+    // Clear local tokens and session data
+    clearTokens();
     localStorage.removeItem('cw_session');
     clearQueue().catch(() => { /* ignore */ });
     setIsAuthenticated(false);

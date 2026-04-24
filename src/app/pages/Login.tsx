@@ -5,6 +5,8 @@ import {
   User, Lock, AtSign, ShieldQuestion, CheckCircle2, ChevronRight,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { authApi } from '../Lib/api';
+import { storeToken, storeUserId } from '../Lib/tokenStorage';
 
 // ── Simple deterministic hash (local-only, not for production secrets) 
 const hashString = (str: string) => btoa(unescape(encodeURIComponent(str + '_cw2024')));
@@ -126,33 +128,41 @@ function SignInView({ onSwitch }: { onSwitch: (v: View) => void }) {
   const [error,      setError]      = useState('');
   const [loading,    setLoading]    = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault(); setError('');
-    if (!identifier || !password) { setError('Please enter your name and password.'); return; }
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!identifier || !password) {
+      setError('Please enter your username/email and password.');
+      return;
+    }
+    
     setLoading(true);
-    setTimeout(() => {
-      const users = getStoredUsers();
-      // Match on name (case-insensitive) or email if they provided one
-      const match = users.find(u =>
-        (u.name.toLowerCase() === identifier.toLowerCase().trim() ||
-         (u.email && u.email.toLowerCase() === identifier.toLowerCase().trim())) &&
-        u.passwordHash === hashString(password)
+    try {
+      // Call backend API for authentication
+      const response = await authApi.login({
+        identifier: identifier.trim(),
+        password: password,
+      });
+      
+      // Store JWT token and user ID
+      storeToken(response.token, response.expiresIn || 604800);
+      storeUserId(response.user.id);
+      
+      // Update AppContext with user info
+      login(
+        response.user.email || '',
+        response.user.name,
+        response.user.id,
+        response.user.avatar || 'U'
       );
-      if (match) {
-        if (remember) saveSession(match, true);
-        login(match.email || '', match.name, match.id, match.avatar);
-      } else {
-        const accountExists = users.find(u =>
-          u.name.toLowerCase() === identifier.toLowerCase().trim() ||
-          (u.email && u.email.toLowerCase() === identifier.toLowerCase().trim())
-        );
-        setError(accountExists
-          ? 'Incorrect password. Try again or reset your password.'
-          : 'No account found with that name. Please sign up.'
-        );
-        setLoading(false);
-      }
-    }, 600);
+    } catch (error: any) {
+      // Show user-friendly error message
+      const msg = error?.message || 'Login failed. Please try again.';
+      setError(msg);
+      console.error('[Login] Error:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -223,40 +233,53 @@ function SignUpView({ onSwitch, onSignedUp }: {
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault(); setError('');
-    if (!name.trim())        { setError('Please enter your full name.'); return; }
-    if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
-    if (password !== confirm) { setError('Passwords do not match.'); return; }
-    if (!answer.trim())      { setError('Please answer your security question.'); return; }
-
-    const users = getStoredUsers();
-    // Check name uniqueness — primary identifier for users without email
-    if (users.find(u => u.name.toLowerCase() === name.toLowerCase().trim())) {
-      setError('An account with this name already exists. Please sign in or use a different name.'); return;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    
+    if (!name.trim()) {
+      setError('Please enter your full name.');
+      return;
     }
-    // Only check email uniqueness if one was provided
-    if (email.trim() && users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase().trim())) {
-      setError('An account with this email already exists. Please sign in.'); return;
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
     }
+    if (password !== confirm) {
+      setError('Passwords do not match.');
+      return;
+    }
+    
     setLoading(true);
-    setTimeout(() => {
-      const initials = name.trim().split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-      const newUser: StoredUser = {
-        id: `user_${Date.now()}`,
+    try {
+      // Call backend API for signup
+      const response = await authApi.signup({
         name: name.trim(),
-        ...(email.trim() ? { email: email.toLowerCase().trim() } : {}),
-        passwordHash: hashString(password),
-        avatar: initials,
-        securityQuestion: question,
-        securityAnswerHash: hashString(answer.toLowerCase().trim()),
-        createdAt: new Date().toISOString(),
-      };
-      saveStoredUsers([...users, newUser]);
-      saveSession(newUser, true);
-      login(newUser.email || '', newUser.name, newUser.id, newUser.avatar);
-      if (onSignedUp) onSignedUp(newUser.id);
-    }, 700);
+        email: email.trim() || undefined,
+        password: password,
+        role: 'farmer',
+      });
+      
+      // Store JWT token and user ID
+      storeToken(response.token, response.expiresIn || 604800);
+      storeUserId(response.user.id);
+      
+      // Update AppContext with user info
+      login(
+        response.user.email || '',
+        response.user.name,
+        response.user.id,
+        response.user.avatar || 'U'
+      );
+      
+      if (onSignedUp) onSignedUp(response.user.id);
+    } catch (error: any) {
+      const msg = error?.message || 'Signup failed. Please try again.';
+      setError(msg);
+      console.error('[Signup] Error:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const strength = password.length === 0 ? 0 : password.length < 6 ? 1 : password.length < 10 ? 2 : 3;

@@ -1,15 +1,25 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { RefreshCw, CheckCircle2 } from 'lucide-react';
-import { getPendingCount, drainQueue } from '../Lib/ActionQueue';
+import { getPendingCount, getPendingActions, drainQueue } from '../Lib/ActionQueue';
+import { syncApi } from '../Lib/api';
 import { useApp } from '../context/AppContext';
 
-// When the backend is ready, replace this stub with real API calls.
-// For now it silently succeeds so the queue drains without errors.
+/**
+ * Execute a single action by sending batch to /sync endpoint
+ * The backend handles routing each action type appropriately
+ */
 async function executeAction(): Promise<void> {
-  // TODO: replace with actual API call per action.type
-  // e.g. case 'UPDATE_SETTINGS': await api.post('/settings', action.payload)
-  return Promise.resolve();
+  const pending = await getPendingActions();
+  if (pending.length === 0) return;
+
+  // Send all pending actions to /sync endpoint
+  // Backend will process and return results
+  const result = await syncApi.drain(pending.map(p => p.action));
+  
+  if (result.failed && result.failed.length > 0) {
+    throw new Error(`Sync failed: ${result.failed.length} action(s) could not be processed`);
+  }
 }
 
 export default function SyncBanner() {
