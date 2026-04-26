@@ -14,6 +14,8 @@ import Settings from './pages/Settings';
 import Onboarding from './pages/Onboarding';
 import SetupSurvey from './pages/SetupSurvey';
 import SplashScreen from './pages/SplashScreen';
+import Privacy from './pages/Privacy';
+import TermsOfService from './pages/TermsOfService';
 import { Analytics } from '@vercel/analytics/react';
 import { WifiOff, Snowflake } from 'lucide-react';
 import SyncBanner from './components/SyncBanner';
@@ -28,7 +30,7 @@ const slideVariants = {
 
 
 function AppContent() {
-  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline } = useApp();
+  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user } = useApp();
   const [showSplash, setShowSplash] = useState(true);
 
   // Onboarding flow — only show if not previously completed
@@ -67,6 +69,7 @@ function AppContent() {
     const pageLabels: Record<string, string> = {
       dashboard: 'Dashboard', alerts: 'Alerts',
       history: 'History', devices: 'Devices', settings: 'Settings',
+      privacy: 'Privacy Policy', terms: 'Terms of Service',
     };
     const page   = pageLabels[activePage] ?? 'Dashboard';
     const prefix = unreadAlertCount > 0 ? `(${unreadAlertCount}) ` : '';
@@ -85,18 +88,13 @@ function AppContent() {
   }, [activePage]);
 
   // One-time reminder toast if user skipped the survey
+  // surveyComplete comes from the backend via AppContext user object
   useEffect(() => {
     if (!isAuthenticated || showSurvey) return;
     try {
-      const session = JSON.parse(localStorage.getItem('cw_session') || 'null');
-      const users   = JSON.parse(localStorage.getItem('cw_users')   || '[]');
-      if (!session?.userId) return;
-      const stored = users.find((u: any) => u.id === session.userId);
-      if (stored && !stored.surveyComplete && !stored.surveySkippedReminded) {
-        const updated = users.map((u: any) =>
-          u.id === session.userId ? { ...u, surveySkippedReminded: true } : u
-        );
-        localStorage.setItem('cw_users', JSON.stringify(updated));
+      const alreadyReminded = localStorage.getItem('cw_survey_reminded') === 'true';
+      if (!user.surveyComplete && !alreadyReminded) {
+        localStorage.setItem('cw_survey_reminded', 'true');
         setTimeout(() => {
           addToast({
             id: `survey-reminder-${Date.now()}`,
@@ -125,18 +123,7 @@ function AppContent() {
   };
 
   const handleSurveySkip = () => {
-    try {
-      const session = JSON.parse(localStorage.getItem('cw_session') || 'null');
-      const users   = JSON.parse(localStorage.getItem('cw_users')   || '[]');
-      if (session?.userId) {
-        const updated = users.map((u: any) =>
-          u.id === session.userId ? { ...u, surveySkipped: true } : u
-        );
-        localStorage.setItem('cw_users', JSON.stringify(updated));
-      }
-    } catch { /* */ }
     setShowSurvey(false);
-    // Survey skipped — land on dashboard
   };
 
   if (showSplash) {
@@ -166,6 +153,8 @@ function AppContent() {
       case 'history':   return <History />;
       case 'devices':   return <Devices />;
       case 'settings':  return <Settings />;
+      case 'privacy':   return <Privacy />;
+      case 'terms':     return <TermsOfService />;
       default:          return <Dashboard />;
     }
   };

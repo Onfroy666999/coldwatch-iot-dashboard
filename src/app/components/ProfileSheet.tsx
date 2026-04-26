@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Camera, User, Mail, Lock, LogOut, Eye, EyeOff, CheckCircle2, Save, ShieldCheck, Store, Warehouse, UserCircle } from 'lucide-react';
+import { X, Camera, User, Mail, Lock, LogOut, Eye, EyeOff, CheckCircle2, Save, ShieldCheck, Store, Warehouse, UserCircle, Trash2, ImagePlus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { usersApi } from '../Lib/api';
 import type { UserRole } from '../context/AppContext';
-
-const hashString = (str: string) => btoa(unescape(encodeURIComponent(str + '_cw2024')));
 
 const ROLE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   farmer:            { label: 'Farmer',   color: '#C0501A', bg: 'rgba(192,80,26,0.08)'   },
@@ -31,6 +30,7 @@ export default function ProfileSheet({ onClose }: Props) {
   const [profilePic, setProfilePic] = useState(user.profilePicture || '');
   const [role,       setRole]       = useState<UserRole>((user.role as UserRole) || 'other');
   const [saving,     setSaving]     = useState(false);
+  const [showPhotoMenu, setShowPhotoMenu] = useState(false);
 
   // roleStyle reflects the pending local selection so the badge previews the change
   const roleStyle = ROLE_LABELS[role] ?? ROLE_LABELS.other;
@@ -81,26 +81,25 @@ export default function ProfileSheet({ onClose }: Props) {
     }, 500);
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     setPassError('');
     if (!currentPass)            { setPassError('Enter your current password.'); return; }
-    if (newPass.length < 6)      { setPassError('New password must be at least 6 characters.'); return; }
+    if (newPass.length < 8)      { setPassError('New password must be at least 8 characters.'); return; }
     if (newPass !== confirmPass) { setPassError('Passwords do not match.'); return; }
+    setSavingPass(true);
     try {
-      const users  = JSON.parse(localStorage.getItem('cw_users') || '[]');
-      const stored = users.find((u: any) => u.id === user.id);
-      if (!stored || stored.passwordHash !== hashString(currentPass)) {
-        setPassError('Current password is incorrect.'); return;
+      await usersApi.changePassword({ currentPassword: currentPass, newPassword: newPass });
+      setCurrentPass(''); setNewPass(''); setConfirmPass('');
+      addToast({ id: `t-${Date.now()}`, type: 'success', message: 'Password changed successfully' });
+    } catch (err: any) {
+      if (err?.status === 401) {
+        setPassError('Current password is incorrect.');
+      } else {
+        setPassError(err?.message ?? 'Something went wrong. Try again.');
       }
-      setSavingPass(true);
-      setTimeout(() => {
-        const updated = users.map((u: any) => u.id === user.id ? { ...u, passwordHash: hashString(newPass) } : u);
-        localStorage.setItem('cw_users', JSON.stringify(updated));
-        setCurrentPass(''); setNewPass(''); setConfirmPass('');
-        setSavingPass(false);
-        addToast({ id: `t-${Date.now()}`, type: 'success', message: 'Password changed successfully' });
-      }, 600);
-    } catch { setPassError('Something went wrong. Try again.'); }
+    } finally {
+      setSavingPass(false);
+    }
   };
 
   const handleLogout = () => { onClose(); setTimeout(logout, 200); };
@@ -182,21 +181,74 @@ export default function ProfileSheet({ onClose }: Props) {
                 {/* Avatar — inside scroll so it scrolls away when keyboard appears */}
                 <div className="flex flex-col items-center py-5">
                   <div className="relative">
-                    <div
-                      className="w-20 h-20 rounded-full overflow-hidden flex items-center justify-center text-white text-2xl font-bold"
+                    {/* Tapping anywhere on the avatar opens the photo action menu */}
+                    <button
+                      onClick={() => setShowPhotoMenu(v => !v)}
+                      className="w-20 h-20 rounded-full overflow-hidden flex items-center justify-center text-white text-2xl font-bold focus:outline-none active:opacity-80"
                       style={{ backgroundColor: '#0984E3' }}
+                      aria-label="Change profile photo"
                     >
                       {profilePic
                         ? <img src={profilePic} alt="Profile" className="w-full h-full object-cover" />
-                        : user.avatar}
-                    </div>
-                    <button
-                      onClick={() => fileRef.current?.click()}
-                      className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-[#0984E3] flex items-center justify-center shadow-md active:opacity-80"
+                        : <span>{user.avatar}</span>}
+                    </button>
+
+                    {/* Camera badge — visual affordance that the photo is tappable */}
+                    <div
+                      className="pointer-events-none absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center shadow-md"
+                      style={{ backgroundColor: '#0984E3' }}
                     >
                       <Camera className="w-3.5 h-3.5 text-white" />
-                    </button>
+                    </div>
+
+                    {/* Hidden file input triggered by the menu */}
                     <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+
+                    {/* Photo action menu — appears below the avatar */}
+                    <AnimatePresence>
+                      {showPhotoMenu && (
+                        <>
+                          {/* Invisible backdrop to close menu on outside tap */}
+                          <div
+                            className="fixed inset-0 z-[75]"
+                            onClick={() => setShowPhotoMenu(false)}
+                          />
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.9, y: -4 }}
+                            animate={{ opacity: 1, scale: 1,   y: 0   }}
+                            exit={{   opacity: 0, scale: 0.9, y: -4   }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 z-[80] rounded-2xl overflow-hidden shadow-xl"
+                            style={{
+                              minWidth: 180,
+                              backgroundColor: '#FFFFFF',
+                              border: '1px solid #E4E7EC',
+                            }}
+                          >
+                            <button
+                              onClick={() => { setShowPhotoMenu(false); fileRef.current?.click(); }}
+                              className="w-full flex items-center gap-3 px-4 py-3.5 text-sm font-medium text-[#111827] active:bg-[#F3F4F6] transition-colors"
+                            >
+                              <ImagePlus className="w-4 h-4 text-[#0984E3] flex-shrink-0" />
+                              {profilePic ? 'Change photo' : 'Add photo'}
+                            </button>
+                            {profilePic && (
+                              <>
+                                <div style={{ height: 1, backgroundColor: '#F3F4F6' }} />
+                                <button
+                                  onClick={() => { setProfilePic(''); setShowPhotoMenu(false); }}
+                                  className="w-full flex items-center gap-3 px-4 py-3.5 text-sm font-medium active:bg-[#FEF2F2] transition-colors"
+                                  style={{ color: '#DC2626' }}
+                                >
+                                  <Trash2 className="w-4 h-4 flex-shrink-0" />
+                                  Remove photo
+                                </button>
+                              </>
+                            )}
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
                   </div>
                   <p className="text-sm font-semibold text-[#111827] mt-3">{user.name}</p>
                   <p className="text-xs text-[#6B7280] mt-0.5">{user.email}</p>
@@ -241,10 +293,6 @@ export default function ProfileSheet({ onClose }: Props) {
                     />
                   </div>
                 </div>
-
-                <p className="text-[11px] text-[#6B7280] leading-relaxed">
-                  Your account is stored on this device only. Clearing browser data will remove it.
-                </p>
 
                 {/* Role selector */}
                 <div>
