@@ -8,9 +8,11 @@ import {
 } from 'recharts';
 import { Upload, BarChart3, Table, Clock, MapPin, Wifi, WifiOff, FileText, FileJson } from 'lucide-react';
 import { usePageLoading, HistorySkeleton } from '../components/Skeleton';
+import { readingsApi } from '../Lib/api';
+import type { SensorReading } from '../context/AppContext';
 
 export default function History() {
-  const { deviceHistories, settings, devices, selectedDeviceId, isAdvancedUser } = useApp();
+  const { settings, devices, selectedDeviceId, isAdvancedUser } = useApp();
   const [viewMode, setViewMode] = useState<'chart' | 'table'>('chart');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -18,6 +20,30 @@ export default function History() {
   // device in History doesn't affect Dashboard/ControlPanel and vice versa.
   const [historyDeviceId, setHistoryDeviceId] = useState(selectedDeviceId);
   const isLoading = usePageLoading();
+
+  // ── Real readings fetched from backend ───────────────────────────────────
+  const [historyData,    setHistoryData]    = useState<SensorReading[]>([]);
+  const [fetchingHistory, setFetchingHistory] = useState(false);
+
+  useEffect(() => {
+    if (!historyDeviceId) return;
+    let cancelled = false;
+    setFetchingHistory(true);
+    readingsApi.list(historyDeviceId, { limit: 288 }) // up to 24h at 5-min intervals
+      .then(res => {
+        if (cancelled) return;
+        const mapped: SensorReading[] = (res.readings ?? []).map((r: any) => ({
+          timestamp:   new Date(r.recordedAt),
+          temperature: r.temperature,
+          humidity:    r.humidity,
+        }));
+        // API returns newest-first — reverse so chart reads left→right chronologically
+        setHistoryData(mapped.reverse());
+      })
+      .catch(() => { if (!cancelled) setHistoryData([]); })
+      .finally(() => { if (!cancelled) setFetchingHistory(false); });
+    return () => { cancelled = true; };
+  }, [historyDeviceId]);
 
   // Close export menu on outside click
   useEffect(() => {
@@ -34,7 +60,6 @@ export default function History() {
   if (isLoading) return <HistorySkeleton />;
 
   const selectedDevice = devices.find(d => d.id === historyDeviceId);
-  const historyData = deviceHistories[historyDeviceId] ?? [];
 
   // ── Effective thresholds — respect per-device overrides, same as Dashboard ─
   const warnTemp  = selectedDevice?.useCustomThresholds ? selectedDevice.warningTemperature  : settings.warningTemperature;

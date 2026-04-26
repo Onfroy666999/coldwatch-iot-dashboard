@@ -32,76 +32,32 @@ const getBatteryColor = (level: number) =>
 // The user can override this in the wizard
 
 function generateDeviceCode(existingCodes: string[]): string {
-  const num = Math.floor(Math.random() * 900) + 100; // 100–999
-  const code = `CW-${num}`;
+  // Format: CW- followed by exactly 6 hex characters (0-9, A-F)
+  // Matches the device code flashed onto the ESP32 (derived from MAC address)
+  const hex = Array.from({ length: 6 }, () =>
+    '0123456789ABCDEF'[Math.floor(Math.random() * 16)]
+  ).join('');
+  const code = `CW-${hex}`;
   if (existingCodes.includes(code)) return generateDeviceCode(existingCodes);
   return code;
 }
 
-// ── Groq Vision image analysis ───────────────────────────────────────────────
-
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY ?? '';
-const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
+// ── Produce image analysis — routes through backend /ai/vision proxy ─────────
+// The Groq API key lives in the backend .env — never in the browser.
+import { aiApi } from '../Lib/api';
 
 async function analyseProduceImage(
   base64Image: string,
   mimeType: string,
-  produceLabel: string
+  _produceLabel: string
 ): Promise<{ state: ProduceState; confidence: 'high' | 'medium' | 'low'; explanation: string }> {
-  if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
-
-  const prompt = `You are a cold chain expert assessing post-harvest produce quality for a Ghanaian cold storage system.
-
-The image shows: ${produceLabel}
-
-IMPORTANT: Even if the image is dark, blurry, or low resolution — you MUST make your best assessment. Do not refuse or ask for a better image. Use visible colour, texture, shape, and surface detail to classify.
-
-Classify the produce into EXACTLY ONE of these four conditions:
-- fresh: vibrant colour, firm texture, no visible damage or softening
-- in-between: some ageing — colour fading, slight softening or wrinkling, still marketable
-- dried: fully dried or cured produce intended for long-term storage
-- almost-damaged: visible rot, mould, bruising, extreme discolouration or breakdown — needs urgent cold
-
-Respond with ONLY valid JSON (no markdown, no extra text):
-{"state":"fresh|in-between|dried|almost-damaged","confidence":"high|medium|low","explanation":"One sentence describing what you see and why you gave this classification"}`;
-
-  const response = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model:       'meta-llama/llama-4-scout-17b-16e-instruct',
-      temperature: 0.1,
-      max_tokens:  250,
-      messages: [{
-        role:    'user',
-        content: [
-          {
-            type:      'image_url',
-            image_url: { url: `data:${mimeType};base64,${base64Image}` },
-          },
-          { type: 'text', text: prompt },
-        ],
-      }],
-    }),
-  });
-
-  if (!response.ok) throw new Error('Groq Vision API request failed');
-
-  const data   = await response.json();
-  const text   = data.choices?.[0]?.message?.content ?? '';
-  const clean  = text.replace(/```json|```/g, '').trim();
-  const parsed = JSON.parse(clean);
-
+  const result = await aiApi.vision({ base64Image, mimeType });
   const validStates: ProduceState[] = ['fresh', 'in-between', 'dried', 'almost-damaged'];
-  if (!validStates.includes(parsed.state)) throw new Error('Invalid state from AI');
-
+  if (!validStates.includes(result.state as ProduceState)) throw new Error('Invalid state from AI');
   return {
-    state:       parsed.state as ProduceState,
-    confidence:  parsed.confidence ?? 'medium',
-    explanation: parsed.explanation ?? '',
+    state:       result.state as ProduceState,
+    confidence:  (result.confidence ?? 'medium') as 'high' | 'medium' | 'low',
+    explanation: result.explanation ?? '',
   };
 }
 
@@ -658,7 +614,10 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
 
   // Step 0 — device identity
   const existingCodes = devices.map(d => d.deviceCode).filter(Boolean) as string[];
+  // deviceCode stores the FULL code (CW-XXXXXX) for passing to the API.
+  // codeSuffix is just the editable 6-char hex part shown in the split input.
   const [deviceCode, setDeviceCode] = useState(() => generateDeviceCode(existingCodes));
+  const [codeSuffix, setCodeSuffix] = useState(() => generateDeviceCode(existingCodes).slice(3));
   const [codeError,  setCodeError]  = useState('');
   const [unitName,   setUnitName]   = useState('');
   const [location,   setLocation]   = useState('');
@@ -716,8 +675,8 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
 
   const validateCode = (code: string) => {
     const trimmed = code.trim().toUpperCase();
-    if (!trimmed) return 'Device ID is required.';
-    if (!/^CW-\d{3,6}$/.test(trimmed)) return 'Format must be CW-XXX (e.g. CW-042).';
+    if (!trimmed || trimmed === 'CW-') return 'Device ID is required — enter the 6 characters from your device.';
+    if (!/^CW-[A-F0-9]{6}$/i.test(trimmed)) return `${6 - codeSuffix.length} more character${6 - codeSuffix.length === 1 ? '' : 's'} needed (only A–F and 0–9).`;
     if (existingCodes.includes(trimmed)) return 'This Device ID is already in use. Choose another.';
     return '';
   };
@@ -795,24 +754,49 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                   <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide flex items-center gap-1.5">
                     <Hash className="w-3.5 h-3.5" /> Device ID
                   </label>
-                  <div className="relative">
+                  <div className="flex items-stretch gap-0">
+                    {/* Persistent CW- prefix — always visible, never editable */}
+                    <div
+                      className="flex items-center px-3 font-mono font-bold text-[#111827] bg-[#F3F4F6] border border-r-0 border-[#D1D5DB] rounded-l-xl select-none"
+                      style={{ fontSize: 16, height: 52, letterSpacing: 1 }}
+                    >
+                      CW-
+                    </div>
+                    {/* 6-char hex suffix — user types here */}
                     <input
-                      value={deviceCode}
-                      onChange={e => { setDeviceCode(e.target.value.toUpperCase()); setCodeError(''); }}
-                      placeholder="e.g. CW-042"
-                      className={inputBase + ' font-mono'}
-                      style={{ fontSize: 16, height: 52 }}
+                      value={codeSuffix}
+                      onChange={e => {
+                        const raw = e.target.value.toUpperCase().replace(/[^A-F0-9]/g, '').slice(0, 6);
+                        setCodeSuffix(raw);
+                        setDeviceCode(`CW-${raw}`);
+                        setCodeError('');
+                      }}
+                      maxLength={6}
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className={inputBase + ' font-mono rounded-l-none flex-1'}
+                      style={{ fontSize: 16, height: 52, letterSpacing: 2 }}
                     />
                     <button
-                      onClick={() => { setDeviceCode(generateDeviceCode(existingCodes)); setCodeError(''); }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-[#0984E3] active:bg-[#EBF4FF]"
+                      onClick={() => {
+                          const fresh = generateDeviceCode(existingCodes);
+                          setDeviceCode(fresh);
+                          setCodeSuffix(fresh.slice(3));
+                          setCodeError('');
+                        }}
+                      className="ml-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-[#0984E3] active:bg-[#EBF4FF] whitespace-nowrap self-center"
                       style={{ backgroundColor: 'rgba(9,132,227,0.08)' }}>
                       Regenerate
                     </button>
                   </div>
                   {codeError
                     ? <p className="text-xs text-red-500 font-medium">{codeError}</p>
-                    : <p className="text-[10px] text-[#6B7280]">Auto-generated. You can edit it — format must be CW-XXX.</p>
+                    : <p className="text-[10px] text-[#6B7280]">
+                        {codeSuffix.length > 0 && codeSuffix.length < 6
+                          ? `${6 - codeSuffix.length} more character${6 - codeSuffix.length === 1 ? '' : 's'} needed`
+                          : 'Enter the 6-character code printed on your device. Only A–F and 0–9 are accepted.'}
+                      </p>
                   }
                 </div>
 

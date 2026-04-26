@@ -39,10 +39,19 @@ interface AIAction {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const GROQ_API_KEY            = import.meta.env.VITE_GROQ_API_KEY ?? '';
-const GROQ_URL                = 'https://api.groq.com/openai/v1/chat/completions';
+// ─── Backend AI proxy ─────────────────────────────────────────────────────────
+// All Groq calls go through the backend /ai/chat and /ai/vision endpoints.
+// The Groq API key lives in the backend .env — never in the browser.
+// Import the API base URL and token from the api lib.
+import { aiApi } from '../Lib/api';
+
+// Keep model constants for readability — they are sent to the backend proxy
+// which validates them against an allowlist before forwarding to Groq.
 const GROQ_MODEL_CONVERSATION = 'llama-3.1-8b-instant';
 const GROQ_MODEL_TRANSLATION  = 'llama-3.3-70b-versatile';
+// AI is always "available" from the frontend's perspective — the backend
+// handles the key check and returns 503 if not configured.
+const GROQ_API_KEY = 'proxy'; // non-empty so !GROQ_API_KEY checks pass
 const MAX_HISTORY             = 20;
 const VOICE_AUTOSEND_DELAY    = 1800;
 const VALID_PAGES             = ['dashboard', 'alerts', 'history', 'devices', 'settings'] as const;
@@ -76,28 +85,10 @@ Even in poor lighting — use colour, shape, texture. Do not refuse.
 Respond with ONLY valid JSON:
 {"state":"fresh|in-between|dried|almost-damaged","confidence":"high|medium|low","explanation":"Name the produce, describe what you see, state why you chose this condition"}`;
   try {
-    const res = await fetch(GROQ_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-        temperature: 0.1,
-        max_tokens: 300,
-        messages: [{ role: 'user', content: [
-          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}` } },
-          { type: 'text', text: prompt },
-        ]}],
-      }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const text = (data.choices?.[0]?.message?.content ?? '') as string;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+    const result = await aiApi.vision({ base64Image, mimeType });
     const valid = ['fresh', 'in-between', 'dried', 'almost-damaged'];
-    if (!valid.includes(parsed.state as string)) return null;
-    return { state: parsed.state as string, confidence: (parsed.confidence as string) ?? 'medium', explanation: (parsed.explanation as string) ?? '' };
+    if (!valid.includes(result.state)) return null;
+    return { state: result.state, confidence: result.confidence ?? 'medium', explanation: result.explanation ?? '' };
   } catch { return null; }
 }
 
@@ -115,19 +106,15 @@ function fileToBase64Chat(file: File): Promise<{ base64: string; mimeType: strin
 async function translateToEnglish(text: string): Promise<string> {
   if (!GROQ_API_KEY) return text;
   try {
-    const res = await fetch(GROQ_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({
-        model: GROQ_MODEL_TRANSLATION, temperature: 0.0, max_tokens: 300,
-        messages: [
-          { role: 'system', content: 'You are a translator. Translate the user message to English. Return ONLY the translated text. If already English return unchanged. If unidentifiable return original.' },
-          { role: 'user', content: text },
-        ],
-      }),
+    const data = await aiApi.chat({
+      model: GROQ_MODEL_TRANSLATION,
+      temperature: 0.0,
+      max_tokens: 300,
+      messages: [
+        { role: 'system', content: 'You are a translator. Translate the user message to English. Return ONLY the translated text. If already English return unchanged. If unidentifiable return original.' },
+        { role: 'user', content: text },
+      ],
     });
-    if (!res.ok) return text;
-    const data = await res.json();
     const t = (data?.choices?.[0]?.message?.content?.trim() ?? '') as string;
     return t.length > 0 ? t : text;
   } catch { return text; }
@@ -167,7 +154,7 @@ const LANG_CONFIG: Record<Language, {
     greeting: `Hello! I'm your ColdWatch assistant. I can help you monitor your cold storage, set targets, manage alerts, and give advice on your produce. You can type or tap the mic to speak. What can I help you with?`,
     thinking: 'Thinking\u2026', translating: 'Thinking\u2026',
     errorNet: 'I could not reach the server. Please check your internet connection and try again.',
-    errorKey: 'The AI service is not configured. Please add the VITE_GROQ_API_KEY to your environment.',
+    errorKey: 'The AI service is not available. Please contact support.',
     confirmAction: 'Confirm', actionDone: 'Done',
     voiceHint: 'Tap to speak (English or Twi)', voiceListening: 'Listening\u2026 speak now',
     voiceNotSupported: 'Voice not supported on this browser',
@@ -806,29 +793,27 @@ const AIAssistant = forwardRef<NixHandle, AIAssistantProps>(
   // ── Desktop focus ────────────────────────────────────────────────────────────
   useEffect(() => { if (isOpen && window.innerWidth > 768) setTimeout(() => inputRef.current?.focus(), 300); }, [isOpen]);
 
-  // ── Centralised Groq fetch with 429 retry ────────────────────────────────────
-  // All internal API calls route through here for consistent rate-limit handling.
+  // ── Centralised AI fetch ──────────────────────────────────────────────────────
+  // Routes through the backend /ai/chat proxy — the Groq key never touches
+  // the browser. The backend handles rate limiting and 429 retries.
   const groqFetch = useCallback(async (
     msgs: Array<{ role: string; content: string }>,
     opts: { temperature?: number; max_tokens?: number } = {}
   ): Promise<string> => {
-    if (!GROQ_API_KEY) return '';
-    const payload = { model: GROQ_MODEL_CONVERSATION, temperature: opts.temperature ?? 0.4, max_tokens: opts.max_tokens ?? 512, messages: msgs };
-    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` };
-    let res = await fetch(GROQ_URL, { method: 'POST', headers, body: JSON.stringify(payload) });
-    if (res.status === 429) {
-      const wait = Math.min((parseInt(res.headers.get('retry-after') ?? '15', 10) || 15) * 1000, 20000);
-      await new Promise(r => setTimeout(r, wait));
-      res = await fetch(GROQ_URL, { method: 'POST', headers, body: JSON.stringify(payload) });
-    }
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const msg  = res.status === 429
+    try {
+      const data = await aiApi.chat({
+        model:       GROQ_MODEL_CONVERSATION,
+        temperature: opts.temperature ?? 0.4,
+        max_tokens:  opts.max_tokens  ?? 512,
+        messages:    msgs,
+      });
+      return (data?.choices?.[0]?.message?.content ?? '') as string;
+    } catch (err: any) {
+      const msg = err?.status === 429
         ? "I'm getting a lot of requests right now. Please wait a moment and try again."
-        : ((body as { error?: { message?: string } })?.error?.message ?? `HTTP ${res.status}`);
+        : (err?.message ?? 'Could not reach the AI service.');
       throw new Error(msg);
     }
-    return ((await res.json())?.choices?.[0]?.message?.content ?? '') as string;
   }, []);
 
   // ── Page summary — spoken tour of newly navigated page ───────────────────────

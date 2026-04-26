@@ -1,5 +1,16 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import {
+  createContext, useContext, useState, useEffect,
+  useCallback, useRef, type ReactNode,
+} from 'react';
 import { enqueueAction, clearQueue } from '../Lib/ActionQueue';
+import {
+  authApi, devicesApi, alertsApi, settingsApi, usersApi,
+  connectWebSocket,
+} from '../Lib/api';
+import { getToken, clearTokens, getUserId } from '../Lib/tokenStorage';
+
+// ── Shared types ──────────────────────────────────────────────────────────────
+
 export interface SensorReading {
   timestamp: Date;
   temperature: number;
@@ -11,21 +22,19 @@ export interface Alert {
   severity: 'critical' | 'warning' | 'info';
   message: string;
   deviceId: string;
-  deviceName: string;     // snapshot at alert time — accurate even after renames
+  deviceName: string;
   timestamp: Date;
   status: 'new' | 'acknowledged' | 'resolved' | 'auto_resolved';
-  tempC?: number;         // raw °C at time of alert for unit-aware display
-  humidityPct?: number;   // raw %RH at time of alert
-  // Timeline fields — populated when alert closes
-  peakTempC?: number;          // highest temperature recorded during the event
-  peakHumidityPct?: number;    // highest humidity recorded during the event
-  resolvedAt?: Date;           // when it returned to safe
-  durationMinutes?: number;    // how long the breach lasted
-  systemAction?: string;       // what auto mode did (e.g. "Auto cooling engaged")
-  autoResolved?: boolean;      // true when system resolved without user input
+  tempC?: number;
+  humidityPct?: number;
+  peakTempC?: number;
+  peakHumidityPct?: number;
+  resolvedAt?: Date;
+  durationMinutes?: number;
+  systemAction?: string;
+  autoResolved?: boolean;
 }
 
-// Unified Device interface
 export interface Device {
   id: string;
   name: string;
@@ -41,11 +50,7 @@ export interface Device {
   criticalTemperature: number;
   warningHumidity: number;
   criticalHumidity: number;
-  // true  = alert when humidity is TOO HIGH (legumes, tubers — prevent mould)
-  // false = alert when humidity is TOO LOW  (leafy, fruits — prevent wilting)
-  // undefined = defaults to true (matches original behaviour for global settings)
   humidAlertHigh?: boolean;
-  // Produce setup — filled in via the Add Device wizard
   produceMode?: ProduceMode;
   produceState?: ProduceState;
   facilitySize?: 'small' | 'medium' | 'large';
@@ -56,10 +61,8 @@ export interface Device {
   storedSince?: Date;
 }
 
-// Backward-compat alias so Settings.tsx import stays unchanged
 export type DeviceConfig = Device;
 
-// Per-device simulation state
 interface DeviceSimState {
   currentTemperature: number;
   currentHumidity: number;
@@ -70,7 +73,6 @@ interface DeviceSimState {
   sensorHistory: SensorReading[];
 }
 
-//  Settings 
 export interface Settings {
   warningTemperature: number;
   criticalTemperature: number;
@@ -110,8 +112,6 @@ export interface DeviceReading {
 export type ProduceMode = 'mixed' | 'tubers' | 'fruits' | 'leafy' | 'legumes' | 'meat';
 export type ProduceState = 'fresh' | 'dried' | 'in-between' | 'almost-damaged';
 
-// Mirrors PRODUCE_PROFILES in ProduceModeSelector — module-level so it's stable
-// across renders and can be used in useEffect/useCallback without stale closures.
 export const PRODUCE_THRESHOLDS: Record<ProduceMode, {
   targetTemperature: number; targetHumidity: number;
   warningTemperature: number; criticalTemperature: number;
@@ -126,10 +126,6 @@ export const PRODUCE_THRESHOLDS: Record<ProduceMode, {
   meat:    { targetTemperature:  2, targetHumidity: 60, warningTemperature:  4, criticalTemperature:  7, warningHumidity: 55, criticalHumidity: 70, humidAlertHigh: true  },
 };
 
-// State-based adjustments applied ON TOP of the base produce thresholds.
-// Logic: fresh = use baseline; in-between = slightly warmer (avoid thermal shock to aging produce);
-// dried = much warmer, much drier (dried produce doesn't need aggressive cold);
-// almost-damaged = most aggressive cooling to halt active spoilage.
 export const STATE_ADJUSTMENTS: Record<ProduceState, { tempOffset: number; humidOffset: number }> = {
   'fresh':          { tempOffset:  0, humidOffset:  0 },
   'in-between':     { tempOffset: +1, humidOffset: -3 },
@@ -137,21 +133,13 @@ export const STATE_ADJUSTMENTS: Record<ProduceState, { tempOffset: number; humid
   'almost-damaged': { tempOffset: -2, humidOffset: +4 },
 };
 
-// Returns the final target temp + humidity for a device given its produce type and condition.
-// Clamps to safe agronomic ranges — e.g. meat never goes above 4°C even when dried.
-export function getStateAdjustedTargets(
-  mode: ProduceMode,
-  state: ProduceState
-): { targetTemperature: number; targetHumidity: number } {
+export function getStateAdjustedTargets(mode: ProduceMode, state: ProduceState) {
   const base = PRODUCE_THRESHOLDS[mode];
   const adj  = STATE_ADJUSTMENTS[state];
-  const targetTemperature = parseFloat(
-    Math.min(base.criticalTemperature - 1, Math.max(base.targetTemperature + adj.tempOffset, 0)).toFixed(1)
-  );
-  const targetHumidity = parseFloat(
-    Math.min(98, Math.max(30, base.targetHumidity + adj.humidOffset)).toFixed(0)
-  );
-  return { targetTemperature, targetHumidity };
+  return {
+    targetTemperature: parseFloat(Math.min(base.criticalTemperature - 1, Math.max(base.targetTemperature + adj.tempOffset, 0)).toFixed(1)),
+    targetHumidity:    parseFloat(Math.min(98, Math.max(30, base.targetHumidity + adj.humidOffset)).toFixed(0)),
+  };
 }
 
 export interface ToastMessage {
@@ -161,92 +149,132 @@ export interface ToastMessage {
   duration?: number;
 }
 
-//  Defaults and localStorage helpers
+// ── Defaults ──────────────────────────────────────────────────────────────────
+
 const DEFAULT_SETTINGS: Settings = {
-  warningTemperature: 10,
-  criticalTemperature: 15,
-  warningHumidity: 80,
-  criticalHumidity: 90,
-  inAppNotifications: true,
-  emailAlerts: true,
-  smsAlerts: false,
+  warningTemperature: 10, criticalTemperature: 15,
+  warningHumidity: 80,    criticalHumidity: 90,
+  inAppNotifications: true, emailAlerts: true, smsAlerts: false,
   alertRepeatInterval: '15min',
-  userPhone: '+233 20 123 4567',
-  escalationContact: '',
-  compactMode: false,
-  tempUnit: 'C',
-  samplingInterval: '10s',
-  dataRetention: '30d',
-  autoLogoutMinutes: 0,
+  userPhone: '', escalationContact: '',
+  compactMode: false, tempUnit: 'C',
+  samplingInterval: '10s', dataRetention: '30d', autoLogoutMinutes: 0,
 };
 
-const DEFAULT_DEVICES: Device[] = [
-  {
-    id: 'device-001', deviceCode: 'CW-001', name: 'Storage Unit A', storedSince: new Date(Date.now() - 7 * 86400000), location: 'Kumasi Central Market',
-    status: 'online', lastSeen: new Date(), firmwareVersion: '2.1.3', batteryLevel: 87,
-    tempOffset: 0, humidOffset: 0, useCustomThresholds: false,
-    warningTemperature: 10, criticalTemperature: 15, warningHumidity: 80, criticalHumidity: 90,
-  },
-  {
-    id: 'device-002', name: 'Storage Unit B', location: 'Accra Wholesale Hub',
-    status: 'online', lastSeen: new Date(Date.now() - 60000), firmwareVersion: '2.1.2', batteryLevel: 64,
-    tempOffset: -0.5, humidOffset: 0, useCustomThresholds: false,
-    warningTemperature: 10, criticalTemperature: 15, warningHumidity: 80, criticalHumidity: 90,
-  },
-  {
-    id: 'device-003', name: 'Transport Unit C', location: 'Tamale Distribution Center',
-    status: 'offline', lastSeen: new Date(Date.now() - 3600000), firmwareVersion: '2.0.9', batteryLevel: 12,
-    tempOffset: 0, humidOffset: 0, useCustomThresholds: false,
-    warningTemperature: 10, criticalTemperature: 15, warningHumidity: 80, criticalHumidity: 90,
-  },
-];
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Distinct baselines per device so they all feel independent
-const DEVICE_BASELINES: Record<string, { temp: number; humid: number }> = {
-  'device-001': { temp: 6.5,  humid: 72 },
-  'device-002': { temp: 11.2, humid: 68 },
-  'device-003': { temp: 18.4, humid: 55 },
-};
+function avatarFromName(name: string): string {
+  return name.trim().split(/\s+/).map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
+}
 
-function buildInitialSimState(deviceId: string, isOnline: boolean): DeviceSimState {
-  const b = DEVICE_BASELINES[deviceId] ?? { temp: 8, humid: 70 };
-  const now = new Date();
-  const sensorHistory: SensorReading[] = [];
-  for (let i = 60; i >= 0; i--) {
-    sensorHistory.push({
-      timestamp: new Date(now.getTime() - i * 60000),
-      temperature: b.temp + Math.random() * 3 + (i > 30 ? Math.sin(i / 10) * 1.5 : 0),
-      humidity:    b.humid + Math.random() * 8,
-    });
-  }
+/** Map a backend alert to the frontend Alert shape. */
+function mapAlert(a: any): Alert {
+  const typeToMessage: Record<string, string> = {
+    TEMP_HIGH:      'Temperature too high',
+    TEMP_LOW:       'Temperature too low',
+    HUMIDITY_HIGH:  'Humidity too high',
+    HUMIDITY_LOW:   'Humidity too low',
+    DEVICE_OFFLINE: 'Device went offline',
+  };
+  // Backend uses 'open' — frontend uses 'new'
+  const statusMap: Record<string, Alert['status']> = {
+    open:          'new',
+    acknowledged:  'acknowledged',
+    resolved:      'resolved',
+    auto_resolved: 'auto_resolved',
+  };
   return {
-    currentTemperature: b.temp,
-    currentHumidity:    b.humid,
-    systemStatus:       isOnline ? 'cooling' : 'idle',
-    targetTemperature:  8,
-    targetHumidity:     85,
+    id:          a.id,
+    severity:    a.severity as Alert['severity'],
+    message:     a.report ?? typeToMessage[a.type] ?? a.type,
+    deviceId:    a.deviceId,
+    deviceName:  a.deviceName,
+    timestamp:   new Date(a.createdAt),
+    status:      statusMap[a.status] ?? 'new',
+    tempC:       a.type?.includes('TEMP')     ? a.triggerValue   : undefined,
+    humidityPct: a.type?.includes('HUMIDITY') ? a.triggerValue   : undefined,
+    resolvedAt:  a.resolvedAt ? new Date(a.resolvedAt) : undefined,
+    autoResolved: a.status === 'auto_resolved',
+  };
+}
+
+/** Map a backend device to the frontend Device shape. */
+function mapDevice(d: any): Device {
+  return {
+    id:                  d.id,
+    name:                d.unitName ?? d.name,
+    location:            d.location,
+    status:              d.status as 'online' | 'offline',
+    lastSeen:            d.lastSeenAt ? new Date(d.lastSeenAt) : new Date(),
+    firmwareVersion:     '—',
+    batteryLevel:        100,
+    tempOffset:          d.tempOffset ?? 0,
+    humidOffset:         d.humidOffset ?? 0,
+    useCustomThresholds: d.useCustomThresholds ?? false,
+    warningTemperature:  d.warningTemperature  ?? 10,
+    criticalTemperature: d.criticalTemperature ?? 15,
+    warningHumidity:     d.warningHumidity     ?? 80,
+    criticalHumidity:    d.criticalHumidity    ?? 90,
+    humidAlertHigh:      d.humidAlertHigh,
+    produceMode:         d.produceMode as ProduceMode | undefined,
+    produceState:        d.produceState as ProduceState | undefined,
+    facilitySize:        d.facilitySize as Device['facilitySize'],
+    transportHours:      d.transportHours,
+    produceSetupComplete: d.produceSetupComplete ?? false,
+    deviceCode:          d.deviceCode,
+    unitName:            d.unitName,
+    storedSince:         d.storedSince ? new Date(d.storedSince) : undefined,
+  };
+}
+
+/** Map backend settings to frontend Settings shape. */
+function mapSettings(s: any): Settings {
+  return {
+    warningTemperature:  s.warningTemperature  ?? DEFAULT_SETTINGS.warningTemperature,
+    criticalTemperature: s.criticalTemperature ?? DEFAULT_SETTINGS.criticalTemperature,
+    warningHumidity:     s.warningHumidity     ?? DEFAULT_SETTINGS.warningHumidity,
+    criticalHumidity:    s.criticalHumidity    ?? DEFAULT_SETTINGS.criticalHumidity,
+    inAppNotifications:  s.inAppNotifications  ?? DEFAULT_SETTINGS.inAppNotifications,
+    emailAlerts:         s.emailAlerts         ?? DEFAULT_SETTINGS.emailAlerts,
+    smsAlerts:           s.smsAlerts           ?? DEFAULT_SETTINGS.smsAlerts,
+    alertRepeatInterval: s.alertRepeatInterval ?? DEFAULT_SETTINGS.alertRepeatInterval,
+    userPhone:           DEFAULT_SETTINGS.userPhone,
+    escalationContact:   DEFAULT_SETTINGS.escalationContact,
+    compactMode:         s.compactMode         ?? DEFAULT_SETTINGS.compactMode,
+    tempUnit:            (s.tempUnit as 'C' | 'F') ?? DEFAULT_SETTINGS.tempUnit,
+    samplingInterval:    s.samplingInterval    ?? DEFAULT_SETTINGS.samplingInterval,
+    dataRetention:       s.dataRetention       ?? DEFAULT_SETTINGS.dataRetention,
+    autoLogoutMinutes:   s.autoLogoutMinutes   ?? DEFAULT_SETTINGS.autoLogoutMinutes,
+  };
+}
+
+function buildInitialSimState(device: Device): DeviceSimState {
+  const targetTemp = device.produceMode
+    ? PRODUCE_THRESHOLDS[device.produceMode].targetTemperature
+    : 8;
+  const targetHumid = device.produceMode
+    ? PRODUCE_THRESHOLDS[device.produceMode].targetHumidity
+    : 85;
+  const now = new Date();
+  // Build 60-minute history seeded to realistic values
+  const sensorHistory: SensorReading[] = Array.from({ length: 60 }, (_, i) => ({
+    timestamp:   new Date(now.getTime() - (60 - i) * 60000),
+    temperature: targetTemp + Math.random() * 2,
+    humidity:    targetHumid + (Math.random() - 0.5) * 5,
+  }));
+  return {
+    currentTemperature: targetTemp + Math.random(),
+    currentHumidity:    targetHumid,
+    systemStatus:       device.status === 'online' ? 'cooling' : 'idle',
+    targetTemperature:  targetTemp,
+    targetHumidity:     targetHumid,
     autoMode:           true,
     sensorHistory,
   };
 }
 
-//  localStorage helpers 
-function loadSettings(): Settings {
-  try { const s = localStorage.getItem('cw_settings'); if (s) return { ...DEFAULT_SETTINGS, ...JSON.parse(s) }; } catch { /* */ }
-  return DEFAULT_SETTINGS;
-}
-function saveSettings(s: Settings) { try { localStorage.setItem('cw_settings', JSON.stringify(s)); } catch { /* */ } }
+// ── Context type ──────────────────────────────────────────────────────────────
 
-function loadDevices(): Device[] {
-  try {
-    const s = localStorage.getItem('cw_devices');
-    if (s) return JSON.parse(s).map((d: Device) => ({ ...d, lastSeen: new Date(d.lastSeen) }));
-  } catch { /* */ }
-  return DEFAULT_DEVICES;
-}
-function saveDevices(d: Device[]) { try { localStorage.setItem('cw_devices', JSON.stringify(d)); } catch { /* */ } }
-
-// Context type and provider
 interface AppContextType {
   currentTemperature: number;
   currentHumidity: number;
@@ -287,676 +315,536 @@ interface AppContextType {
   updateDeviceConfig: (id: string, patch: Partial<Device>) => void;
   updateUser: (patch: Partial<User>) => void;
   completeSurvey: (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => void;
-  addDevice: (name: string, location: string, produceInfo?: { produceMode: ProduceMode; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number }, deviceCode?: string, unitName?: string, storedSince?: Date) => void;
-  updateProduceSetup: (deviceId: string, produceInfo: { produceMode: ProduceMode; produceState: ProduceState; facilitySize?: 'small' | 'medium' | 'large'; transportHours?: number }) => void;
+  addDevice: (name: string, location: string, produceInfo?: any, deviceCode?: string, unitName?: string, storedSince?: Date) => void;
+  updateProduceSetup: (deviceId: string, produceInfo: any) => void;
   deleteDevice: (id: string) => void;
-  login: (email: string, name: string, id: string, avatar: string) => void;
+  login: (email: string, name: string, id: string, avatar: string, role?: UserRole, surveyComplete?: boolean) => void;
   logout: () => void;
-  deleteAccount: () => void;
+  deleteAccount: () => Promise<void>;
   addToast: (toast: ToastMessage) => void;
   toasts: ToastMessage[];
   dismissToast: (id: string) => void;
   isOnline: boolean;
   isAdvancedUser: boolean;
+  isLoading: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+// ── Provider ──────────────────────────────────────────────────────────────────
+
 export function AppProvider({ children }: { children: ReactNode }) {
 
-  // Authentication State
-  const getInitialAuth = () => {
-    try {
-      const session = JSON.parse(localStorage.getItem('cw_session') || 'null');
-      const users   = JSON.parse(localStorage.getItem('cw_users')   || '[]');
-      if (session?.remember && session?.userId) {
-        const stored = users.find((u: any) => u.id === session.userId);
-        if (stored) {
-          // Migration: recompute initials from the stored name in case the avatar
-          // is stale (e.g. name was changed before the avatar-sync fix was applied).
-          const correctAvatar = stored.name
-            ? stored.name.trim().split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
-            : stored.avatar;
-          // Persist the corrected avatar back to localStorage so it stays fixed
-          if (correctAvatar && correctAvatar !== stored.avatar) {
-            try {
-              const corrected = users.map((u: any) => u.id === stored.id ? { ...u, avatar: correctAvatar } : u);
-              localStorage.setItem('cw_users', JSON.stringify(corrected));
-            } catch { /* */ }
-          }
-          return {
-            authed: true,
-            user: { id: stored.id, name: stored.name, email: stored.email || '', avatar: correctAvatar || stored.avatar, profilePicture: stored.profilePicture || '', role: stored.role, surveyComplete: stored.surveyComplete ?? false, notificationEmail: stored.notificationEmail || '' },
-          };
-        }
-      }
-    } catch { /* */ }
-    return { authed: false, user: { id: '', name: 'User', email: '', avatar: 'U' } };
-  };
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  // Rehydrate from token — if a valid JWT exists the user is considered
+  // authenticated and we fetch their profile from the backend on mount.
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!getToken());
+  const [isLoading,       setIsLoading]       = useState(() => !!getToken()); // loading while we fetch data
+  const [activePage, setActivePage]           = useState(() => getToken() ? 'dashboard' : 'login');
+  const [user, setUser] = useState<User>({
+    id: getUserId() ?? '', name: '', email: '',
+    avatar: 'U', role: undefined, surveyComplete: undefined,
+  });
 
-  const initAuth = getInitialAuth();
-  const [isAuthenticated, setIsAuthenticated] = useState(initAuth.authed);
-  const [activePage, setActivePage]           = useState(initAuth.authed ? 'dashboard' : 'login');
-  const [user, setUser]                       = useState<User>(initAuth.user);
-
-  //  Settings 
-  const [settings, setSettings] = useState<Settings>(loadSettings);
-  const compactMode = settings.compactMode;
+  // ── Settings ─────────────────────────────────────────────────────────────────
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const compactMode    = settings.compactMode;
   const setCompactMode = useCallback((v: boolean) => {
-    setSettings(prev => { const next = { ...prev, compactMode: v }; saveSettings(next); return next; });
+    setSettings(prev => {
+      const next = { ...prev, compactMode: v };
+      settingsApi.update({ compactMode: v }).catch(() => {});
+      return next;
+    });
   }, []);
 
-  //  Devices 
-  const [devices, setDevices] = useState<Device[]>(loadDevices);
-
-  //  Selected device ID 
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>(() => {
-    const list = loadDevices();
-    return list.find(d => d.status === 'online')?.id ?? list[0]?.id ?? 'device-001';
-  });
-
-  //  Per-device simulation — lives in a ref to avoid re-render on every tick
+  // ── Devices & Sim ────────────────────────────────────────────────────────────
+  const [devices, setDevices]               = useState<Device[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const simRef = useRef<Record<string, DeviceSimState>>({});
-  if (Object.keys(simRef.current).length === 0) {
-    for (const d of loadDevices()) {
-      simRef.current[d.id] = buildInitialSimState(d.id, d.status === 'online');
-    }
-  }
 
-  // Tracks last alert severity per device so we only fire on transitions
-  type AlertLevel = 'safe' | 'warning' | 'critical';
-  const alertStateRef = useRef<Record<string, { temp: AlertLevel; humid: AlertLevel }>>({});
-  // Tracks when each breach started and the peak reading seen during it
-  const alertBreachRef = useRef<Record<string, {
-    tempStart?: Date; tempPeak?: number; tempAlertIds?: string[];
-    humidStart?: Date; humidPeak?: number; humidAlertIds?: string[];
-  }>>({});
-  for (const d of devices) {
-    if (!alertStateRef.current[d.id]) {
-      alertStateRef.current[d.id] = { temp: 'safe', humid: 'safe' };
-    }
-    if (!alertBreachRef.current[d.id]) {
-      alertBreachRef.current[d.id] = {};
-    }
-  }
-
-  // React state for the selected device — triggers re-renders for the UI
-  const [selectedSim, setSelectedSim] = useState<DeviceSimState>(
-    () => simRef.current[selectedDeviceId] ?? buildInitialSimState(selectedDeviceId, true)
-  );
-
-  // Sync when user switches devices
-  useEffect(() => {
-    const sim = simRef.current[selectedDeviceId];
-    if (sim) setSelectedSim({ ...sim });
-  }, [selectedDeviceId]);
-
-  // Produce mode 
-  const [produceMode, setProduceMode] = useState<ProduceMode>(() => {
-    try { return (localStorage.getItem('cw_produce_mode') as ProduceMode) || 'mixed'; } catch { return 'mixed'; }
+  const [selectedSim, setSelectedSim] = useState<DeviceSimState>({
+    currentTemperature: 8, currentHumidity: 80,
+    systemStatus: 'cooling', targetTemperature: 8, targetHumidity: 85,
+    autoMode: true, sensorHistory: [],
   });
 
-  // FIX: was misspelled as "setProdcueModeAndPersist"
+  // ── Alerts ───────────────────────────────────────────────────────────────────
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+
+  // ── Toasts ───────────────────────────────────────────────────────────────────
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const addToast = useCallback((toast: ToastMessage) => {
+    setToasts(prev => [...prev, toast]);
+    if (toast.duration !== Infinity) {
+      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toast.id)), toast.duration ?? 4000);
+    }
+  }, []);
+  const dismissToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
+
+  // ── Online detection ─────────────────────────────────────────────────────────
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const on  = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener('online',  on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+
+  // ── Produce mode ─────────────────────────────────────────────────────────────
+  const [produceMode, setProduceMode] = useState<ProduceMode>('mixed');
+
   const setProduceModeAndPersist = useCallback((mode: ProduceMode) => {
     setProduceMode(mode);
     try { localStorage.setItem('cw_produce_mode', mode); } catch { /* */ }
   }, []);
 
-  // Produce profile thresholds 
-  // applyProduceProfile: sets produceMode AND updates all devices' targets + thresholds
   const applyProduceProfile = useCallback((mode: ProduceMode) => {
     setProduceMode(mode);
     try { localStorage.setItem('cw_produce_mode', mode); } catch { /* */ }
-
     const thresholds = PRODUCE_THRESHOLDS[mode];
-
-    // Update device alert thresholds
-    setDevices(prev => {
-      const updated = prev.map(d => ({ ...d, ...thresholds }));
-      saveDevices(updated);
-      return updated;
-    });
-
-  
-    // gauge, stepper, and presets all reflect the produce profile immediately.
-    // simRef and setSelectedSim are in scope here — same pattern as mutateSim.
-    const simPatch = {
-      targetTemperature: thresholds.targetTemperature,
-      targetHumidity:    thresholds.targetHumidity,
-    };
+    setDevices(prev => prev.map(d => ({ ...d, ...thresholds })));
+    const patch = { targetTemperature: thresholds.targetTemperature, targetHumidity: thresholds.targetHumidity };
     if (simRef.current[selectedDeviceId]) {
-      simRef.current[selectedDeviceId] = { ...simRef.current[selectedDeviceId], ...simPatch };
+      simRef.current[selectedDeviceId] = { ...simRef.current[selectedDeviceId], ...patch };
     }
-    setSelectedSim(prev => ({ ...prev, ...simPatch }));
+    setSelectedSim(prev => ({ ...prev, ...patch }));
   }, [selectedDeviceId]);
 
-  // Apply saved produce mode to sim targets on mount — buildInitialSimState
-  // always starts at 8°C regardless of produce type. This ensures returning
-  // users see the correct targets immediately without having to re-select.
+  // ── Sparkline data ───────────────────────────────────────────────────────────
+  const deviceReadingsRef = useRef<Record<string, DeviceReading[]>>({});
+  const [deviceReadings, setDeviceReadings] = useState<Record<string, DeviceReading[]>>({});
+  const [deviceHistories, setDeviceHistories] = useState<Record<string, SensorReading[]>>({});
+
+  // ── WebSocket connections — one per online device ────────────────────────────
+  const wsRefs = useRef<Record<string, WebSocket | null>>({});
+
+  const openWebSocket = useCallback((deviceId: string) => {
+    // Don't open if already connected
+    const existing = wsRefs.current[deviceId];
+    if (existing && existing.readyState <= WebSocket.OPEN) return;
+
+    const ws = connectWebSocket(
+      deviceId,
+      (data) => {
+        if (data.type === 'reading') {
+          const { temperature, humidity } = data.data;
+          const now = new Date();
+          const reading: SensorReading = { timestamp: now, temperature, humidity };
+
+          simRef.current[deviceId] = {
+            ...simRef.current[deviceId],
+            currentTemperature: temperature,
+            currentHumidity:    humidity,
+            sensorHistory: [
+              ...(simRef.current[deviceId]?.sensorHistory ?? []).slice(-59),
+              reading,
+            ],
+          };
+
+          if (deviceId === selectedDeviceId) {
+            setSelectedSim(prev => ({ ...prev, currentTemperature: temperature, currentHumidity: humidity }));
+          }
+
+          setDeviceHistories(prev => ({
+            ...prev,
+            [deviceId]: [...(simRef.current[deviceId]?.sensorHistory ?? [])],
+          }));
+
+          // Keep sparkline data in sync
+          const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+          deviceReadingsRef.current[deviceId] = [
+            ...(deviceReadingsRef.current[deviceId] ?? []).slice(-23),
+            { time: timeStr, temperature },
+          ];
+          setDeviceReadings(prev => ({ ...prev, [deviceId]: deviceReadingsRef.current[deviceId] }));
+        }
+
+        if (data.type === 'alert') {
+          const newAlert = mapAlert(data.data);
+          setAlerts(prev => {
+            if (prev.some(a => a.id === newAlert.id)) return prev;
+            return [newAlert, ...prev];
+          });
+        }
+      },
+      () => {
+        // On error: mark device offline in state
+        setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'offline' } : d));
+      },
+      () => {
+        // On close: attempt reconnect after 5s
+        wsRefs.current[deviceId] = null;
+        setTimeout(() => { if (getToken()) openWebSocket(deviceId); }, 5000);
+      }
+    );
+    wsRefs.current[deviceId] = ws;
+  }, [selectedDeviceId]); // eslint-disable-line
+
+  // ── Bootstrap — fetch everything from backend on auth ────────────────────────
   useEffect(() => {
     if (!isAuthenticated) return;
-    const thresholds = PRODUCE_THRESHOLDS[produceMode];
-    const simPatch = {
-      targetTemperature: thresholds.targetTemperature,
-      targetHumidity:    thresholds.targetHumidity,
-    };
-    Object.keys(simRef.current).forEach(id => {
-      simRef.current[id] = { ...simRef.current[id], ...simPatch };
-    });
-    setSelectedSim(prev => ({ ...prev, ...simPatch }));
+
+    let cancelled = false;
+
+    async function bootstrap() {
+      setIsLoading(true);
+      try {
+        const [profileRes, devicesRes, alertsRes, settingsRes] = await Promise.all([
+          usersApi.me(),
+          devicesApi.list(),
+          alertsApi.list({ limit: 100 }),
+          settingsApi.get(),
+        ]);
+
+        if (cancelled) return;
+
+        // User
+        const u = profileRes.user;
+        setUser({
+          id:                u.id,
+          name:              u.name,
+          email:             u.email ?? '',
+          avatar:            avatarFromName(u.name),
+          role:              u.role as UserRole,
+          surveyComplete:    u.surveyComplete ?? false,
+          notificationEmail: u.notificationEmail ?? '',
+        });
+
+        // Settings
+        if (settingsRes.settings) {
+          setSettings(mapSettings(settingsRes.settings));
+        }
+
+        // Produce mode from localStorage (preference, not server-stored yet)
+        try {
+          const savedMode = localStorage.getItem('cw_produce_mode') as ProduceMode | null;
+          if (savedMode) setProduceMode(savedMode);
+        } catch { /* */ }
+
+        // Devices
+        const mappedDevices = (devicesRes.devices ?? []).map(mapDevice);
+        setDevices(mappedDevices);
+
+        // Initialise sim state for every device
+        for (const device of mappedDevices) {
+          if (!simRef.current[device.id]) {
+            simRef.current[device.id] = buildInitialSimState(device);
+          }
+          // Seed sparkline data
+          const tgt = PRODUCE_THRESHOLDS[device.produceMode ?? 'mixed']?.targetTemperature ?? 8;
+          deviceReadingsRef.current[device.id] = Array.from({ length: 24 }, (_, i) => ({
+            time: new Date(Date.now() - (23 - i) * 3_600_000)
+              .toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+            temperature: parseFloat((tgt + (Math.random() - 0.5) * 2).toFixed(1)),
+          }));
+        }
+        setDeviceReadings({ ...deviceReadingsRef.current });
+        setDeviceHistories(Object.fromEntries(
+          mappedDevices.map(d => [d.id, simRef.current[d.id]?.sensorHistory ?? []])
+        ));
+
+        // Select first online device, or first device overall
+        const firstOnline = mappedDevices.find(d => d.status === 'online');
+        const first = firstOnline ?? mappedDevices[0];
+        if (first) {
+          setSelectedDeviceId(first.id);
+          setSelectedSim(simRef.current[first.id] ?? buildInitialSimState(first));
+        }
+
+        // Alerts — map backend shape to frontend shape
+        setAlerts((alertsRes.alerts ?? []).map(mapAlert));
+
+        // Open WebSocket for each online device
+        for (const device of mappedDevices) {
+          if (device.status === 'online') openWebSocket(device.id);
+        }
+
+      } catch (err) {
+        if (!cancelled) {
+          console.error('[AppContext] Bootstrap failed:', err);
+          // If 401 (token expired), force logout
+          if ((err as any)?.status === 401) {
+            clearTokens();
+            setIsAuthenticated(false);
+            setActivePage('login');
+          }
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    bootstrap();
+    return () => { cancelled = true; };
+  }, [isAuthenticated]); // eslint-disable-line
+
+  // ── Sync selectedDeviceId → selectedSim ─────────────────────────────────────
+  useEffect(() => {
+    const sim = simRef.current[selectedDeviceId];
+    if (sim) setSelectedSim({ ...sim });
+  }, [selectedDeviceId]);
+
+  // ── Periodic alerts refresh (every 30s) ──────────────────────────────────────
+  // Keeps alerts in sync even if the WebSocket for a device isn't connected.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await alertsApi.list({ limit: 100 });
+        setAlerts((res.alerts ?? []).map(mapAlert));
+      } catch { /* silently ignore */ }
+    }, 30_000);
+    return () => clearInterval(interval);
   }, [isAuthenticated]);
 
-  // Alerts  
- // Seed alerts — use device names from the loaded list so renames are reflected
-  const [alerts, setAlerts] = useState<Alert[]>(() => {
-    const list = loadDevices();
-    const name = (id: string) => list.find(d => d.id === id)?.name ?? id;
-    return [
-      { id: 'a1', severity: 'warning',  deviceId: 'device-001', deviceName: name('device-001'), tempC: 10.2,  timestamp: new Date(Date.now() - 1800000),  status: 'new',          message: `Temperature reached 10.2°C at ${name('device-001')}` },
-      { id: 'a2', severity: 'critical', deviceId: 'device-002', deviceName: name('device-002'), tempC: 15.8,  timestamp: new Date(Date.now() - 3600000),  status: 'acknowledged', message: `Temperature spike to 15.8°C at ${name('device-002')} — check cooling` },
-      { id: 'a3', severity: 'info',     deviceId: 'device-001', deviceName: name('device-001'),              timestamp: new Date(Date.now() - 7200000),  status: 'resolved',     message: `Firmware updated to v2.1.3 on ${name('device-001')}` },
-    ];
-  });
-
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-  // Online/offline detection
-  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
-  useEffect(() => {
-    const handleOnline  = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online',  handleOnline);
-    window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online',  handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-
-  //  Per-device sparkline data
-  const generateDeviceReadings = (baseTemp: number, seed: number): DeviceReading[] => {
-    const r: DeviceReading[] = [];
-    for (let i = 23; i >= 0; i--) {
-      const h = new Date(Date.now() - i * 3600000);
-      const n = Math.sin((i + seed) * 0.7) * 1.5 + (Math.random() - 0.5) * 0.8;
-      r.push({ time: h.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }), temperature: parseFloat((baseTemp + n).toFixed(1)) });
-    }
-    return r;
-  };
-
-  //  Per-device sparkline data — useRef so addDevice can inject entries
-  const deviceReadingsRef = useRef<Record<string, DeviceReading[]>>({
-    'device-001': generateDeviceReadings(7.2,  1),
-    'device-002': generateDeviceReadings(11.5, 3),
-    'device-003': generateDeviceReadings(16.8, 5),
-  });
-  // Expose as state so consumers re-render when new devices are added
-  const [deviceReadings, setDeviceReadings] = useState(deviceReadingsRef.current);
-  const [deviceHistories, setDeviceHistories] = useState<Record<string, SensorReading[]>>(
-    () => Object.fromEntries(Object.entries(simRef.current).map(([id, sim]) => [id, sim.sensorHistory]))
-  );
-
-  // Simulation — runs for all online devices every 3 seconds 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const interval = setInterval(() => {
-      let selectedChanged = false;
-
-      for (const device of devices) {
-        const sim = simRef.current[device.id];
-        if (!sim || device.status === 'offline') continue;
-
-        const newTemp = (() => {
-          let t = sim.currentTemperature + (Math.random() - 0.5) * 0.5;
-          const fresh = simRef.current[device.id];
-          if (fresh.systemStatus === 'cooling' && t > fresh.targetTemperature) t -= 0.2;
-          else if (fresh.systemStatus !== 'cooling') t += 0.1;
-          return Math.max(0, Math.min(30, t));
-        })();
-        const newHumid = (() => {
-          let h = sim.currentHumidity + (Math.random() - 0.5) * 1.5;
-          const fresh = simRef.current[device.id];
-          if (h < fresh.targetHumidity) h += 0.3;
-          else if (h > fresh.targetHumidity) h -= 0.3;
-          return Math.max(0, Math.min(100, h));
-        })();
-
-        simRef.current[device.id] = {
-          ...simRef.current[device.id],   // read fresh — not the stale `sim` snapshot
-          currentTemperature: newTemp,
-          currentHumidity:    newHumid,
-          sensorHistory: [
-            ...sim.sensorHistory.slice(-59),
-            { timestamp: new Date(), temperature: newTemp, humidity: newHumid },
-          ],
-        };
-
-        if (device.id === selectedDeviceId) selectedChanged = true;
-
-        //  Alert threshold detection 
-        // changes in Settings page take effect immediately for new alerts.
-        const warnTemp  = device.useCustomThresholds ? device.warningTemperature  : settings.warningTemperature;
-        const critTemp  = device.useCustomThresholds ? device.criticalTemperature  : settings.criticalTemperature;
-        const warnHumid = device.useCustomThresholds ? device.warningHumidity      : settings.warningHumidity;
-        const critHumid = device.useCustomThresholds ? device.criticalHumidity     : settings.criticalHumidity;
-
-        const newTempLevel: AlertLevel  = newTemp  >= critTemp  ? 'critical' : newTemp  >= warnTemp  ? 'warning' : 'safe';
-
-        // Humidity alert direction: most crops alert on HIGH humidity (mould risk).
-        // High-humidity crops (leafy, fruits) alert on LOW humidity (wilting risk).
-        // humidAlertHigh defaults to true when not set (preserves original behaviour).
-        const humidAlertHigh = device.humidAlertHigh !== false;
-        const newHumidLevel: AlertLevel = humidAlertHigh
-          ? (newHumid >= critHumid ? 'critical' : newHumid >= warnHumid ? 'warning' : 'safe')
-          : (newHumid <= critHumid ? 'critical' : newHumid <= warnHumid ? 'warning' : 'safe');
-
-        const prevLevels = alertStateRef.current[device.id] ?? { temp: 'safe', humid: 'safe' };
-        const breach     = alertBreachRef.current[device.id] ?? {};
-        const newAlerts: Alert[] = [];
-        const now = new Date();
-
-        // Temperature: breach opened 
-        if (newTempLevel !== 'safe' && prevLevels.temp === 'safe') {
-          const alertId = `alert-${Date.now()}-t-${device.id}`;
-          breach.tempStart    = now;
-          breach.tempPeak     = newTemp;
-          breach.tempAlertIds = [alertId];
-          newAlerts.push({
-            id: alertId,
-            severity: newTempLevel,
-            deviceId: device.id,
-            deviceName: device.name,
-            timestamp: now,
-            status: 'new',
-            tempC: parseFloat(newTemp.toFixed(1)),
-            message: `${newTempLevel === 'critical' ? 'Critical' : 'Warning'}: Temperature ${newTemp.toFixed(1)}°C at ${device.name}`,
-          });
-        }
-
-        //  Temperature: breach escalated (warn → critical)
-        if (newTempLevel === 'critical' && prevLevels.temp === 'warning') {
-          const alertId = `alert-${Date.now()}-tc-${device.id}`;
-          breach.tempAlertIds = [...(breach.tempAlertIds ?? []), alertId]; // keep original warning ID too
-          newAlerts.push({
-            id: alertId,
-            severity: 'critical',
-            deviceId: device.id,
-            deviceName: device.name,
-            timestamp: now,
-            status: 'new',
-            tempC: parseFloat(newTemp.toFixed(1)),
-            message: `Critical: Temperature escalated to ${newTemp.toFixed(1)}°C at ${device.name}`,
-          });
-        }
-
-        //  Temperature: track peak during breach
-        if (newTempLevel !== 'safe' && breach.tempPeak !== undefined) {
-          breach.tempPeak = Math.max(breach.tempPeak, newTemp);
-        }
-
-        //  Temperature: breach closed → auto-resolve if auto mode on 
-        if (newTempLevel === 'safe' && prevLevels.temp !== 'safe') {
-          const sim = simRef.current[device.id];
-          if (sim?.autoMode && breach.tempAlertIds?.length) {
-            const duration  = breach.tempStart
-              ? Math.round((now.getTime() - breach.tempStart.getTime()) / 60000)
-              : undefined;
-            const peak      = breach.tempPeak;
-            const alertIds  = breach.tempAlertIds;
-            setAlerts(prev => prev.map(a => {
-              if (!alertIds.includes(a.id)) return a;
-              return {
-                ...a,
-                status:          'auto_resolved',
-                autoResolved:    true,
-                resolvedAt:      now,
-                durationMinutes: duration,
-                peakTempC:       peak != null ? parseFloat(peak.toFixed(1)) : undefined,
-                systemAction:    'Auto cooling engaged — temperature returned to safe range',
-              };
-            }));
-          }
-          breach.tempStart    = undefined;
-          breach.tempPeak     = undefined;
-          breach.tempAlertIds = undefined;
-        }
-
-        //  Humidity: breach opened
-          if (newHumidLevel !== 'safe' && prevLevels.humid === 'safe') {
-          const alertId = `alert-${Date.now()}-h-${device.id}`;
-          breach.humidStart    = now;
-          breach.humidPeak     = newHumid;
-          breach.humidAlertIds = [alertId];
-          newAlerts.push({
-            id: alertId,
-            severity: newHumidLevel,
-            deviceId: device.id,
-            deviceName: device.name,
-            timestamp: now,
-            status: 'new',
-            humidityPct: parseFloat(newHumid.toFixed(1)),
-            message: `${newHumidLevel === 'critical' ? 'Critical' : 'Warning'}: Humidity ${newHumid.toFixed(0)}% at ${device.name}`,
-          });
-        }
-
-        //  Humidity: track peak 
-        if (newHumidLevel !== 'safe' && breach.humidPeak !== undefined) {
-          breach.humidPeak = Math.max(breach.humidPeak, newHumid);
-        }
-
-        //  Humidity: breach closed → auto-resolve if auto mode on
-          if (newHumidLevel === 'safe' && prevLevels.humid !== 'safe') {
-          const sim = simRef.current[device.id];
-          if (sim?.autoMode && breach.humidAlertIds?.length) {
-            const duration  = breach.humidStart
-              ? Math.round((now.getTime() - breach.humidStart.getTime()) / 60000)
-              : undefined;
-            const peak      = breach.humidPeak;
-            const alertIds  = breach.humidAlertIds;
-            setAlerts(prev => prev.map(a => {
-              if (!alertIds.includes(a.id)) return a;
-              return {
-                ...a,
-                status:          'auto_resolved',
-                autoResolved:    true,
-                resolvedAt:      now,
-                durationMinutes: duration,
-                peakHumidityPct: peak != null ? parseFloat(peak.toFixed(1)) : undefined,
-                systemAction:    'Auto mode corrected humidity levels',
-              };
-            }));
-          }
-          breach.humidStart    = undefined;
-          breach.humidPeak     = undefined;
-          breach.humidAlertIds = undefined;
-        }
-
-        alertStateRef.current[device.id]  = { temp: newTempLevel, humid: newHumidLevel };
-        alertBreachRef.current[device.id] = breach;
-        if (newAlerts.length > 0) {
-          setAlerts(prev => [...newAlerts, ...prev]);
-        }
-      }
-
-      if (selectedChanged) setSelectedSim({ ...simRef.current[selectedDeviceId] });
-      // Update all per-device histories so History page can switch devices independently
-      setDeviceHistories(Object.fromEntries(
-        devices.map(d => [d.id, simRef.current[d.id]?.sensorHistory ?? []])
-      ));
-    }, 3000);
-
-    return () => clearInterval(interval);
-  // FIX: added `settings` to dependency array so alert thresholds stay in sync
-  }, [isAuthenticated, devices, selectedDeviceId, settings]);
-
-  // Mutate sim for selected device (controls, mode changes) 
+  // ── Mutate sim for selected device ───────────────────────────────────────────
   const mutateSim = useCallback((patch: Partial<DeviceSimState>) => {
     simRef.current[selectedDeviceId] = { ...simRef.current[selectedDeviceId], ...patch };
     setSelectedSim(prev => ({ ...prev, ...patch }));
   }, [selectedDeviceId]);
 
-  // Toasts
-  const addToast = useCallback((toast: ToastMessage) => {
-    setToasts(prev => [...prev, toast]);
-    if (toast.duration !== Infinity) setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toast.id)), toast.duration || 4000);
+  // ── Alert actions ────────────────────────────────────────────────────────────
+
+  const acknowledgeAlert = useCallback((id: string) => {
+    setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'acknowledged' as const } : a));
+    alertsApi.acknowledge(id).catch(() => {
+      enqueueAction({ type: 'ACKNOWLEDGE_ALERT', payload: { id } });
+    });
   }, []);
-  const dismissToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
 
-  //  Alert helpers
-  const unreadAlertCount = alerts.filter(a => a.status === 'new' || a.status === 'auto_resolved').length;
-  const acknowledgeAlert     = (id: string) => { setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'acknowledged' as const } : a)); enqueueAction({ type: 'ACKNOWLEDGE_ALERT', payload: { id } }); };
-  const resolveAlert         = (id: string) => { setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'resolved' as const } : a)); enqueueAction({ type: 'RESOLVE_ALERT', payload: { id } }); };
-  const acknowledgeAllAlerts = () => setAlerts(prev => prev.map(a =>
-    (a.status === 'new' || a.status === 'auto_resolved') ? { ...a, status: 'acknowledged' as const } : a
-  ));
+  const resolveAlert = useCallback((id: string) => {
+    setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'resolved' as const } : a));
+    alertsApi.resolve(id).catch(() => {
+      enqueueAction({ type: 'RESOLVE_ALERT', payload: { id } });
+    });
+  }, []);
 
-  //  Settings 
+  const acknowledgeAllAlerts = useCallback(() => {
+    setAlerts(prev => prev.map(a =>
+      (a.status === 'new' || a.status === 'auto_resolved')
+        ? { ...a, status: 'acknowledged' as const }
+        : a
+    ));
+    alertsApi.acknowledgeAll().catch(() => {
+      enqueueAction({ type: 'ACKNOWLEDGE_ALL_ALERTS', payload: {} });
+    });
+  }, []);
+
+  // ── Settings ─────────────────────────────────────────────────────────────────
+
   const updateSettings = useCallback((patch: Partial<Settings>) => {
-    setSettings(prev => { const next = { ...prev, ...patch }; saveSettings(next); return next; });
-    enqueueAction({ type: 'UPDATE_SETTINGS', payload: patch as Record<string, unknown> });
+    setSettings(prev => ({ ...prev, ...patch }));
+    settingsApi.update(patch as Record<string, any>).catch(() => {
+      enqueueAction({ type: 'UPDATE_SETTINGS', payload: patch as Record<string, unknown> });
+    });
   }, []);
 
-  // Devices
+  // ── Devices ──────────────────────────────────────────────────────────────────
+
   const updateDevice = useCallback((id: string, patch: Partial<Device>) => {
-    setDevices(prev => { const next = prev.map(d => d.id === id ? { ...d, ...patch } : d); saveDevices(next); return next; });
+    setDevices(prev => prev.map(d => d.id === id ? { ...d, ...patch } : d));
+    // Map frontend Device patch to backend fields
+    const backendPatch: Record<string, any> = { ...patch };
+    if (patch.name)     backendPatch.unitName  = patch.name;
+    devicesApi.update(id, backendPatch).catch(() => {
+      enqueueAction({ type: 'UPDATE_DEVICE', payload: { id, patch: patch as Record<string, unknown> } });
+    });
   }, []);
   const updateDeviceConfig = updateDevice;
 
-  // User profile 
-  const updateUser = useCallback((patch: Partial<User>) => {
-    setUser(prev => {
-      // If the name is being changed and no explicit avatar is provided,
-      // recalculate the initials so the avatar always reflects the current name.
-      const computedAvatar = patch.name && !patch.avatar
-        ? patch.name.trim().split(/\s+/).map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
-        : patch.avatar;
-      const fullPatch = { ...patch, ...(computedAvatar ? { avatar: computedAvatar } : {}) };
-      const next = { ...prev, ...fullPatch };
-      try {
-        const users = JSON.parse(localStorage.getItem('cw_users') || '[]');
-        const updated = users.map((u: any) => u.id === next.id ? { ...u, ...fullPatch } : u);
-        localStorage.setItem('cw_users', JSON.stringify(updated));
-      } catch { /* */ }
-      return next;
-    });
-    enqueueAction({ type: 'UPDATE_USER', payload: patch as Record<string, unknown> });
-  }, []);
-
-  // ── Survey completion — sets role, produce mode, and notification prefs ──
-  const completeSurvey = useCallback((role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => {
-    // Update user role, surveyComplete, and optional notificationEmail
-    setUser(prev => {
-      const next = { ...prev, role, surveyComplete: true, ...(notificationEmail ? { notificationEmail } : {}) };
-      try {
-        const users = JSON.parse(localStorage.getItem('cw_users') || '[]');
-        const updated = users.map((u: any) => u.id === next.id
-          ? { ...u, role, surveyComplete: true, ...(notificationEmail ? { notificationEmail } : {}) }
-          : u
-        );
-        localStorage.setItem('cw_users', JSON.stringify(updated));
-      } catch { /* */ }
-      return next;
-    });
-    // FIX: call applyProduceProfile instead of setProduceMode directly —
-    // this ensures device alert thresholds AND sim targets are both updated
-    // to match the produce type the user selected in the survey.
-    // Apply notification preferences
-    setSettings(prev => {
-      const next = { ...prev, ...notifPrefs };
-      saveSettings(next);
-      return next;
-    });
-  }, []);
-
-  const addDevice = useCallback((name: string, location: string, produceInfo?: { produceMode: ProduceMode; produceState: 'fresh' | 'dried' | 'in-between' | 'almost-damaged'; facilitySize: 'small' | 'medium' | 'large'; transportHours: number }, deviceCode?: string, unitName?: string) => {
-    const newId = `device-${Date.now()}`;
-    const newDevice: Device = {
-      id: newId, name, location, status: 'offline', lastSeen: new Date(),
-      firmwareVersion: '2.1.3', batteryLevel: 100,
-      tempOffset: 0, humidOffset: 0,
+  const addDevice = useCallback((
+    name: string,
+    location: string,
+    produceInfo?: { produceMode: ProduceMode; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
+    deviceCode?: string,
+    unitName?: string,
+  ) => {
+    const thresholds = produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode] : null;
+    devicesApi.create({
+      name,
+      location,
+      type:                'fridge',
+      deviceCode,
+      unitName:            unitName ?? name,
       useCustomThresholds: !!produceInfo,
-      warningTemperature:  (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].warningTemperature  : settings.warningTemperature),
-      criticalTemperature: (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].criticalTemperature : settings.criticalTemperature),
-      warningHumidity:     (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].warningHumidity     : settings.warningHumidity),
-      criticalHumidity:    (produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].criticalHumidity    : settings.criticalHumidity),
-      humidAlertHigh:      produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode].humidAlertHigh : undefined,
-      deviceCode: deviceCode ?? undefined,
-      unitName:   unitName   ?? name,
-      // Store state-adjusted targets on device so they persist across sessions
-      ...(produceInfo ? { _adjustedTargets: getStateAdjustedTargets(produceInfo.produceMode, produceInfo.produceState) } : {}),
-      ...(produceInfo ? {
-        produceMode: produceInfo.produceMode,
-        produceState: produceInfo.produceState,
-        facilitySize: produceInfo.facilitySize,
-        transportHours: produceInfo.transportHours,
-        produceSetupComplete: true,
-        storedSince: new Date(),
-      } : {}),
-    };
-    setDevices(prev => { const next = [...prev, newDevice]; saveDevices(next); return next; });
-    const initSim = buildInitialSimState(newId, false);
-    if (produceInfo) {
-      const adjusted = getStateAdjustedTargets(produceInfo.produceMode, produceInfo.produceState);
-      initSim.targetTemperature = adjusted.targetTemperature;
-      initSim.targetHumidity    = adjusted.targetHumidity;
-    }
-    simRef.current[newId]          = initSim;
-    alertStateRef.current[newId]   = { temp: 'safe', humid: 'safe' };
-    alertBreachRef.current[newId]  = {};
-    // Seed sparkline data for the new device so it has readings from the start
-    const baseline = DEVICE_BASELINES[newId] ?? { temp: 8, humid: 70 };
-    deviceReadingsRef.current[newId] = generateDeviceReadings(baseline.temp, Math.random() * 10);
-    setDeviceReadings({ ...deviceReadingsRef.current });
-  }, [settings]);
+      warningTemperature:  thresholds?.warningTemperature  ?? DEFAULT_SETTINGS.warningTemperature,
+      criticalTemperature: thresholds?.criticalTemperature ?? DEFAULT_SETTINGS.criticalTemperature,
+      warningHumidity:     thresholds?.warningHumidity     ?? DEFAULT_SETTINGS.warningHumidity,
+      criticalHumidity:    thresholds?.criticalHumidity    ?? DEFAULT_SETTINGS.criticalHumidity,
+      humidAlertHigh:      thresholds?.humidAlertHigh,
+      produceMode:         produceInfo?.produceMode,
+      produceState:        produceInfo?.produceState,
+      facilitySize:        produceInfo?.facilitySize,
+      transportHours:      produceInfo?.transportHours,
+      hasActuator:         false,
+    })
+      .then(({ device }) => {
+        const mapped = mapDevice(device);
+        simRef.current[mapped.id]        = buildInitialSimState(mapped);
+        alertStateRef.current[mapped.id] = { temp: 'safe', humid: 'safe' };
+        deviceReadingsRef.current[mapped.id] = Array.from({ length: 24 }, (_, i) => ({
+          time: new Date(Date.now() - (23 - i) * 3_600_000)
+            .toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          temperature: parseFloat(((thresholds?.targetTemperature ?? 8) + (Math.random() - 0.5)).toFixed(1)),
+        }));
+        setDevices(prev => [...prev, mapped]);
+        setDeviceReadings(prev => ({ ...prev, [mapped.id]: deviceReadingsRef.current[mapped.id] }));
+        setDeviceHistories(prev => ({ ...prev, [mapped.id]: simRef.current[mapped.id]?.sensorHistory ?? [] }));
+        addToast({ id: `add-${mapped.id}`, type: 'success', message: `Device ${mapped.name} added.` });
+      })
+      .catch(err => {
+        addToast({ id: `add-err-${Date.now()}`, type: 'error', message: err?.message ?? 'Failed to add device.' });
+        enqueueAction({ type: 'ADD_DEVICE', payload: { name, location } });
+      });
+  }, [addToast]); // eslint-disable-line
 
-  // updateProduceSetup — called from device card when user fills in produce setup later,
-  // or when AI image analysis updates the produce state after device creation.
   const updateProduceSetup = useCallback((
     deviceId: string,
-    produceInfo: { produceMode: ProduceMode; produceState: ProduceState; facilitySize?: 'small' | 'medium' | 'large'; transportHours?: number }
+    produceInfo: { produceMode: ProduceMode; produceState: ProduceState; facilitySize?: Device['facilitySize']; transportHours?: number }
   ) => {
     const thresholds = PRODUCE_THRESHOLDS[produceInfo.produceMode];
     const adjusted   = getStateAdjustedTargets(produceInfo.produceMode, produceInfo.produceState);
-
-    // Persist produce info + thresholds to device record
-    setDevices(prev => {
-      const next = prev.map(d => d.id === deviceId ? {
-        ...d,
-        produceMode:          produceInfo.produceMode,
-        produceState:         produceInfo.produceState,
-        ...(produceInfo.facilitySize   ? { facilitySize:   produceInfo.facilitySize   } : {}),
-        ...(produceInfo.transportHours !== undefined ? { transportHours: produceInfo.transportHours } : {}),
-        produceSetupComplete: true,
-        useCustomThresholds:  true,
-        warningTemperature:   thresholds.warningTemperature,
-        criticalTemperature:  thresholds.criticalTemperature,
-        warningHumidity:      thresholds.warningHumidity,
-        criticalHumidity:     thresholds.criticalHumidity,
-        humidAlertHigh:       thresholds.humidAlertHigh,
-      } : d);
-      saveDevices(next);
-      return next;
-    });
-
-    // Apply adjusted targets to sim — affects dashboard immediately
+    setDevices(prev => prev.map(d => d.id === deviceId ? {
+      ...d, ...produceInfo, ...thresholds,
+      produceSetupComplete: true, useCustomThresholds: true,
+    } : d));
+    devicesApi.update(deviceId, { ...produceInfo, ...thresholds, produceSetupComplete: true, useCustomThresholds: true })
+      .catch(() => {});
     if (simRef.current[deviceId]) {
-      simRef.current[deviceId] = {
-        ...simRef.current[deviceId],
-        targetTemperature: adjusted.targetTemperature,
-        targetHumidity:    adjusted.targetHumidity,
-      };
+      simRef.current[deviceId] = { ...simRef.current[deviceId], ...adjusted };
     }
-    // If this is the currently selected device, update React state too
-    if (deviceId === selectedDeviceId) {
-      setSelectedSim(prev => ({
-        ...prev,
-        targetTemperature: adjusted.targetTemperature,
-        targetHumidity:    adjusted.targetHumidity,
-      }));
-    }
+    if (deviceId === selectedDeviceId) setSelectedSim(prev => ({ ...prev, ...adjusted }));
   }, [selectedDeviceId]);
 
   const deleteDevice = useCallback((id: string) => {
-    let remaining: Device[] = [];
+    // Close WebSocket if open
+    wsRefs.current[id]?.close();
+    delete wsRefs.current[id];
+
     setDevices(prev => {
-      remaining = prev.filter(d => d.id !== id);
-      saveDevices(remaining);
+      const remaining = prev.filter(d => d.id !== id);
+      setSelectedDeviceId(cur => (cur !== id ? cur : (remaining[0]?.id ?? '')));
       return remaining;
     });
-    // Clean up all per-device refs so the simulation loop doesn't process a ghost device
+
     delete simRef.current[id];
     delete alertStateRef.current[id];
-    delete alertBreachRef.current[id];
     delete deviceReadingsRef.current[id];
-    setDeviceReadings(prev => { const next = { ...prev }; delete next[id]; return next; });
-    // If the deleted device was selected, fall back to the first remaining device
-    setSelectedDeviceId(prev => {
-      if (prev !== id) return prev;
-      return remaining[0]?.id ?? '';
+    setDeviceReadings(prev => { const n = { ...prev }; delete n[id]; return n; });
+    setDeviceHistories(prev => { const n = { ...prev }; delete n[id]; return n; });
+
+    devicesApi.delete(id).catch(() => {
+      enqueueAction({ type: 'DELETE_DEVICE', payload: { id } });
     });
   }, []);
 
-  // Auth
-  const login = (email: string, name: string, id: string, avatar: string) => {
-    // Restore full profile from localStorage so role and profilePicture survive sign-in
-    try {
-      const users  = JSON.parse(localStorage.getItem('cw_users') || '[]');
-      const stored = users.find((u: any) => u.id === id);
-      if (stored) {
-        setUser({
-          id, name, email, avatar,
-          profilePicture:    stored.profilePicture || '',
-          role:              stored.role,
-          surveyComplete:    stored.surveyComplete ?? false,
-          notificationEmail: stored.notificationEmail || '',
-        });
-      } else {
-        setUser({ id, name, email, avatar });
-      }
-    } catch {
-      setUser({ id, name, email, avatar });
-    }
+  // ── User ─────────────────────────────────────────────────────────────────────
+
+  const updateUser = useCallback((patch: Partial<User>) => {
+    setUser(prev => {
+      const computedAvatar = patch.name && !patch.avatar
+        ? avatarFromName(patch.name)
+        : patch.avatar;
+      return { ...prev, ...patch, ...(computedAvatar ? { avatar: computedAvatar } : {}) };
+    });
+    usersApi.updateProfile({
+      name:              patch.name,
+      email:             patch.email,
+      notificationEmail: patch.notificationEmail,
+      role:              patch.role,
+    }).catch(() => {
+      enqueueAction({ type: 'UPDATE_USER', payload: patch as Record<string, unknown> });
+    });
+  }, []);
+
+  const completeSurvey = useCallback((role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => {
+    setUser(prev => ({ ...prev, role, surveyComplete: true, ...(notificationEmail ? { notificationEmail } : {}) }));
+    setSettings(prev => ({ ...prev, ...notifPrefs }));
+    usersApi.updateProfile({ role, surveyComplete: true, notificationEmail }).catch(() => {});
+    settingsApi.update(notifPrefs as Record<string, any>).catch(() => {});
+  }, []);
+
+  // ── Auth ─────────────────────────────────────────────────────────────────────
+
+  const login = useCallback((
+    email: string, name: string, id: string, avatar: string,
+    role?: UserRole, surveyComplete?: boolean
+  ) => {
+    setUser({ id, name, email, avatar, role, surveyComplete: surveyComplete ?? false });
     setIsAuthenticated(true);
     setActivePage('dashboard');
-  };
+  }, []);
 
-  const logout = () => {
-    localStorage.removeItem('cw_session');
-    clearQueue().catch(() => { /* ignore */ });
+  const logout = useCallback(() => {
+    // Close all WebSockets
+    Object.values(wsRefs.current).forEach(ws => ws?.close());
+    wsRefs.current = {};
+
+    authApi.logout().catch(() => {});
+    clearTokens();
+    clearQueue().catch(() => {});
     setIsAuthenticated(false);
     setActivePage('login');
-  };
+    // Reset state
+    setDevices([]);
+    setAlerts([]);
+    setSettings(DEFAULT_SETTINGS);
+    simRef.current = {};
+  }, []);
 
-  const deleteAccount = () => {
+  const deleteAccount = useCallback(async () => {
+    // Delete the account on the backend first, then clear local state.
+    // If the API call fails we still clear locally so the user isn't stuck.
     try {
-      // Remove this user from the users list
-      const users   = JSON.parse(localStorage.getItem('cw_users') || '[]');
-      const session = JSON.parse(localStorage.getItem('cw_session') || 'null');
-      if (session?.userId) {
-        const updated = users.filter((u: any) => u.id !== session.userId);
-        localStorage.setItem('cw_users', JSON.stringify(updated));
-      }
-      // Clear all session and app data for this user
-      localStorage.removeItem('cw_session');
-      localStorage.removeItem('cw_settings');
-      localStorage.removeItem('cw_devices');
+      await usersApi.deleteAccount();
+    } catch { /* account may already be gone */ }
+    Object.values(wsRefs.current).forEach(ws => ws?.close());
+    wsRefs.current = {};
+    clearTokens();
+    try {
       localStorage.removeItem('cw_produce_mode');
       localStorage.removeItem('cw_onboarding_complete');
     } catch { /* */ }
     setIsAuthenticated(false);
     setActivePage('login');
-  };
+    setDevices([]);
+    setAlerts([]);
+    setSettings(DEFAULT_SETTINGS);
+    simRef.current = {};
+  }, []);
 
-  // Auto-logout on inactivity
+  // ── Auto-logout ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated || settings.autoLogoutMinutes === 0) return;
     let timer: ReturnType<typeof setTimeout>;
     const reset = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        localStorage.removeItem('cw_session');
-        setIsAuthenticated(false);
-        setActivePage('login');
-      }, settings.autoLogoutMinutes * 60 * 1000);
+      timer = setTimeout(() => { clearTokens(); setIsAuthenticated(false); setActivePage('login'); },
+        settings.autoLogoutMinutes * 60 * 1000);
     };
     const events = ['mousedown', 'keydown', 'touchstart', 'scroll', 'pointermove'] as const;
     events.forEach(e => window.addEventListener(e, reset, { passive: true }));
-    reset(); // start the timer immediately
-    return () => {
-      clearTimeout(timer);
-      events.forEach(e => window.removeEventListener(e, reset));
-    };
+    reset();
+    return () => { clearTimeout(timer); events.forEach(e => window.removeEventListener(e, reset)); };
   }, [isAuthenticated, settings.autoLogoutMinutes]);
 
-  //  Control helpers (all target the selected device) 
+  // ── Control helpers ───────────────────────────────────────────────────────────
   const setTargetTemperature = useCallback((t: number)  => mutateSim({ targetTemperature: t }), [mutateSim]);
   const setTargetHumidity    = useCallback((h: number)  => mutateSim({ targetHumidity: h }),    [mutateSim]);
   const setAutoMode          = useCallback((a: boolean) => mutateSim({ autoMode: a }),           [mutateSim]);
   const startCooling         = useCallback(() => mutateSim({ systemStatus: 'cooling' }),         [mutateSim]);
   const stopCooling          = useCallback(() => mutateSim({ systemStatus: 'idle' }),            [mutateSim]);
 
-  const selectedDevice = devices.find(d => d.id === selectedDeviceId);
-  const deviceStatus   = selectedDevice?.status ?? 'offline';
+  const selectedDevice  = devices.find(d => d.id === selectedDeviceId);
+  const deviceStatus    = selectedDevice?.status ?? 'offline';
+  const unreadAlertCount = alerts.filter(a => a.status === 'new' || a.status === 'auto_resolved').length;
+
+  // Keep alert-state refs in sync with devices list
+  const alertStateRef = useRef<Record<string, { temp: string; humid: string }>>({});
+  for (const d of devices) {
+    if (!alertStateRef.current[d.id]) alertStateRef.current[d.id] = { temp: 'safe', humid: 'safe' };
+  }
 
   return (
     <AppContext.Provider value={{
@@ -1010,6 +898,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dismissToast,
       isOnline,
       isAdvancedUser: user.role === 'warehouse_manager',
+      isLoading,
     }}>
       {children}
     </AppContext.Provider>
