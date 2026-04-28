@@ -30,7 +30,7 @@ const slideVariants = {
 
 
 function AppContent() {
-  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user } = useApp();
+  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user, reconnectWebSockets } = useApp();
   const [showSplash, setShowSplash] = useState(true);
 
   // Onboarding flow — only show if not previously completed
@@ -86,6 +86,40 @@ function AppContent() {
       prevPageRef.current = activePage;
     }
   }, [activePage]);
+
+  // ── Capacitor app state — reconnect WebSockets when app returns to foreground
+  // On iOS/Android the OS silently kills TCP connections when the app is backgrounded.
+  // We listen for the app becoming active again and trigger a reconnect.
+  // In the browser this falls back to the Page Visibility API.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let cleanup: (() => void) | null = null;
+
+    const handleForeground = () => {
+      // AppContext's openWebSocket is idempotent — safe to call even if connected
+      reconnectWebSockets();
+    };
+
+    // Try Capacitor App plugin first (native mobile)
+    import('@capacitor/app').then(({ App: CapApp }) => {
+      const listener = CapApp.addListener('appStateChange', (state) => {
+        if (state.isActive) handleForeground();
+      });
+      listener.then(handle => {
+        cleanup = () => handle.remove();
+      });
+    }).catch(() => {
+      // Not in Capacitor (browser) — use Page Visibility API
+      const onVisibility = () => {
+        if (document.visibilityState === 'visible') handleForeground();
+      };
+      document.addEventListener('visibilitychange', onVisibility);
+      cleanup = () => document.removeEventListener('visibilitychange', onVisibility);
+    });
+
+    return () => { cleanup?.(); };
+  }, [isAuthenticated]);
 
   // One-time reminder toast if user skipped the survey
   // surveyComplete comes from the backend via AppContext user object
