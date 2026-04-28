@@ -321,6 +321,7 @@ interface AppContextType {
   login: (email: string, name: string, id: string, avatar: string, role?: UserRole, surveyComplete?: boolean) => void;
   logout: () => void;
   deleteAccount: () => Promise<void>;
+  reconnectWebSockets: () => void;
   addToast: (toast: ToastMessage) => void;
   toasts: ToastMessage[];
   dismissToast: (id: string) => void;
@@ -480,6 +481,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
     wsRefs.current[deviceId] = ws;
   }, [selectedDeviceId]); // eslint-disable-line
+
+  // Called by App.tsx when app returns to foreground.
+  // Must be declared AFTER openWebSocket — useCallback refs are not hoisted.
+  const reconnectWebSockets = useCallback(() => {
+    setDevices(current => {
+      for (const device of current) {
+        if (device.status === 'online') {
+          const existing = wsRefs.current[device.id];
+          if (!existing || existing.readyState === WebSocket.CLOSED) {
+            openWebSocket(device.id);
+          }
+        }
+      }
+      return current;
+    });
+  }, [openWebSocket]);
 
   // ── Bootstrap — fetch everything from backend on auth ────────────────────────
   useEffect(() => {
@@ -893,6 +910,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       deleteAccount,
+    reconnectWebSockets,
       addToast,
       toasts,
       dismissToast,
