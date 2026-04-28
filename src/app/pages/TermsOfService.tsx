@@ -104,6 +104,27 @@ export default function TermsOfService() {
           </section>
 
           <section>
+            <h2 className="text-xl font-semibold text-[#111827] mb-3">8a. Use of Email and Phone Number</h2>
+            <div className="p-4 rounded-xl mb-3" style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD' }}>
+              <p className="text-sm font-semibold text-[#0369A1] mb-2">What we use your contact details for — and nothing else</p>
+              <p className="text-sm leading-relaxed text-[#0C4A6E]">
+                By providing your email address or phone number, you acknowledge and agree to the following
+                strictly limited uses:
+              </p>
+              <ul className="list-disc list-inside mt-2 space-y-1 ml-2 text-sm text-[#0C4A6E]">
+                <li><strong>Email:</strong> Delivery of alert notifications when storage thresholds are breached, and one-time passwords (OTPs) for account verification and password resets.</li>
+                <li><strong>Phone / SMS:</strong> Delivery of SMS alert notifications when temperature or humidity thresholds are breached, and OTP delivery for password resets.</li>
+              </ul>
+              <p className="text-sm leading-relaxed text-[#0C4A6E] mt-3">
+                ColdWatch will <strong>not</strong> send marketing emails, promotional SMS messages, or share
+                your contact details with third parties for any advertising or commercial purpose. Your contact
+                details are never sold. You may remove your email or phone number from your account at any time
+                via Settings — this will disable the corresponding notification channel.
+              </p>
+            </div>
+          </section>
+
+          <section>
             <h2 className="text-xl font-semibold text-[#111827] mb-3">9. Device Data and Monitoring</h2>
             <p className="leading-relaxed">
               The temperature, humidity, and other sensor data provided through ColdWatch is intended for informational purposes. While we strive for accuracy, sensor readings may have inherent limitations and error margins. ColdWatch is not responsible for any decisions made based on the data provided through our Services.

@@ -83,12 +83,28 @@ export default function Privacy() {
             <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
               <li>Providing, maintaining, and improving our Services</li>
               <li>Processing transactions and sending related information</li>
-              <li>Sending promotional communications (with your consent)</li>
               <li>Responding to your inquiries and providing customer support</li>
               <li>Monitoring and analyzing trends and usage patterns</li>
               <li>Detecting and preventing fraudulent transactions and other illegal activities</li>
               <li>Personalizing and improving user experience</li>
             </ul>
+            <div className="mt-4 p-4 rounded-xl" style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD' }}>
+              <p className="text-sm font-semibold text-[#0369A1] mb-2">Our commitment on email and phone use</p>
+              <p className="text-sm leading-relaxed text-[#0C4A6E]">
+                Your <strong>email address</strong> is used exclusively for two purposes: sending critical alert
+                notifications when your storage conditions breach thresholds, and delivering one-time passwords
+                (OTPs) for account verification and password resets.
+              </p>
+              <p className="text-sm leading-relaxed text-[#0C4A6E] mt-2">
+                Your <strong>phone number</strong> is used exclusively for SMS alert notifications when temperature
+                or humidity thresholds are breached, and for OTP delivery when you request a password reset.
+              </p>
+              <p className="text-sm leading-relaxed text-[#0C4A6E] mt-2">
+                We do <strong>not</strong> send marketing emails or promotional SMS messages. We do <strong>not</strong> sell,
+                share, or use your contact details for any purpose beyond the two stated above. You can remove
+                your email or phone number at any time in Settings.
+              </p>
+            </div>
           </section>
 
           <section>
