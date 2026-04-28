@@ -781,8 +781,7 @@ function NotificationsSub({ onBack, local, setLocal, save, showNotifEmail, notif
             onClick={() => {
               if (showNotifEmail && notifEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(notifEmail.trim())) { setNotifEmailError('Please enter a valid email address.'); return; }
               // Phone number lives on the User record, not Settings — route it correctly
-              if (local.userPhone?.trim()) updateUser({ notificationEmail: undefined, ...(local.userPhone.trim() ? { } : {}) });
-              // Save phone to user profile separately so Arkesel SMS reaches the right number
+              // Save phone to user profile so Arkesel SMS reaches the right number
               updateUser({
                 ...(local.userPhone?.trim() ? { phone: local.userPhone.trim() } : {}),
                 ...(showNotifEmail && notifEmail.trim() ? { notificationEmail: notifEmail.trim() } : {}),
