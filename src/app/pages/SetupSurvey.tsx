@@ -188,6 +188,7 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
   const [email,     setEmail]     = useState(settings.emailAlerts);
   const [sms,       setSms]       = useState(settings.smsAlerts);
   const [notifEmail, setNotifEmail] = useState('');
+  const [notifPhone, setNotifPhone] = useState('');
 
   const wantsEmailStep = role === 'warehouse_manager' || role === 'transporter';
   // Lock TOTAL once the user advances past step 0 — prevents pills and button
@@ -208,6 +209,7 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
       role ?? 'other',
       { inAppNotifications: inApp, emailAlerts: email, smsAlerts: sms },
       notifEmail.trim() || undefined,
+      notifPhone.trim() || undefined,
     );
     onComplete();
   };
@@ -215,9 +217,9 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
   const meta = [
     { title: "What's your role?",        sub: "Helps us personalise the dashboard for how you work." },
     { title: "How should we alert you?", sub: "Choose how to be notified when something goes wrong." },
-    { title: "Link your alert email",    sub: role === 'transporter'
+    { title: "Alert contacts",    sub: role === 'transporter'
         ? "Get notified of temperature breaches in transit, even when the app is closed."
-        : "Receive critical alerts straight to your inbox — useful when you're away from the facility." },
+        : "Receive critical alerts to your inbox and phone — useful when you're away from the facility." },
   ];
 
   return (
@@ -417,7 +419,7 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
                 transition={{ delay: 0.08, duration: 0.22 }}
               >
                 <label className="block text-xs font-semibold mb-1.5" style={{ color: '#374151' }}>
-                  Alert Email Address
+                  Alert Email Address <span style={{ color: '#A0A8B5', fontWeight: 400 }}>(optional)</span>
                 </label>
                 <div
                   className="relative rounded-xl transition-all"
@@ -433,6 +435,36 @@ export default function SetupSurvey({ onComplete, onSkip }: Props) {
                     style={{ paddingLeft: 42, paddingRight: 16, color: '#111827' }}
                   />
                 </div>
+                <p className="text-[10.5px] mt-1.5" style={{ color: '#A0A8B5' }}>
+                  Used only for alert notifications. Never shared or used for marketing.
+                </p>
+              </motion.div>
+
+              {/* Phone input */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.13, duration: 0.22 }}
+              >
+                <label className="block text-xs font-semibold mb-1.5" style={{ color: '#374151' }}>
+                  Phone Number <span style={{ color: '#A0A8B5', fontWeight: 400 }}>(optional)</span>
+                </label>
+                <div
+                  className="relative rounded-xl transition-all"
+                  style={{ border: '1.5px solid #E4E7EC', backgroundColor: '#FFFFFF' }}
+                >
+                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#9CA3AF' }} />
+                  <input
+                    type="tel"
+                    placeholder="+233 XX XXX XXXX"
+                    value={notifPhone}
+                    onChange={e => setNotifPhone(e.target.value)}
+                    className="w-full py-3.5 bg-transparent outline-none border-0 text-sm"
+                    style={{ paddingLeft: 42, paddingRight: 16, color: '#111827' }}
+                  />
+                </div>
+                <p className="text-[10.5px] mt-1.5" style={{ color: '#A0A8B5' }}>
+                  SMS alerts and OTP verification only. Never shared or used for any other purpose.
+                </p>
               </motion.div>
 
               {/* Skip hint */}

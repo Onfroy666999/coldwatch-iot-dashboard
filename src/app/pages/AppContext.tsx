@@ -314,7 +314,7 @@ interface AppContextType {
   updateDevice: (id: string, patch: Partial<Device>) => void;
   updateDeviceConfig: (id: string, patch: Partial<Device>) => void;
   updateUser: (patch: Partial<User>) => void;
-  completeSurvey: (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => void;
+  completeSurvey: (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string, phone?: string) => void;
   addDevice: (name: string, location: string, produceInfo?: any, deviceCode?: string, unitName?: string, storedSince?: Date) => void;
   updateProduceSetup: (deviceId: string, produceInfo: any) => void;
   deleteDevice: (id: string) => void;
@@ -758,10 +758,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const completeSurvey = useCallback((role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => {
+  const completeSurvey = useCallback((role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string, phone?: string) => {
     setUser(prev => ({ ...prev, role, surveyComplete: true, ...(notificationEmail ? { notificationEmail } : {}) }));
     setSettings(prev => ({ ...prev, ...notifPrefs }));
-    usersApi.updateProfile({ role, surveyComplete: true, notificationEmail }).catch(() => {});
+    usersApi.updateProfile({ role, surveyComplete: true, notificationEmail, ...(phone ? { phone } : {}) }).catch(() => {});
     settingsApi.update(notifPrefs as Record<string, any>).catch(() => {});
   }, []);
 

@@ -8,7 +8,7 @@ import {
   Monitor, Cpu, Database, Lock, ChevronDown, ChevronUp,
   Sliders, Phone, Mail, Clock, Trash2, AlertTriangle, ShieldCheck,
   HelpCircle, Wifi, Zap, CheckCircle2, Copy, Check,
-  Package, Terminal, AlertCircle, RefreshCw, Info,
+  Package, Terminal, AlertCircle, RefreshCw, Info, Shield, Scale,
 } from 'lucide-react';
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -780,9 +780,15 @@ function NotificationsSub({ onBack, local, setLocal, save, showNotifEmail, notif
           <button
             onClick={() => {
               if (showNotifEmail && notifEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(notifEmail.trim())) { setNotifEmailError('Please enter a valid email address.'); return; }
-              const patch = { inAppNotifications: local.inAppNotifications, emailAlerts: local.emailAlerts, smsAlerts: local.smsAlerts, userPhone: local.userPhone, escalationContact: local.escalationContact, ...(isAdvancedUser && { alertRepeatInterval: local.alertRepeatInterval }) };
+              // Phone number lives on the User record, not Settings — route it correctly
+              // Save phone to user profile so Arkesel SMS reaches the right number
+              updateUser({
+                ...(local.userPhone?.trim() ? { phone: local.userPhone.trim() } : {}),
+                ...(showNotifEmail && notifEmail.trim() ? { notificationEmail: notifEmail.trim() } : {}),
+              });
+              // Settings patch — only fields that live in the settings table
+              const patch = { inAppNotifications: local.inAppNotifications, emailAlerts: local.emailAlerts, smsAlerts: local.smsAlerts, escalationContact: local.escalationContact, ...(isAdvancedUser && { alertRepeatInterval: local.alertRepeatInterval }) };
               save('Notification preferences saved', patch);
-              if (showNotifEmail) updateUser({ notificationEmail: notifEmail.trim() || undefined });
             }}
             className={`${saveBtnClass} w-full justify-center`} style={{ backgroundColor: '#0984E3' }}>
             <Save className="w-4 h-4" />Save Notifications
@@ -947,7 +953,7 @@ function SecuritySub({ onBack, local, setLocal, save, user }: {
 type SubKey = 'display' | 'notifications' | 'thresholds' | 'devices' | 'data' | 'security' | 'howtoconnect';
 
 export default function Settings() {
-  const { settings, updateSettings, updateDeviceConfig, deviceConfigs, user, addToast, deleteAccount, isAdvancedUser, updateUser } = useApp();
+  const { settings, updateSettings, updateDeviceConfig, deviceConfigs, user, addToast, deleteAccount, isAdvancedUser, updateUser, setActivePage } = useApp();
   const [activeSub,         setActiveSub]         = useState<SubKey | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [local,             setLocal]             = useState(settings);
@@ -985,6 +991,8 @@ export default function Settings() {
     { key: 'devices',       icon: <Cpu className="w-5 h-5" />,          iconBg: 'rgba(22,163,74,0.08)',  iconColor: '#16A34A', label: 'Device Configuration',  subtitle: 'Calibration, names, per-device limits', managerOnly: true },
     { key: 'data',          icon: <Database className="w-5 h-5" />,     iconBg: 'rgba(22,163,74,0.08)',  iconColor: '#16A34A', label: 'Data & History',        subtitle: 'Sampling interval, retention period',   managerOnly: true },
     { key: 'security',      icon: <Lock className="w-5 h-5" />,         iconBg: 'rgba(220,38,38,0.06)',  iconColor: '#DC2626', label: 'Security',              subtitle: 'Auto-logout, session info'             },
+    { key: 'privacy',       icon: <Shield className="w-5 h-5" />,       iconBg: 'rgba(99,102,241,0.08)',  iconColor: '#6366F1', label: 'Privacy Policy',        subtitle: 'How we collect and use your data',       allUsers: true },
+    { key: 'terms',         icon: <Scale className="w-5 h-5" />,        iconBg: 'rgba(139,92,246,0.08)',  iconColor: '#8B5CF6', label: 'Terms of Service',     subtitle: 'Our terms and conditions',                allUsers: true },
   ];
 
   // allUsers rows always show; managerOnly rows only for advanced users; others always show
@@ -1013,7 +1021,13 @@ export default function Settings() {
 
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden" style={{ border: '1px solid #E4E7EC' }}>
             {visibleRows.map((row, i) => (
-              <button key={row.key} onClick={() => setActiveSub(row.key)}
+              <button key={row.key} onClick={() => {
+                if (row.key === 'privacy' || row.key === 'terms') {
+                  setActivePage(row.key);
+                } else {
+                  setActiveSub(row.key);
+                }
+              }}
                 className={`w-full flex items-center gap-4 px-4 py-4 active:bg-[#F3F4F6] transition-colors text-left ${i < visibleRows.length - 1 ? 'border-b border-[#E4E7EC]' : ''}`}
                 style={{ minHeight: 72 }}
               >

@@ -1,115 +1,66 @@
 /**
- * JWT Token Storage and Management
- * Handles secure storage and refresh of JWT tokens
+ * Token storage — persists the JWT and userId in localStorage.
+ *
+ * Using localStorage (not sessionStorage) so the user stays logged in
+ * across browser/app restarts. The token is checked on app init in
+ * AppContext to rehydrate the session without another login round-trip.
+ *
+ * Keys:
+ *   cw_jwt        — the JWT string
+ *   cw_jwt_expiry — unix timestamp (seconds) when it expires
+ *   cw_user_id    — the authenticated user's ID
  */
 
-const TOKEN_KEY = 'cw_auth_token';
-const REFRESH_TOKEN_KEY = 'cw_refresh_token';
-const USER_ID_KEY = 'cw_user_id';
+const KEY_TOKEN  = 'cw_jwt';
+const KEY_EXPIRY = 'cw_jwt_expiry';
+const KEY_USER   = 'cw_user_id';
 
-export interface StoredToken {
-  token: string;
-  expiresAt: number;
-}
-
-/**
- * Store JWT token with expiration time
- */
-export function storeToken(token: string, expiresInSeconds: number = 604800): void {
+/** Store a JWT and its TTL. ttlSeconds defaults to 7 days. */
+export function storeToken(token: string, ttlSeconds = 7 * 24 * 3600): void {
   try {
-    const expiresAt = Date.now() + expiresInSeconds * 1000;
-    const data: StoredToken = { token, expiresAt };
-    localStorage.setItem(TOKEN_KEY, JSON.stringify(data));
-  } catch (err) {
-    console.error('[TokenStorage] Failed to store token:', err);
-  }
+    const expiry = Math.floor(Date.now() / 1000) + ttlSeconds;
+    localStorage.setItem(KEY_TOKEN,  token);
+    localStorage.setItem(KEY_EXPIRY, String(expiry));
+  } catch { /* ignore — storage quota exceeded */ }
 }
 
-/**
- * Store refresh token (7 days)
- */
-export function storeRefreshToken(refreshToken: string): void {
-  try {
-    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-  } catch (err) {
-    console.error('[TokenStorage] Failed to store refresh token:', err);
-  }
-}
-
-/**
- * Store user ID for reference
- */
-export function storeUserId(userId: string): void {
-  try {
-    localStorage.setItem(USER_ID_KEY, userId);
-  } catch (err) {
-    console.error('[TokenStorage] Failed to store user ID:', err);
-  }
-}
-
-/**
- * Retrieve valid JWT token (returns null if expired or missing)
- */
+/** Return the stored JWT if it exists and hasn't expired. */
 export function getToken(): string | null {
   try {
-    const stored = localStorage.getItem(TOKEN_KEY);
-    if (!stored) return null;
-
-    const data: StoredToken = JSON.parse(stored);
-    if (Date.now() >= data.expiresAt) {
-      // Token expired
+    const token  = localStorage.getItem(KEY_TOKEN);
+    const expiry = Number(localStorage.getItem(KEY_EXPIRY) ?? 0);
+    if (!token) return null;
+    // Consider tokens within 60 seconds of expiry as expired
+    if (expiry && Math.floor(Date.now() / 1000) >= expiry - 60) {
       clearTokens();
       return null;
     }
-
-    return data.token;
-  } catch (err) {
-    console.error('[TokenStorage] Failed to retrieve token:', err);
+    return token;
+  } catch {
     return null;
   }
 }
 
-/**
- * Get refresh token
- */
-export function getRefreshToken(): string | null {
-  try {
-    return localStorage.getItem(REFRESH_TOKEN_KEY);
-  } catch (err) {
-    console.error('[TokenStorage] Failed to retrieve refresh token:', err);
-    return null;
-  }
+/** Store the authenticated user's ID. */
+export function storeUserId(id: string): void {
+  try { localStorage.setItem(KEY_USER, id); } catch { /* */ }
 }
 
-/**
- * Get stored user ID
- */
+/** Return the stored user ID. */
 export function getUserId(): string | null {
-  try {
-    return localStorage.getItem(USER_ID_KEY);
-  } catch (err) {
-    console.error('[TokenStorage] Failed to retrieve user ID:', err);
-    return null;
-  }
+  try { return localStorage.getItem(KEY_USER); } catch { return null; }
 }
 
-/**
- * Check if token is still valid (not expired)
- */
-export function isTokenValid(): boolean {
-  const token = getToken();
-  return token !== null;
-}
-
-/**
- * Clear all tokens and auth data
- */
+/** Remove all stored auth tokens — called on logout. */
 export function clearTokens(): void {
   try {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-    localStorage.removeItem(USER_ID_KEY);
-  } catch (err) {
-    console.error('[TokenStorage] Failed to clear tokens:', err);
-  }
+    localStorage.removeItem(KEY_TOKEN);
+    localStorage.removeItem(KEY_EXPIRY);
+    localStorage.removeItem(KEY_USER);
+  } catch { /* */ }
+}
+
+/** True if a valid, non-expired token exists. */
+export function isAuthenticated(): boolean {
+  return getToken() !== null;
 }
