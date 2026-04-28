@@ -180,7 +180,7 @@ function SignInView({ onSwitch }: { onSwitch: (v: View) => void }) {
 }
 
 // ── Sign Up ───────────────────────────────────────────────────────────────────
-function SignUpView({ onSwitch }: { onSwitch: (v: View) => void }) {
+function SignUpView({ onSwitch, onSignedUp }: { onSwitch: (v: View) => void; onSignedUp?: (userId: string) => void }) {
   const { login } = useApp();
   const [name,       setName]       = useState('');
   const [email,      setEmail]      = useState('');
@@ -209,6 +209,8 @@ function SignUpView({ onSwitch }: { onSwitch: (v: View) => void }) {
         role:     'farmer',
       });
       login(user.email ?? user.phone ?? '', user.name, user.id, user.username ?? '');
+      // Trigger survey — new users must complete it before reaching the dashboard
+      onSignedUp?.(user.id);
     } catch (err: any) {
       const status = err?.status ?? 0;
       if (status === 409) setError(err?.message ?? 'An account with this email or phone already exists.');
@@ -602,7 +604,7 @@ export default function Login({ onSignedUp }: { onSignedUp?: (userId: string) =>
               border: '1px solid #F3F4F6',
             }}>
             {view === 'signin' && <SignInView onSwitch={setView} />}
-            {view === 'signup' && <SignUpView onSwitch={setView} />}
+            {view === 'signup' && <SignUpView onSwitch={setView} onSignedUp={onSignedUp} />}
             {view === 'forgot' && <ForgotView onSwitch={setView} />}
           </motion.div>
         </AnimatePresence>
