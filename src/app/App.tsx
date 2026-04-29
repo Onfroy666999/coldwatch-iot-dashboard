@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AppProvider, useApp } from './context/AppContext';
-import Sidebar from './components/Sidebar';
+import { Sidebar } from './components/Sidebar';
 import TopBar from './components/TopBar';
 import BottomNav from './components/BottomNav';
 import ToastContainer from './components/ToastContainer';
@@ -36,7 +36,7 @@ const slideVariants = {
 
 
 function AppContent() {
-  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user } = useApp();
+  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user, reconnectWebSockets } = useApp();
   const [showSplash, setShowSplash] = useState(true);
 
   // Onboarding flow — only show if not previously completed
@@ -92,6 +92,26 @@ function AppContent() {
       prevPageRef.current = activePage;
     }
   }, [activePage]);
+
+  // ── Capacitor app state — reconnect WebSockets when app returns to foreground ──
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cleanup: (() => void) | null = null;
+    const handleForeground = () => reconnectWebSockets();
+    const capacitorAppModule = '@capacitor/app';
+    import(/* @vite-ignore */ capacitorAppModule).then(({ App: CapApp }: any) => {
+      CapApp.addListener('appStateChange', (state: any) => {
+        if (state.isActive) handleForeground();
+      }).then((handle: any) => { cleanup = () => handle.remove(); });
+    }).catch(() => {
+      const onVisibility = () => {
+        if (document.visibilityState === 'visible') handleForeground();
+      };
+      document.addEventListener('visibilitychange', onVisibility);
+      cleanup = () => document.removeEventListener('visibilitychange', onVisibility);
+    });
+    return () => { cleanup?.(); };
+  }, [isAuthenticated]);
 
   // One-time reminder toast if user skipped the survey
   // surveyComplete comes from the backend via AppContext user object

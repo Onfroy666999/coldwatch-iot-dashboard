@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import type { DeviceConfig } from '../context/AppContext';
-import { usePageLoading, SettingsSkeleton } from '../components/Skeleton';
+import { usePageLoading, SettingsSkeleton } from '../components/skeleton';
 import {
   Bell, Save, Thermometer, ChevronRight, ChevronLeft,
   Monitor, Cpu, Database, Lock, ChevronDown, ChevronUp,
@@ -951,6 +951,7 @@ function SecuritySub({ onBack, local, setLocal, save, user }: {
 // ─── Main Settings page ───────────────────────────────────────────────────────
 
 type SubKey = 'display' | 'notifications' | 'thresholds' | 'devices' | 'data' | 'security' | 'howtoconnect';
+type MenuRowKey = SubKey | 'privacy' | 'terms';
 
 export default function Settings() {
   const { settings, updateSettings, updateDeviceConfig, deviceConfigs, user, addToast, deleteAccount, isAdvancedUser, updateUser, setActivePage } = useApp();
@@ -974,7 +975,7 @@ export default function Settings() {
   };
 
   const menuRows: {
-    key: SubKey;
+    key: MenuRowKey;
     icon: React.ReactNode;
     iconBg: string;
     iconColor: string;
@@ -1023,9 +1024,9 @@ export default function Settings() {
             {visibleRows.map((row, i) => (
               <button key={row.key} onClick={() => {
                 if (row.key === 'privacy' || row.key === 'terms') {
-                  setActivePage(row.key);
+                  setActivePage(row.key as 'privacy' | 'terms');
                 } else {
-                  setActiveSub(row.key);
+                  setActiveSub(row.key as SubKey);
                 }
               }}
                 className={`w-full flex items-center gap-4 px-4 py-4 active:bg-[#F3F4F6] transition-colors text-left ${i < visibleRows.length - 1 ? 'border-b border-[#E4E7EC]' : ''}`}

@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import ControlPanel from '../components/ControlPanel';
 import ProduceModeSelector from '../components/ProduceModeSelector';
-import { usePageLoading, DashboardSkeleton } from '../components/Skeleton';
+import { usePageLoading, DashboardSkeleton } from '../components/Skeleton.tsx';
 
 const ROLE_PREFIX: Record<string, string> = {
   farmer:            'Farmer',
@@ -84,6 +84,9 @@ export default function Dashboard() {
   const dispTemp = toDisplay(currentTemperature);
 
   const selectedDevice = devices.find(d => d.id === selectedDeviceId);
+  // True when the device is offline and readings are coming from the local simulation
+  // rather than real ESP32 hardware. Used to show a "Simulated data" badge.
+  const isSimulated = !selectedDevice || selectedDevice.status !== 'online';
 
   const rolePrefix = user.role ? (ROLE_PREFIX[user.role] ?? '') : '';
   const greeting   = rolePrefix
@@ -156,6 +159,12 @@ export default function Dashboard() {
             {selectedDevice?.status === 'online' ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {selectedDevice?.status ?? 'unknown'}
           </span>
+          {isSimulated && (
+            <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Simulated data
+            </span>
+          )}
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
           {devices.map(device => (

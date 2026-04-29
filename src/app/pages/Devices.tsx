@@ -8,7 +8,7 @@ import {
 import { useApp } from '../context/AppContext';
 import type { Device, ProduceMode, ProduceState } from '../context/AppContext';
 import { getStateAdjustedTargets } from '../context/AppContext';
-import { usePageLoading, DevicesSkeleton } from '../components/Skeleton';
+import { usePageLoading, DevicesSkeleton } from '../components/skeleton';
 
 // ── Module-level helpers ───────────────────────────────────────────────────────
 

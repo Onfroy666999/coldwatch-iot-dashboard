@@ -397,12 +397,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setProduceModeAndPersist = useCallback((mode: ProduceMode) => {
     setProduceMode(mode);
-    try { localStorage.setItem('cw_produce_mode', mode); } catch { /* */ }
+    // produce mode is per-device — stored on Device.produceMode in the backend
   }, []);
 
   const applyProduceProfile = useCallback((mode: ProduceMode) => {
     setProduceMode(mode);
-    try { localStorage.setItem('cw_produce_mode', mode); } catch { /* */ }
     const thresholds = PRODUCE_THRESHOLDS[mode];
     setDevices(prev => prev.map(d => ({ ...d, ...thresholds })));
     const patch = { targetTemperature: thresholds.targetTemperature, targetHumidity: thresholds.targetHumidity };
@@ -532,12 +531,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (settingsRes.settings) {
           setSettings(mapSettings(settingsRes.settings));
         }
-
-        // Produce mode from localStorage (preference, not server-stored yet)
-        try {
-          const savedMode = localStorage.getItem('cw_produce_mode') as ProduceMode | null;
-          if (savedMode) setProduceMode(savedMode);
-        } catch { /* */ }
 
         // Devices
         const mappedDevices = (devicesRes.devices ?? []).map(mapDevice);
@@ -820,7 +813,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     wsRefs.current = {};
     clearTokens();
     try {
-      localStorage.removeItem('cw_produce_mode');
       localStorage.removeItem('cw_onboarding_complete');
     } catch { /* */ }
     setIsAuthenticated(false);

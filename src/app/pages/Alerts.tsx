@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
-import { usePageLoading, AlertsSkeleton } from '../components/Skeleton';
+import { usePageLoading, AlertsSkeleton } from '../components/Skeleton.tsx';
 import {
   AlertCircle, AlertTriangle, Info, ChevronDown, ChevronUp,
   CheckCircle2, Filter, Zap, Clock, Droplets,

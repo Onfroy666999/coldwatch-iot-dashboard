@@ -7,7 +7,7 @@ import {
   ResponsiveContainer, ReferenceLine, AreaChart, Area
 } from 'recharts';
 import { Upload, BarChart3, Table, Clock, MapPin, Wifi, WifiOff, FileText, FileJson } from 'lucide-react';
-import { usePageLoading, HistorySkeleton } from '../components/Skeleton';
+import { usePageLoading, HistorySkeleton } from '../components/Skeleton.tsx';
 import { readingsApi } from '../Lib/api';
 import type { SensorReading } from '../context/AppContext';
 
