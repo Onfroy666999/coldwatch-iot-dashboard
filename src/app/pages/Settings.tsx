@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import type { DeviceConfig } from '../context/AppContext';
-import { usePageLoading, SettingsSkeleton } from '../components/skeleton';
+import { usePageLoading, SettingsSkeleton } from '../components/Skeleton';
 import {
   Bell, Save, Thermometer, ChevronRight, ChevronLeft,
   Monitor, Cpu, Database, Lock, ChevronDown, ChevronUp,
