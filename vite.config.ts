@@ -69,12 +69,75 @@ export default defineConfig({
       },
     }),
   ],
+
   resolve: {
     alias: {
       '@': new URL('./src', import.meta.url).pathname,
     },
   },
+
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  build: {
+    // Suppress the warning now that chunks are properly split
+    chunkSizeWarningLimit: 500,
+
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // ── React core ────────────────────────────────────────────────────
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/scheduler/')
+          ) return 'vendor-react';
+
+          // ── Animation library (used on every page) ────────────────────────
+          if (
+            id.includes('node_modules/framer-motion') ||
+            id.includes('node_modules/motion')
+          ) return 'vendor-motion';
+
+          // ── Recharts + D3 (Dashboard and History only) ────────────────────
+          // Isolated so users who only visit Alerts never download chart code
+          if (
+            id.includes('node_modules/recharts') ||
+            id.includes('node_modules/d3-') ||
+            id.includes('node_modules/victory-vendor')
+          ) return 'vendor-charts';
+
+          // ── Lucide icons (large, shared everywhere) ───────────────────────
+          if (id.includes('node_modules/lucide-react')) return 'vendor-icons';
+
+          // ── shadcn/ui component library ───────────────────────────────────
+          if (id.includes('/components/ui/')) return 'vendor-ui';
+
+          // ── All other node_modules ────────────────────────────────────────
+          if (id.includes('node_modules/')) return 'vendor-misc';
+
+          // ── Page-level chunks ─────────────────────────────────────────────
+          if (id.includes('/pages/Dashboard'))    return 'page-dashboard';
+          if (id.includes('/pages/Alerts'))       return 'page-alerts';
+          if (id.includes('/pages/History'))      return 'page-history';
+          if (id.includes('/pages/Devices'))      return 'page-devices';
+          if (id.includes('/pages/Settings'))     return 'page-settings';
+          if (
+            id.includes('/pages/Login') ||
+            id.includes('/pages/SetupSurvey') ||
+            id.includes('/pages/Onboarding') ||
+            id.includes('/pages/SplashScreen')
+          ) return 'page-auth';
+
+          // ── AIAssistant — heaviest component, loaded on demand ────────────
+          if (id.includes('/components/AIAssistant')) return 'component-ai';
+
+          // ── ProduceModeSelector lives inside Devices flow ─────────────────
+          if (id.includes('/components/ProduceModeSelector')) return 'page-devices';
+        },
+      },
+    },
+  },
+
   server: {
     host: true,
     port: 5173,
