@@ -165,7 +165,7 @@ const LANG_CONFIG: Record<Language, {
     greeting: `Mema wo akye! Mey\u025b wo ColdWatch boafo\u0254. Wo tumi ka asem anaa ky\u025br\u025bw de bisa me. D\u025bn na m\u025bboa wo?`,
     thinking: 'Meda wo ho dwuma\u2026', translating: 'Me ky\u025br\u025bw wo asem\u2026',
     errorNet: 'Mintuiw server no. Hw\u025b wo internet na san bisa.',
-    errorKey: 'AI seviis no nni h\u0254. Fa VITE_GROQ_API_KEY to wo environment mu.',
+    errorKey: 'AI s\u025bviis no nni h\u0254. Hw\u025b wo internet na san bisa.',
     confirmAction: 'Gyedi', actionDone: 'Ay\u025b',
     voiceHint: 'Kasa w\u0254 Twi anaa English', voiceListening: 'Mete wo asem\u2026 kasa',
     voiceNotSupported: 'Kasa feature no nsiesie wo browser yi so',
@@ -348,7 +348,7 @@ IF direction is "falling" AND temperature is currently above target:
 IF direction is "stable" AND temperature is on target:
   — No need to mention temperature at all unless the user asks.
 
-IMPORTANT: Trend data is computed from the simulation. Use it to give specific, quantified predictions — not vague statements like "temperature seems to be rising." Say "it's risen about 0.4 degrees in the last 30 seconds and is on track to hit 10 degrees in 8 minutes." Specific numbers build trust.
+IMPORTANT: Trend data is computed from recent sensor readings. Use it to give specific, quantified predictions — not vague statements like "temperature seems to be rising." Say "it's risen about 0.4 degrees in the last 30 seconds and is on track to hit 10 degrees in 8 minutes." Specific numbers build trust.
 
 OPTIMISATION ACTIONS — when the user agrees to let you act:
 - To get ahead of a rising breach: lower SET_TARGET_TEMP by 1–2°C below current target, then START_COOLING
@@ -1283,7 +1283,7 @@ Only set shouldAdjust to true if: (a) the predicted temperature will exceed the 
   // Optimisation scheduler — fires once after 30s warmup, then every 5 minutes
   useEffect(() => {
     if (!GROQ_API_KEY) return;
-    // 30-second warmup: give the simulation time to accumulate enough readings
+    // 30-second warmup: accumulate enough readings before triggering auto-analysis
     const warmup = setTimeout(() => {
       runTemperatureOptimisation();
     }, 30_000);
