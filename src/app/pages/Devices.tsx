@@ -8,7 +8,7 @@ import {
 import { useApp } from '../context/AppContext';
 import type { Device, ProduceMode, ProduceState } from '../context/AppContext';
 import { getStateAdjustedTargets } from '../context/AppContext';
-import { usePageLoading, DevicesSkeleton } from '../components/skeleton';
+import { usePageLoading, DevicesSkeleton } from '../components/Skeleton';
 
 // ── Module-level helpers ───────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ const getBatteryColor = (level: number) =>
   level > 50 ? '#27AE60' : level > 20 ? '#E67E22' : '#C0392B';
 
 // ── Device code generation ────────────────────────────────────────────────────
-// Generates a short human-readable code like CW-047
+// Generates 6 Hex numbers
 // The user can override this in the wizard
 
 function generateDeviceCode(existingCodes: string[]): string {
@@ -43,7 +43,6 @@ function generateDeviceCode(existingCodes: string[]): string {
 }
 
 // ── Produce image analysis — routes through backend /ai/vision proxy ─────────
-// The Groq API key lives in the backend .env — never in the browser.
 import { aiApi } from '../Lib/api';
 
 async function analyseProduceImage(
