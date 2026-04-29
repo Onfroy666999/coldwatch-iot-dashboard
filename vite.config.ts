@@ -131,8 +131,7 @@ export default defineConfig({
           // ── AIAssistant — heaviest component, loaded on demand ────────────
           if (id.includes('/components/AIAssistant')) return 'component-ai';
 
-          // ── ProduceModeSelector lives inside Devices flow ─────────────────
-          if (id.includes('/components/ProduceModeSelector')) return 'page-devices';
+          // ProduceModeSelector is shared — Rollup places it in the common chunk automatically
         },
       },
     },
