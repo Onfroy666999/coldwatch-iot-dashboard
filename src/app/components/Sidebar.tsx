@@ -7,7 +7,7 @@ const ROLE_LABELS: Record<string, string> = {
   transporter: 'Transporter', other: 'User',
 };
 
-export default function Sidebar() {
+export function Sidebar() {
   const { user, logout, activePage, setActivePage, unreadAlertCount, deviceStatus } = useApp();
   const isLive = deviceStatus === 'online';
 
