@@ -29,29 +29,17 @@
         </provider>
     </application>
 
-    <!-- ── Core ──────────────────────────────────────────────────────────── -->
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- ── Push Notifications (FCM) ─────────────────────────────────────── -->
+    <!-- Push notifications -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Wake device screen when critical alert arrives -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- ── Camera (produce condition AI assessment) ──────────────────────── -->
+    <!-- Camera (for produce photo in RemoveProduceSheet) -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
-
-    <!-- ── Storage (save/read produce photos) ───────────────────────────── -->
-    <!-- READ_EXTERNAL_STORAGE only needed on Android 12 and below -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
-    <!-- Android 13+ granular media permissions -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-
-    <!-- ── Microphone (Nix voice input) ─────────────────────────────────── -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 </manifest>

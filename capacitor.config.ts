@@ -5,32 +5,24 @@ const config: CapacitorConfig = {
   appName: 'ColdWatch',
   webDir:  'dist',
 
-  // Server config — points to your Railway backend in production.
-  // The hostname allows Capacitor's WebView to make requests to Railway
-  // without being blocked by Android's cleartext/HTTPS policies.
   server: {
-    // Remove this block entirely for local development (uses bundled assets)
-    // Uncomment androidScheme if you want live reload during development:
-    // androidScheme: 'https',
+    // Forces Capacitor to use https:// scheme on Android instead of
+    // the default capacitor:// — this makes requests appear as
+    // https://localhost to the backend, which is in ALLOWED_ORIGINS.
+    // Without this, some Android WebView versions send a different
+    // origin that doesn't match what the backend expects.
+    androidScheme: 'https',
+
+    // Allow the app to reach your Railway backend over HTTPS.
+    // This is safe because Railway uses TLS — no cleartext traffic.
+    allowNavigation: [
+      'coldwatch-api-production.up.railway.app',
+    ],
   },
 
   plugins: {
-    // Push notifications — channel must match what the backend sends
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
-    },
-
-    // Camera — used for produce condition photo assessment
-    Camera: {
-      permissionsExplanation: 'ColdWatch needs camera access to assess produce condition using AI.',
-    },
-
-    // Splash screen
-    SplashScreen: {
-      launchShowDuration:  2000,
-      backgroundColor:     '#0984E3',
-      androidSplashResourceName: 'splash',
-      showSpinner:         false,
     },
   },
 };
