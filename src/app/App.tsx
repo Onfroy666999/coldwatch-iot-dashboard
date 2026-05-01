@@ -1,31 +1,25 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AppProvider, useApp } from './context/AppContext';
-import { Sidebar } from './components/Sidebar';
+import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import BottomNav from './components/BottomNav';
 import ToastContainer from './components/ToastContainer';
-import SyncBanner from './components/SyncBanner';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import Alerts from './pages/Alerts';
+import History from './pages/History';
+import Devices from './pages/Devices';
+import Settings from './pages/Settings';
+import Onboarding from './pages/Onboarding';
+import SetupSurvey from './pages/SetupSurvey';
+import SplashScreen from './pages/SplashScreen';
+import Privacy from './pages/Privacy';
+import TermsOfService from './pages/TermsOfService';
 import { Analytics } from '@vercel/analytics/react';
 import { WifiOff, Snowflake } from 'lucide-react';
-import type { NixHandle } from './components/AIAssistant';
-
-// ─── Lazy-loaded pages & heavy components ─────────────────────────────────────
-// Each page loads its own JS chunk only when first visited.
-// AIAssistant is the heaviest component (~180 kB) — loaded lazily so the
-// initial bundle never pays its cost until the user opens the chat drawer.
-const Login         = lazy(() => import('./pages/Login'));
-const Dashboard     = lazy(() => import('./pages/Dashboard'));
-const Alerts        = lazy(() => import('./pages/Alerts'));
-const History       = lazy(() => import('./pages/History'));
-const Devices       = lazy(() => import('./pages/Devices'));
-const Settings      = lazy(() => import('./pages/Settings'));
-const Onboarding    = lazy(() => import('./pages/Onboarding'));
-const SetupSurvey   = lazy(() => import('./pages/SetupSurvey'));
-const SplashScreen  = lazy(() => import('./pages/SplashScreen'));
-const Privacy       = lazy(() => import('./pages/Privacy'));
-const TermsOfService = lazy(() => import('./pages/TermsOfService'));
-const AIAssistant   = lazy(() => import('./components/AIAssistant'));
+import SyncBanner from './components/SyncBanner';
+import AIAssistant, { type NixHandle } from './components/AIAssistant';
 const PAGE_ORDER = ['dashboard', 'alerts', 'history', 'devices', 'settings'];
 
 const slideVariants = {
@@ -36,7 +30,7 @@ const slideVariants = {
 
 
 function AppContent() {
-  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user, reconnectWebSockets } = useApp();
+  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user, isLoading } = useApp();
   const [showSplash, setShowSplash] = useState(true);
 
   // Onboarding flow — only show if not previously completed
@@ -93,26 +87,6 @@ function AppContent() {
     }
   }, [activePage]);
 
-  // ── Capacitor app state — reconnect WebSockets when app returns to foreground ──
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let cleanup: (() => void) | null = null;
-    const handleForeground = () => reconnectWebSockets();
-    const capacitorAppModule = '@capacitor/app';
-    import(/* @vite-ignore */ capacitorAppModule).then(({ App: CapApp }: any) => {
-      CapApp.addListener('appStateChange', (state: any) => {
-        if (state.isActive) handleForeground();
-      }).then((handle: any) => { cleanup = () => handle.remove(); });
-    }).catch(() => {
-      const onVisibility = () => {
-        if (document.visibilityState === 'visible') handleForeground();
-      };
-      document.addEventListener('visibilitychange', onVisibility);
-      cleanup = () => document.removeEventListener('visibilitychange', onVisibility);
-    });
-    return () => { cleanup?.(); };
-  }, [isAuthenticated]);
-
   // One-time reminder toast if user skipped the survey
   // surveyComplete comes from the backend via AppContext user object
   useEffect(() => {
@@ -155,7 +129,14 @@ function AppContent() {
   if (showSplash) {
     return (
       <AnimatePresence>
-        <SplashScreen key="splash" onDone={() => setShowSplash(false)} />
+        <SplashScreen
+          key="splash"
+          onDone={() => setShowSplash(false)}
+          // Keep splash visible until AppContext has finished bootstrapping.
+          // isLoading is true while the backend fetch is in flight, false once
+          // the app has all the data it needs to render without a white flash.
+          appReady={!isLoading}
+        />
       </AnimatePresence>
     );
   }
@@ -186,17 +167,6 @@ function AppContent() {
   };
 
   return (
-    <Suspense fallback={
-      <div className="fixed inset-0 flex items-center justify-center" style={{ backgroundColor: '#F8FAFC' }}>
-        <div className="flex flex-col items-center gap-3">
-          <svg className="w-10 h-10 animate-spin" style={{ color: '#0984E3' }} viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
-          <p className="text-sm font-medium" style={{ color: '#6B7280' }}>Loading ColdWatch…</p>
-        </div>
-      </div>
-    }>
     <div className="fixed inset-0 flex flex-col" style={{ backgroundColor: '#F8FAFC', color: '#111827' }}>
       {/* Offline banner */}
       <AnimatePresence>
@@ -431,17 +401,14 @@ function AppContent() {
       </div>
 
       {/* ── AI Assistant drawer ── */}
-      {showAssistant && (
-        <AIAssistant
-          ref={nixRef}
-          isOpen={showAssistant}
-          onClose={() => setShowAssistant(false)}
-          onNavigate={handleNixNavigate}
-          onVoiceStateChange={setNixListening}
-        />
-      )}
+      <AIAssistant
+        ref={nixRef}
+        isOpen={showAssistant}
+        onClose={() => setShowAssistant(false)}
+        onNavigate={handleNixNavigate}
+        onVoiceStateChange={setNixListening}
+      />
     </div>
-    </Suspense>
   );
 }
 

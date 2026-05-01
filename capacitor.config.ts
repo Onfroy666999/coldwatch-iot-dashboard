@@ -6,15 +6,10 @@ const config: CapacitorConfig = {
   webDir:  'dist',
 
   server: {
-    // Forces Capacitor to use https:// scheme on Android instead of
-    // the default capacitor:// — this makes requests appear as
-    // https://localhost to the backend, which is in ALLOWED_ORIGINS.
-    // Without this, some Android WebView versions send a different
-    // origin that doesn't match what the backend expects.
     androidScheme: 'https',
-
-    // Allow the app to reach your Railway backend over HTTPS.
-    // This is safe because Railway uses TLS — no cleartext traffic.
+    // Stable hostname — the WebView sends this as the Origin header.
+    // Must be in ALLOWED_ORIGINS on the backend.
+    hostname: 'coldwatch.app',
     allowNavigation: [
       'coldwatch-api-production.up.railway.app',
     ],
@@ -23,6 +18,11 @@ const config: CapacitorConfig = {
   plugins: {
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
+    },
+    SplashScreen: {
+      launchShowDuration:  2000,
+      backgroundColor:     '#0984E3',
+      showSpinner:         false,
     },
   },
 };
