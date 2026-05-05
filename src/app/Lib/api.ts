@@ -9,10 +9,11 @@ import { getToken, storeToken, storeUserId, clearTokens } from './tokenStorage';
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
 
 export interface ApiError {
-  status: number;
-  error: string;
-  message: string;
-  details?: any;
+  status:    number;
+  error:     string;
+  message:   string;
+  details?:  any;
+  offline?:  true; // set when the device has no network connection
 }
 
 function parseError(response: Response, data: any): ApiError {
@@ -21,6 +22,22 @@ function parseError(response: Response, data: any): ApiError {
     error:   data?.error   || `HTTP ${response.status}`,
     message: data?.message || response.statusText,
     details: data?.issues  || data?.details,
+  };
+}
+
+// ── Human-readable offline error ──────────────────────────────────────────────
+// When fetch() fails with a TypeError it almost always means the device is
+// offline (no network) or the backend is unreachable.  We catch it here, check
+// navigator.onLine, and throw a consistent ApiError so every consumer can show
+// "You are offline" instead of a raw "Failed to fetch" stack trace.
+function makeOfflineError(): ApiError {
+  return {
+    status:  0,
+    error:   'offline',
+    message: navigator.onLine
+      ? 'Could not reach the ColdWatch server. Please check your connection.'
+      : 'You are offline. Changes will sync when you reconnect.',
+    offline: true,
   };
 }
 
@@ -37,7 +54,13 @@ async function fetchAPI<T = any>(endpoint: string, options: RequestInit = {}): P
     (headers as Record<string, string>).Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, { ...options, headers });
+  let response: Response;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch {
+    // TypeError: Failed to fetch — device is offline or server is unreachable
+    throw makeOfflineError();
+  }
 
   let data: any;
   try {
@@ -57,11 +80,11 @@ async function fetchAPI<T = any>(endpoint: string, options: RequestInit = {}): P
 
 export const authApi = {
   signup: async (payload: {
-    name: string;
-    email?: string;
-    phone?: string;
-    password: string;
-    role?: 'farmer' | 'warehouse_manager' | 'transporter' | 'other';
+    name:      string;
+    email?:    string;
+    phone?:    string;
+    password:  string;
+    role?:     'farmer' | 'warehouse_manager' | 'transporter' | 'other';
   }): Promise<{ user: any; token: string }> => {
     const response = await fetchAPI('/auth/signup', {
       method: 'POST',
@@ -76,7 +99,7 @@ export const authApi = {
 
   login: async (payload: {
     identifier: string;
-    password: string;
+    password:   string;
   }): Promise<{ user: any; token: string }> => {
     const response = await fetchAPI('/auth/login', {
       method: 'POST',
@@ -102,7 +125,7 @@ export const authApi = {
     try {
       await fetchAPI('/auth/logout', { method: 'POST' });
     } catch {
-      // Logout failure shouldn't block clearing local tokens
+      // Logout failure (including offline) shouldn't block clearing local tokens
     } finally {
       clearTokens();
     }
@@ -119,24 +142,24 @@ export const devicesApi = {
     fetchAPI(`/devices/${id}`),
 
   create: async (payload: {
-    name: string;
-    location: string;
-    type?: string;
-    deviceCode?: string;
-    unitName?: string;
-    tempOffset?: number;
-    humidOffset?: number;
-    useCustomThresholds?: boolean;
-    warningTemperature?: number;
-    criticalTemperature?: number;
-    warningHumidity?: number;
-    criticalHumidity?: number;
-    humidAlertHigh?: boolean;
-    produceMode?: string;
-    produceState?: string;
-    facilitySize?: string;
-    transportHours?: number;
-    hasActuator?: boolean;
+    name:                  string;
+    location:              string;
+    type?:                 string;
+    deviceCode?:           string;
+    unitName?:             string;
+    tempOffset?:           number;
+    humidOffset?:          number;
+    useCustomThresholds?:  boolean;
+    warningTemperature?:   number;
+    criticalTemperature?:  number;
+    warningHumidity?:      number;
+    criticalHumidity?:     number;
+    humidAlertHigh?:       boolean;
+    produceMode?:          string;
+    produceState?:         string;
+    facilitySize?:         string;
+    transportHours?:       number;
+    hasActuator?:          boolean;
   }): Promise<{ device: any; apiKey: string }> =>
     fetchAPI('/devices', { method: 'POST', body: JSON.stringify(payload) }),
 
@@ -185,27 +208,21 @@ export const alertsApi = {
     return fetchAPI(`/alerts${qs ? '?' + qs : ''}`);
   },
 
-  // GET /alerts/:id
   get: async (id: string): Promise<{ alert: any }> =>
     fetchAPI(`/alerts/${id}`),
 
-  // POST /alerts/:id/acknowledge
   acknowledge: async (id: string): Promise<{ alert: any }> =>
     fetchAPI(`/alerts/${id}/acknowledge`, { method: 'POST' }),
 
-  // POST /alerts/:id/resolve
   resolve: async (id: string): Promise<{ alert: any }> =>
     fetchAPI(`/alerts/${id}/resolve`, { method: 'POST' }),
 
-  // POST /alerts/acknowledge-all
   acknowledgeAll: async (): Promise<{ acknowledged: number }> =>
     fetchAPI('/alerts/acknowledge-all', { method: 'POST' }),
 
-  // DELETE /alerts/:id
   delete: async (id: string): Promise<void> =>
     fetchAPI(`/alerts/${id}`, { method: 'DELETE' }),
 
-  // DELETE /alerts (bulk)
   bulkDelete: async (query?: {
     status?:   string;
     severity?: string;
@@ -367,6 +384,7 @@ export function connectWebSocket(
     return null;
   }
 }
+
 // ── AI Proxy ──────────────────────────────────────────────────────────────────
 // Routes Groq calls through the backend so the API key never touches the browser.
 
