@@ -14,7 +14,6 @@ import Settings from './pages/Settings';
 import Onboarding from './pages/Onboarding';
 import SetupSurvey from './pages/SetupSurvey';
 import SplashScreen from './pages/SplashScreen';
-import WelcomePage from './pages/WelcomePage';
 import Privacy from './pages/Privacy';
 import TermsOfService from './pages/TermsOfService';
 import { Analytics } from '@vercel/analytics/react';
@@ -38,10 +37,7 @@ function AppContent() {
   const [showOnboarding, setShowOnboarding] = useState(
     () => localStorage.getItem('cw_onboarding_complete') !== 'true'
   );
-  // Welcome page — shown once, before onboarding, for brand-new users
-  const [showWelcome, setShowWelcome] = useState(
-    () => localStorage.getItem('cw_onboarding_complete') !== 'true'
-  );
+  
   const [showSurvey, setShowSurvey] = useState(false);
   const [showAssistant,  setShowAssistant]  = useState(false);
   const [nixListening,   setNixListening]   = useState(false);
@@ -144,10 +140,6 @@ function AppContent() {
         />
       </AnimatePresence>
     );
-  }
-
-  if (showWelcome) {
-    return <WelcomePage onContinue={() => setShowWelcome(false)} />;
   }
 
   if (showOnboarding) {
