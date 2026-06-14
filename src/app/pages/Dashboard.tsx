@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Thermometer, Droplets, Activity, AlertTriangle, TrendingUp, TrendingDown, Snowflake, ChevronRight, MapPin, Wifi, WifiOff } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import ControlPanel from '../components/ControlPanel';
-import ProduceModeSelector from '../components/ProduceModeSelector';
 import { usePageLoading, DashboardSkeleton } from '../components/Skeleton.tsx';
 
 const ROLE_PREFIX: Record<string, string> = {
@@ -11,9 +9,6 @@ const ROLE_PREFIX: Record<string, string> = {
   warehouse_manager: 'Manager',
   transporter:       'Transporter',
 };
-
-// Module-level constants — no recreation on every render
-const TIME_RANGE_BUTTONS = (['1h', '6h', '24h'] as const);
 
 const SEVERITY_STYLES: Record<string, { bar: string; badge: string; label: string }> = {
   critical: { bar: '#C0392B', badge: 'bg-red-500/10 text-red-500',      label: 'Critical' },
@@ -23,8 +18,7 @@ const SEVERITY_STYLES: Record<string, { bar: string; badge: string; label: strin
 
 export default function Dashboard() {
   const isLoading = usePageLoading();
-  const { currentTemperature, currentHumidity, systemStatus, alerts, sensorHistory, settings, user, setActivePage, devices, selectedDeviceId, setSelectedDeviceId } = useApp();
-  const [timeRange, setTimeRange] = useState<'1h' | '6h' | '24h'>('1h');
+  const { currentTemperature, currentHumidity, systemStatus, alerts, sensorHistory, settings, user, setActivePage, devices, selectedDeviceId, setSelectedDeviceId, isOnline, lastReadingAt } = useApp();
 
   // Live "last updated" pulse 
   const [secondsAgo, setSecondsAgo] = useState(0);
@@ -105,19 +99,11 @@ export default function Dashboard() {
   const shouldPulseRed    = currentTemperature >= critTemp;
   const shouldPulseOrange = currentTemperature >= warnTemp && !shouldPulseRed;
 
-  // Converted threshold values for chart reference lines
-  const dispWarn = toDisplay(warnTemp);
+  // Converted threshold value for the temperature progress bar
   const dispCrit = toDisplay(critTemp);
   const activeAlerts  = alerts.filter(a => a.status === 'new' || a.status === 'auto_resolved');
   const systemColor   = systemStatus === 'cooling' ? '#0984E3' : systemStatus === 'override' ? '#E67E22' : '#6B7280';
   const systemLabel   = systemStatus === 'cooling' ? 'Cooling Active' : systemStatus === 'override' ? 'Override' : 'System Idle';
-
-  const sliceCount = timeRange === '1h' ? 20 : timeRange === '6h' ? 60 : 120;
-  const chartData = sensorHistory.slice(-sliceCount).map(r => ({
-    time:        r.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
-    temperature: toDisplay(r.temperature),
-    humidity:    parseFloat(r.humidity.toFixed(1)),
-  }));
 
   return (
     <div className="space-y-5">
@@ -149,6 +135,21 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Offline Indicator */}
+      {!isOnline && (
+        <div className="flex items-center gap-2.5 rounded-xl px-4 py-3 bg-amber-50 border border-amber-200 text-amber-700">
+          <WifiOff className="w-4 h-4 flex-shrink-0" />
+          <p className="text-sm font-medium">
+            Offline — showing last known data
+            {lastReadingAt && (
+              <span className="font-normal text-amber-600">
+                {' '}from {new Date(lastReadingAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+              </span>
+            )}
+          </p>
+        </div>
+      )}
 
 
       {/* Device Selector */}
@@ -243,80 +244,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Produce Mode Selector */}
-      <ProduceModeSelector />
-
-      {/* Charts + Control Panel */}
+      {/* Alerts + Control Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
 
-        {/* Left: two stacked charts + alerts preview */}
+        {/* Left: alerts preview */}
         <div className="lg:col-span-2 flex flex-col gap-4">
-
-          {/* Time range tabs — shared across both charts */}
-          <div className="flex items-center justify-between">
-            <h3 className="text-[#111827] text-sm font-semibold">Live Sensor Data</h3>
-            <div className="flex gap-1.5">
-              {TIME_RANGE_BUTTONS.map(range => (
-                <button key={range} onClick={() => setTimeRange(range)}
-                  className={`px-3 py-2 rounded-xl text-xs font-medium transition-colors active:scale-95 ${timeRange === range ? 'bg-[#0984E3] text-white' : 'bg-[#F3F4F6] text-[#6B7280]'}`}
-                  style={{ minHeight: 36, minWidth: 36 }}>
-                  {range}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Temperature chart */}
-          <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC]">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#0984E3]" />
-              <span className="text-sm font-medium text-[#111827]">Temperature ({unitLabel})</span>
-              <span className="ml-auto text-2xl font-bold tabular-nums" style={{ color: tempColor }}>{dispTemp}{unitLabel}</span>
-            </div>
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={chartData} margin={{ top: 4, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="tempGradDash" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#0984E3" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#0984E3" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E4E7EC" />
-                <XAxis dataKey="time" stroke="#6B7280" fontSize={10} tickLine={false} interval="preserveStartEnd" />
-                <YAxis stroke="#6B7280" fontSize={10} tickLine={false} axisLine={false} width={28} />
-                <Tooltip contentStyle={{ backgroundColor: '#FFFFFF', border: '1px solid #E4E7EC', borderRadius: 10, fontSize: 11, color: '#111827' }} formatter={(v: number) => [`${v}${unitLabel}`, 'Temperature']} />
-                <ReferenceLine y={dispWarn} stroke="#E67E22" strokeDasharray="4 4" label={{ value: 'Warn', position: 'right', fontSize: 9, fill: '#E67E22' }} />
-                <ReferenceLine y={dispCrit} stroke="#C0392B" strokeDasharray="4 4" label={{ value: 'Crit', position: 'right', fontSize: 9, fill: '#C0392B' }} />
-                <Area type="monotone" dataKey="temperature" stroke="#0984E3" strokeWidth={2} fill="url(#tempGradDash)" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Humidity chart */}
-          <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC]">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#16A085]" />
-              <span className="text-sm font-medium text-[#111827]">Humidity (%)</span>
-              <span className="ml-auto text-2xl font-bold tabular-nums" style={{ color: humidColor }}>{currentHumidity.toFixed(1)}%</span>
-            </div>
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={chartData} margin={{ top: 4, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="humidGradDash" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#16A085" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#16A085" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E4E7EC" />
-                <XAxis dataKey="time" stroke="#6B7280" fontSize={10} tickLine={false} interval="preserveStartEnd" />
-                <YAxis stroke="#6B7280" fontSize={10} tickLine={false} axisLine={false} width={28} domain={[0, 100]} />
-                <Tooltip contentStyle={{ backgroundColor: '#FFFFFF', border: '1px solid #E4E7EC', borderRadius: 10, fontSize: 11, color: '#111827' }} formatter={(v: number) => [`${v}%`, 'Humidity']} />
-                <ReferenceLine y={warnHumid} stroke="#E67E22" strokeDasharray="4 4" label={{ value: 'Warn', position: 'right', fontSize: 9, fill: '#E67E22' }} />
-                <ReferenceLine y={critHumid} stroke="#C0392B" strokeDasharray="4 4" label={{ value: 'Crit', position: 'right', fontSize: 9, fill: '#C0392B' }} />
-                <Area type="monotone" dataKey="humidity" stroke="#16A085" strokeWidth={2} fill="url(#humidGradDash)" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
 
           {/* Active Alerts Preview */}
           <div className="bg-white rounded-2xl shadow-sm border border-[#E4E7EC] overflow-hidden">

@@ -30,9 +30,22 @@ async function executeAction(action: ColdWatchAction): Promise<void> {
 
     case 'ADD_DEVICE':
       await devicesApi.create({
-        name:     action.payload.name,
-        location: action.payload.location,
-        type:     'fridge',
+        name:                action.payload.name,
+        location:            action.payload.location,
+        type:                'fridge',
+        deviceCode:          action.payload.deviceCode,
+        unitName:            action.payload.unitName,
+        produceMode:         action.payload.produceMode,
+        produceState:        action.payload.produceState,
+        facilitySize:        action.payload.facilitySize as any,
+        transportHours:      action.payload.transportHours,
+        useCustomThresholds: action.payload.useCustomThresholds,
+        warningTemperature:  action.payload.warningTemperature,
+        criticalTemperature: action.payload.criticalTemperature,
+        warningHumidity:     action.payload.warningHumidity,
+        criticalHumidity:    action.payload.criticalHumidity,
+        humidAlertHigh:      action.payload.humidAlertHigh,
+        hasActuator:         false,
       });
       break;
 

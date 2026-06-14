@@ -24,11 +24,13 @@ export default function History() {
   // ── Real readings fetched from backend ───────────────────────────────────
   const [historyData,    setHistoryData]    = useState<SensorReading[]>([]);
   const [fetchingHistory, setFetchingHistory] = useState(false);
+  const [historyFromCache, setHistoryFromCache] = useState(false);
 
   useEffect(() => {
     if (!historyDeviceId) return;
     let cancelled = false;
     setFetchingHistory(true);
+    setHistoryFromCache(false);
     readingsApi.list(historyDeviceId, { limit: 288 }) // up to 24h at 5-min intervals
       .then(res => {
         if (cancelled) return;
@@ -37,10 +39,35 @@ export default function History() {
           temperature: r.temperature,
           humidity:    r.humidity,
         }));
-        // API returns newest-first — reverse so chart reads left→right chronologically
-        setHistoryData(mapped.reverse());
+        const sorted = mapped.reverse();
+        setHistoryData(sorted);
+        // Cache for offline use
+        try {
+          localStorage.setItem(
+            `cw_history_${historyDeviceId}`,
+            JSON.stringify(sorted.map(r => ({ ...r, timestamp: r.timestamp.toISOString() })))
+          );
+        } catch { /* storage full */ }
       })
-      .catch(() => { if (!cancelled) setHistoryData([]); })
+      .catch(() => {
+        if (cancelled) return;
+        // Try loading from cache
+        try {
+          const raw = localStorage.getItem(`cw_history_${historyDeviceId}`);
+          if (raw) {
+            const cached = JSON.parse(raw).map((r: any) => ({
+              ...r,
+              timestamp: new Date(r.timestamp),
+            })) as SensorReading[];
+            setHistoryData(cached);
+            setHistoryFromCache(true);
+          } else {
+            setHistoryData([]);
+          }
+        } catch {
+          setHistoryData([]);
+        }
+      })
       .finally(() => { if (!cancelled) setFetchingHistory(false); });
     return () => { cancelled = true; };
   }, [historyDeviceId]);
@@ -153,18 +180,25 @@ export default function History() {
           setSelectedDeviceId={setHistoryDeviceId}
           selectedDevice={selectedDevice}
         />
-        <div className="flex flex-col items-center justify-center min-h-[50vh] text-center px-6">
-          <div className="w-20 h-20 rounded-full bg-[#F3F4F6] flex items-center justify-center mb-5">
-            <Clock className="w-9 h-9 text-[#6B7280]" />
+        {fetchingHistory ? (
+          <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4">
+            <div className="w-8 h-8 rounded-full border-2 border-[#0984E3] border-t-transparent animate-spin" />
+            <p className="text-sm text-[#6B7280]">Loading readings…</p>
           </div>
-          <h2 className="text-[#111827] font-semibold text-lg mb-2">No history yet</h2>
-          <p className="text-[#6B7280] text-sm max-w-xs leading-relaxed">
-            {selectedDevice
-              ? <>Sensor readings for <span className="font-medium text-[#111827]">{selectedDevice.name}</span> will appear here once it starts collecting data.</>
-              : 'Sensor readings will appear here once your device starts collecting data.'
-            }
-          </p>
-        </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center min-h-[50vh] text-center px-6">
+            <div className="w-20 h-20 rounded-full bg-[#F3F4F6] flex items-center justify-center mb-5">
+              <Clock className="w-9 h-9 text-[#6B7280]" />
+            </div>
+            <h2 className="text-[#111827] font-semibold text-lg mb-2">No history yet</h2>
+            <p className="text-[#6B7280] text-sm max-w-xs leading-relaxed">
+              {selectedDevice
+                ? <>Sensor readings for <span className="font-medium text-[#111827]">{selectedDevice.name}</span> will appear here once it starts collecting data.</>
+                : 'Sensor readings will appear here once your device starts collecting data.'
+              }
+            </p>
+          </div>
+        )}
       </div>
     );
   }
@@ -179,6 +213,17 @@ export default function History() {
         setSelectedDeviceId={setHistoryDeviceId}
         selectedDevice={selectedDevice}
       />
+
+      {/* Offline cached data notice */}
+      {historyFromCache && (
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium"
+          style={{ backgroundColor: 'rgba(230,126,34,0.10)', color: '#E67E22', border: '1px solid rgba(230,126,34,0.2)' }}
+        >
+          <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
+          Offline — showing last cached readings. Live data will reload when you reconnect.
+        </div>
+      )}
 
       {/* Stats Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

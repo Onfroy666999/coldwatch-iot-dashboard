@@ -9,6 +9,7 @@ import { useApp } from '../context/AppContext';
 import type { Device, ProduceMode, ProduceState } from '../context/AppContext';
 import { getStateAdjustedTargets } from '../context/AppContext';
 import { usePageLoading, DevicesSkeleton } from '../components/Skeleton';
+import ProduceModeSelector from '../components/ProduceModeSelector';
 
 // ── Module-level helpers ───────────────────────────────────────────────────────
 
@@ -27,20 +28,9 @@ function daysSince(d: Date): number {
 const getBatteryColor = (level: number) =>
   level > 50 ? '#27AE60' : level > 20 ? '#E67E22' : '#C0392B';
 
-// ── Device code generation ────────────────────────────────────────────────────
-// Generates 6 Hex numbers
-// The user can override this in the wizard
-
-function generateDeviceCode(existingCodes: string[]): string {
-  // Format: CW- followed by exactly 6 hex characters (0-9, A-F)
-  // Matches the device code flashed onto the ESP32 (derived from MAC address)
-  const hex = Array.from({ length: 6 }, () =>
-    '0123456789ABCDEF'[Math.floor(Math.random() * 16)]
-  ).join('');
-  const code = `CW-${hex}`;
-  if (existingCodes.includes(code)) return generateDeviceCode(existingCodes);
-  return code;
-}
+// ── Device code ────────────────────────────────────────────────────────────
+// Device IDs are printed on the physical device and entered manually by the
+// installer — no auto-generation.
 
 // ── Produce image analysis — routes through backend /ai/vision proxy ─────────
 import { aiApi } from '../Lib/api';
@@ -615,8 +605,8 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
   const existingCodes = devices.map(d => d.deviceCode).filter(Boolean) as string[];
   // deviceCode stores the FULL code (CW-XXXXXX) for passing to the API.
   // codeSuffix is just the editable 6-char hex part shown in the split input.
-  const [deviceCode, setDeviceCode] = useState(() => generateDeviceCode(existingCodes));
-  const [codeSuffix, setCodeSuffix] = useState(() => generateDeviceCode(existingCodes).slice(3));
+  const [deviceCode, setDeviceCode] = useState('');
+  const [codeSuffix, setCodeSuffix] = useState('');
   const [codeError,  setCodeError]  = useState('');
   const [unitName,   setUnitName]   = useState('');
   const [location,   setLocation]   = useState('');
@@ -777,17 +767,6 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                       className={inputBase + ' font-mono rounded-l-none flex-1'}
                       style={{ fontSize: 16, height: 52, letterSpacing: 2 }}
                     />
-                    <button
-                      onClick={() => {
-                          const fresh = generateDeviceCode(existingCodes);
-                          setDeviceCode(fresh);
-                          setCodeSuffix(fresh.slice(3));
-                          setCodeError('');
-                        }}
-                      className="ml-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-[#0984E3] active:bg-[#EBF4FF] whitespace-nowrap self-center"
-                      style={{ backgroundColor: 'rgba(9,132,227,0.08)' }}>
-                      Regenerate
-                    </button>
                   </div>
                   {codeError
                     ? <p className="text-xs text-red-500 font-medium">{codeError}</p>
@@ -1155,7 +1134,7 @@ const CONFIGURE_PRODUCE = WIZARD_PRODUCE;
 const CONFIGURE_STATES  = PRODUCE_STATES;
 
 function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => void }) {
-  const { updateDevice, updateProduceSetup, addToast, isAdvancedUser } = useApp();
+  const { updateDevice, addToast, isAdvancedUser } = useApp();
   const [activeTab, setActiveTab] = useState<ConfigTab>('identity');
   const [saving,    setSaving]    = useState(false);
 
@@ -1163,8 +1142,8 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
   const [unitName,  setUnitName]  = useState(device.unitName || device.name);
   const [location,  setLocation]  = useState(device.location);
 
-  // Produce
-  const [produceId,    setProduceId]    = useState<WizardProduceId>((device.produceMode as WizardProduceId) || 'mixed');
+  // Produce — handled live by ProduceModeSelector, no local state needed.
+  // Condition, facility, transport remain for the metadata fields below.
   const [produceState, setProduceState] = useState<ProduceState>(device.produceState || 'fresh');
   const [facilitySize, setFacilitySize] = useState<FacilitySizeId>((device.facilitySize as FacilitySizeId) || 'small');
   const [transportHours, setTransportHours] = useState(device.transportHours ?? 2);
@@ -1197,9 +1176,8 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
         location: location.trim(),
       });
 
-      // Produce
-      updateProduceSetup(device.id, {
-        produceMode:  produceId,
+      // Produce condition metadata (produce mode itself is applied live by ProduceModeSelector)
+      updateDevice(device.id, {
         produceState,
         facilitySize,
         transportHours,
@@ -1320,27 +1298,11 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                 initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
                 className="space-y-5 pt-2">
 
-                <div>
-                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">What are you storing?</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {CONFIGURE_PRODUCE.map(p => (
-                      <button key={p.id} onClick={() => setProduceId(p.id)}
-                        className="flex items-center gap-2 p-3 rounded-xl text-left transition-all active:scale-[0.97]"
-                        style={{
-                          border:           `1.5px solid ${produceId === p.id ? p.color + '80' : '#E4E7EC'}`,
-                          backgroundColor:  produceId === p.id ? p.tint : '#FFFFFF',
-                        }}>
-                        <span className="text-xl">{p.emoji}</span>
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold truncate" style={{ color: produceId === p.id ? p.color : '#111827' }}>
-                            {p.label}
-                          </p>
-                          <p className="text-[10px] text-[#6B7280] truncate">{p.tagline}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {/* What are you storing? — now per-device via ProduceModeSelector */}
+                <ProduceModeSelector
+                  deviceId={device.id}
+                  currentMode={(device.produceMode as ProduceMode) || 'mixed'}
+                />
 
                 <div>
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">Produce Condition</p>
@@ -1405,7 +1367,7 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                 <div className="p-3 rounded-xl" style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
                   <p className="text-[10px] text-[#6B7280] uppercase tracking-wide mb-1.5">Targets that will be applied</p>
                   {(() => {
-                    const targets = getStateAdjustedTargets(produceId as ProduceMode, produceState);
+                    const targets = getStateAdjustedTargets((device.produceMode ?? 'mixed') as ProduceMode, produceState);
                     return (
                       <div className="flex gap-4">
                         <span className="text-sm font-bold text-[#0984E3]">🌡 {targets.targetTemperature}°C</span>
