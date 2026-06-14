@@ -229,24 +229,27 @@ export interface ThresholdRecommendation {
 
 type ApplyStep = 'idle' | 'confirm';
 
-export default function ProduceModeSelector() {
-  const { produceMode, addToast, user, applyProduceProfile } = useApp();
+interface ProduceModeSelectorProps {
+  deviceId:    string;
+  currentMode: ProduceMode;
+}
+
+export default function ProduceModeSelector({ deviceId, currentMode }: ProduceModeSelectorProps) {
+  const { addToast, user, applyProduceProfile } = useApp();
   const [showAllModes, setShowAllModes] = useState(false);
-  // 'idle'    — focused confirmation view (survey done)
-  // 'confirm' — "are you sure you want to change?" prompt
-  // 'grid'    — full mode selection grid
   type ViewState = 'idle' | 'confirm' | 'grid';
   const [viewState, setViewState] = useState<ViewState>('idle');
 
-  const surveyDone = user.surveyComplete === true;
-  const profile    = PRODUCE_PROFILES[produceMode];
+  const produceMode = currentMode;
+  const surveyDone  = user.surveyComplete === true;
+  const profile     = PRODUCE_PROFILES[produceMode];
 
   const primaryModes: ProduceMode[] = ['mixed', 'tubers', 'fruits', 'leafy'];
   const allModes: ProduceMode[]     = [...primaryModes, 'legumes', 'meat'];
   const visibleModes = showAllModes ? allModes : primaryModes;
 
   const handleSelectAndApply = (mode: ProduceMode) => {
-    applyProduceProfile(mode);
+    applyProduceProfile(deviceId, mode);
     addToast({
       id: `produce-${Date.now()}`,
       type: 'success',

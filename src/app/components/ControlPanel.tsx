@@ -152,7 +152,7 @@ export default function ControlPanel() {
   const {
     currentTemperature, currentHumidity, settings,
     targetTemperature, targetHumidity,
-    autoMode, systemStatus, produceMode,
+    autoMode, systemStatus,
     setTargetTemperature, setTargetHumidity,
     setAutoMode, startCooling, stopCooling, addToast,
     devices, selectedDeviceId,
@@ -168,16 +168,17 @@ export default function ControlPanel() {
   useEffect(() => { setTempInput(toDisplay(targetTemperature)); }, [targetTemperature, isFahrenheit]);
   useEffect(() => { setHumidInput(targetHumidity); },             [targetHumidity]);
 
-  const profile     = PRODUCE_PROFILES[produceMode];
-  const accentTemp  = profile.accentColor;
-  const accentHumid = '#0891B2';
-
   // Respect per-device custom thresholds — same logic as Dashboard
   const selectedDevice = devices.find(d => d.id === selectedDeviceId);
+  const produceMode = selectedDevice?.produceMode ?? 'mixed';
   const warnTemp  = selectedDevice?.useCustomThresholds ? selectedDevice.warningTemperature  : settings.warningTemperature;
   const critTemp  = selectedDevice?.useCustomThresholds ? selectedDevice.criticalTemperature  : settings.criticalTemperature;
   const warnHumid = selectedDevice?.useCustomThresholds ? selectedDevice.warningHumidity      : settings.warningHumidity;
   const critHumid = selectedDevice?.useCustomThresholds ? selectedDevice.criticalHumidity     : settings.criticalHumidity;
+
+  const profile     = PRODUCE_PROFILES[produceMode];
+  const accentTemp  = profile.accentColor;
+  const accentHumid = '#0891B2';
 
   // Chilling floor check (always in °C internally)
   const chillingFloor = profile.chillingFloor;

@@ -51,6 +51,8 @@ export interface Device {
   warningHumidity: number;
   criticalHumidity: number;
   humidAlertHigh?: boolean;
+  targetTemperature?: number;
+  targetHumidity?: number;
   produceMode?: ProduceMode;
   produceState?: ProduceState;
   facilitySize?: 'small' | 'medium' | 'large';
@@ -71,6 +73,7 @@ interface DeviceSimState {
   targetHumidity: number;
   autoMode: boolean;
   sensorHistory: SensorReading[];
+  lastReadingAt?: number; // epoch ms — set when seeded from offline cache
 }
 
 export interface Settings {
@@ -248,6 +251,65 @@ function mapSettings(s: any): Settings {
   };
 }
 
+// ── Offline bootstrap cache ───────────────────────────────────────────────────
+// Saves the last successful bootstrap response to localStorage so the app
+// can render meaningful data even when the backend is unreachable.
+
+const CACHE_KEY = 'cw_bootstrap_cache';
+
+interface BootstrapCache {
+  user:     any;
+  devices:  any[];
+  alerts:   any[];
+  settings: any;
+  savedAt:  number;
+}
+
+function saveBootstrapCache(data: BootstrapCache) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch { /* storage full */ }
+}
+
+function loadBootstrapCache(): BootstrapCache | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as BootstrapCache) : null;
+  } catch { return null; }
+}
+
+function clearBootstrapCache() {
+  try { localStorage.removeItem(CACHE_KEY); } catch { /* */ }
+}
+
+// ── Last-known-reading cache ──────────────────────────────────────────────────
+// Persists the most recent live reading per device so the dashboard can show
+// real numbers (with a "last seen" timestamp) instead of "—" when offline.
+
+const LAST_READING_KEY = 'cw_last_readings';
+
+interface LastReadingEntry {
+  temperature: number;
+  humidity: number;
+  timestamp: number; // epoch ms
+}
+
+function saveLastReading(deviceId: string, temperature: number, humidity: number) {
+  try {
+    const raw = localStorage.getItem(LAST_READING_KEY);
+    const all: Record<string, LastReadingEntry> = raw ? JSON.parse(raw) : {};
+    all[deviceId] = { temperature, humidity, timestamp: Date.now() };
+    localStorage.setItem(LAST_READING_KEY, JSON.stringify(all));
+  } catch { /* storage full */ }
+}
+
+function loadLastReading(deviceId: string): LastReadingEntry | null {
+  try {
+    const raw = localStorage.getItem(LAST_READING_KEY);
+    if (!raw) return null;
+    const all: Record<string, LastReadingEntry> = JSON.parse(raw);
+    return all[deviceId] ?? null;
+  } catch { return null; }
+}
+
 function buildInitialSimState(device: Device): DeviceSimState {
   const targetTemp = device.produceMode
     ? PRODUCE_THRESHOLDS[device.produceMode].targetTemperature
@@ -278,6 +340,7 @@ function buildInitialSimState(device: Device): DeviceSimState {
 interface AppContextType {
   currentTemperature: number;
   currentHumidity: number;
+  lastReadingAt?: number;
   deviceStatus: 'online' | 'offline';
   systemStatus: 'cooling' | 'idle' | 'override';
   targetTemperature: number;
@@ -298,9 +361,7 @@ interface AppContextType {
   activePage: string;
   compactMode: boolean;
   setCompactMode: (v: boolean) => void;
-  produceMode: ProduceMode;
-  setProduceMode: (mode: ProduceMode) => void;
-  applyProduceProfile: (mode: ProduceMode) => void;
+  applyProduceProfile: (deviceId: string, mode: ProduceMode) => void;
   setActivePage: (page: string) => void;
   setTargetTemperature: (temp: number) => void;
   setTargetHumidity: (humidity: number) => void;
@@ -314,7 +375,7 @@ interface AppContextType {
   updateDevice: (id: string, patch: Partial<Device>) => void;
   updateDeviceConfig: (id: string, patch: Partial<Device>) => void;
   updateUser: (patch: Partial<User>) => void;
-  completeSurvey: (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => void;
+  completeSurvey: (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string, notifPhone?: string) => void;
   addDevice: (name: string, location: string, produceInfo?: any, deviceCode?: string, unitName?: string, storedSince?: Date) => void;
   updateProduceSetup: (deviceId: string, produceInfo: any) => void;
   deleteDevice: (id: string) => void;
@@ -392,24 +453,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
-  // ── Produce mode ─────────────────────────────────────────────────────────────
-  const [produceMode, setProduceMode] = useState<ProduceMode>('mixed');
-
-  const setProduceModeAndPersist = useCallback((mode: ProduceMode) => {
-    setProduceMode(mode);
-    // produce mode is per-device — stored on Device.produceMode in the backend
-  }, []);
-
-  const applyProduceProfile = useCallback((mode: ProduceMode) => {
-    setProduceMode(mode);
-    const thresholds = PRODUCE_THRESHOLDS[mode];
-    setDevices(prev => prev.map(d => ({ ...d, ...thresholds })));
-    const patch = { targetTemperature: thresholds.targetTemperature, targetHumidity: thresholds.targetHumidity };
-    if (simRef.current[selectedDeviceId]) {
-      simRef.current[selectedDeviceId] = { ...simRef.current[selectedDeviceId], ...patch };
-    }
-    setSelectedSim(prev => ({ ...prev, ...patch }));
-  }, [selectedDeviceId]);
+  // ── Produce mode is per-device (Device.produceMode) — see applyProduceProfile
+  // defined near updateDevice below.
 
   // ── Sparkline data ───────────────────────────────────────────────────────────
   const deviceReadingsRef = useRef<Record<string, DeviceReading[]>>({});
@@ -436,6 +481,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ...simRef.current[deviceId],
             currentTemperature: temperature,
             currentHumidity:    humidity,
+            lastReadingAt:      now.getTime(),
             sensorHistory: [
               ...(simRef.current[deviceId]?.sensorHistory ?? []).slice(-59),
               reading,
@@ -443,7 +489,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           };
 
           if (deviceId === selectedDeviceId) {
-            setSelectedSim(prev => ({ ...prev, currentTemperature: temperature, currentHumidity: humidity }));
+            setSelectedSim(prev => ({ ...prev, currentTemperature: temperature, currentHumidity: humidity, lastReadingAt: now.getTime() }));
           }
 
           setDeviceHistories(prev => ({
@@ -458,6 +504,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             { time: timeStr, temperature },
           ];
           setDeviceReadings(prev => ({ ...prev, [deviceId]: deviceReadingsRef.current[deviceId] }));
+
+          // Persist so the dashboard can show real "last known" values offline
+          saveLastReading(deviceId, temperature, humidity);
         }
 
         if (data.type === 'alert') {
@@ -565,6 +614,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // Alerts — map backend shape to frontend shape
         setAlerts((alertsRes.alerts ?? []).map(mapAlert));
 
+        // Save to offline cache so the app can load when backend is unreachable
+        saveBootstrapCache({
+          user:     profileRes.user,
+          devices:  devicesRes.devices ?? [],
+          alerts:   alertsRes.alerts ?? [],
+          settings: settingsRes.settings,
+          savedAt:  Date.now(),
+        });
+
         // Open WebSocket for each online device
         for (const device of mappedDevices) {
           if (device.status === 'online') openWebSocket(device.id);
@@ -578,6 +636,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
             clearTokens();
             setIsAuthenticated(false);
             setActivePage('login');
+            return;
+          }
+
+          // Offline or server unreachable — try loading from cache
+          const cache = loadBootstrapCache();
+          if (cache) {
+            console.info('[AppContext] Offline — loading cached bootstrap data');
+
+            const u = cache.user;
+            setUser({
+              id:                u.id,
+              name:              u.name,
+              email:             u.email ?? '',
+              avatar:            avatarFromName(u.name),
+              role:              u.role as UserRole,
+              surveyComplete:    u.surveyComplete ?? false,
+              notificationEmail: u.notificationEmail ?? '',
+            });
+
+            if (cache.settings) setSettings(mapSettings(cache.settings));
+
+            const mappedDevices = (cache.devices ?? []).map(mapDevice);
+            setDevices(mappedDevices);
+
+            for (const device of mappedDevices) {
+              if (!simRef.current[device.id]) {
+                simRef.current[device.id] = buildInitialSimState(device);
+              }
+              const lastReading = loadLastReading(device.id);
+              if (lastReading) {
+                simRef.current[device.id] = {
+                  ...simRef.current[device.id],
+                  currentTemperature: lastReading.temperature,
+                  currentHumidity:    lastReading.humidity,
+                  lastReadingAt:      lastReading.timestamp,
+                };
+              }
+            }
+            // Don't seed deviceReadings with fake data — leave empty so the
+            // dashboard shows "—" placeholders rather than invented readings.
+            // Real values will populate as soon as WebSocket reconnects.
+            setDeviceHistories(Object.fromEntries(
+              mappedDevices.map(d => [d.id, simRef.current[d.id]?.sensorHistory ?? []])
+            ));
+
+            const firstOnline = mappedDevices.find(d => d.status === 'online');
+            const first = firstOnline ?? mappedDevices[0];
+            if (first) {
+              setSelectedDeviceId(first.id);
+              setSelectedSim(simRef.current[first.id] ?? buildInitialSimState(first));
+            }
+
+            setAlerts((cache.alerts ?? []).map(mapAlert));
           }
         }
       } finally {
@@ -663,6 +774,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
   const updateDeviceConfig = updateDevice;
 
+  // Instantly applies a produce profile (targets + alert thresholds) to a single
+  // device — used by ProduceModeSelector inside the Configure sheet. Unlike
+  // updateDevice, this also keeps the live sim/dashboard state in sync when the
+  // configured device happens to be the one currently selected.
+  const applyProduceProfile = useCallback((deviceId: string, mode: ProduceMode) => {
+    const thresholds = PRODUCE_THRESHOLDS[mode];
+    updateDevice(deviceId, {
+      produceMode:         mode,
+      produceSetupComplete: true,
+      useCustomThresholds: true,
+      targetTemperature:   thresholds.targetTemperature,
+      targetHumidity:      thresholds.targetHumidity,
+      warningTemperature:  thresholds.warningTemperature,
+      criticalTemperature: thresholds.criticalTemperature,
+      warningHumidity:     thresholds.warningHumidity,
+      criticalHumidity:    thresholds.criticalHumidity,
+      humidAlertHigh:      thresholds.humidAlertHigh,
+    });
+
+    if (deviceId === selectedDeviceId) {
+      const simPatch = { targetTemperature: thresholds.targetTemperature, targetHumidity: thresholds.targetHumidity };
+      if (simRef.current[deviceId]) {
+        simRef.current[deviceId] = { ...simRef.current[deviceId], ...simPatch };
+      }
+      setSelectedSim(prev => ({ ...prev, ...simPatch }));
+    }
+  }, [updateDevice, selectedDeviceId]);
+
+
   const addDevice = useCallback((
     name: string,
     location: string,
@@ -705,7 +845,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
       .catch(err => {
         addToast({ id: `add-err-${Date.now()}`, type: 'error', message: err?.message ?? 'Failed to add device.' });
-        enqueueAction({ type: 'ADD_DEVICE', payload: { name, location } });
+        enqueueAction({
+          type: 'ADD_DEVICE',
+          payload: {
+            name,
+            location,
+            deviceCode,
+            unitName:            unitName ?? name,
+            produceMode:         produceInfo?.produceMode,
+            produceState:        produceInfo?.produceState,
+            facilitySize:        produceInfo?.facilitySize,
+            transportHours:      produceInfo?.transportHours,
+            useCustomThresholds: !!produceInfo,
+            warningTemperature:  thresholds?.warningTemperature  ?? DEFAULT_SETTINGS.warningTemperature,
+            criticalTemperature: thresholds?.criticalTemperature ?? DEFAULT_SETTINGS.criticalTemperature,
+            warningHumidity:     thresholds?.warningHumidity     ?? DEFAULT_SETTINGS.warningHumidity,
+            criticalHumidity:    thresholds?.criticalHumidity    ?? DEFAULT_SETTINGS.criticalHumidity,
+            humidAlertHigh:      thresholds?.humidAlertHigh,
+          },
+        });
       });
   }, [addToast]); // eslint-disable-line
 
@@ -768,11 +926,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const completeSurvey = useCallback((role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => {
+  const completeSurvey = useCallback((role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string, notifPhone?: string) => {
     setUser(prev => ({ ...prev, role, surveyComplete: true, ...(notificationEmail ? { notificationEmail } : {}) }));
-    setSettings(prev => ({ ...prev, ...notifPrefs }));
+    const phonePrefs = notifPhone ? { userPhone: notifPhone } : {};
+    setSettings(prev => ({ ...prev, ...notifPrefs, ...phonePrefs }));
     usersApi.updateProfile({ role, surveyComplete: true, notificationEmail }).catch(() => {});
-    settingsApi.update(notifPrefs as Record<string, any>).catch(() => {});
+    settingsApi.update({ ...notifPrefs, ...phonePrefs } as Record<string, any>).catch(() => {});
   }, []);
 
   // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -794,6 +953,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     authApi.logout().catch(() => {});
     clearTokens();
     clearQueue().catch(() => {});
+    clearBootstrapCache();
+    try { localStorage.removeItem(LAST_READING_KEY); } catch { /* */ }
     setIsAuthenticated(false);
     setActivePage('login');
     // Reset state
@@ -859,6 +1020,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider value={{
       currentTemperature: selectedSim.currentTemperature,
       currentHumidity:    selectedSim.currentHumidity,
+      lastReadingAt:      selectedSim.lastReadingAt,
       deviceStatus,
       systemStatus:       selectedSim.systemStatus,
       targetTemperature:  selectedSim.targetTemperature,
@@ -879,8 +1041,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activePage,
       compactMode,
       setCompactMode,
-      produceMode,
-      setProduceMode: setProduceModeAndPersist,
       applyProduceProfile,
       setActivePage,
       setTargetTemperature,

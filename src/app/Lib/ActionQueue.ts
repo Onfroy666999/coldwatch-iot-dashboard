@@ -9,7 +9,22 @@ export type ColdWatchAction =
   | { type: 'ACKNOWLEDGE_ALERT';  payload: { id: string } }
   | { type: 'RESOLVE_ALERT';      payload: { id: string } }
   | { type: 'ACKNOWLEDGE_ALL_ALERTS'; payload: Record<string, never> }
-  | { type: 'ADD_DEVICE';         payload: { name: string; location: string } }
+  | { type: 'ADD_DEVICE'; payload: {
+      name:                string;
+      location:            string;
+      deviceCode?:         string;
+      unitName?:           string;
+      produceMode?:        string;
+      produceState?:       string;
+      facilitySize?:       string;
+      transportHours?:     number;
+      useCustomThresholds: boolean;
+      warningTemperature:  number;
+      criticalTemperature: number;
+      warningHumidity:     number;
+      criticalHumidity:    number;
+      humidAlertHigh?:     boolean;
+    }}
   | { type: 'DELETE_DEVICE';      payload: { id: string } }
   | { type: 'UPDATE_DEVICE';      payload: { id: string; patch: Record<string, unknown> } };
 
