@@ -28,9 +28,20 @@ function daysSince(d: Date): number {
 const getBatteryColor = (level: number) =>
   level > 50 ? '#27AE60' : level > 20 ? '#E67E22' : '#C0392B';
 
-// ── Device code ────────────────────────────────────────────────────────────
-// Device IDs are printed on the physical device and entered manually by the
-// installer — no auto-generation.
+// ── Device code generation ────────────────────────────────────────────────────
+// Generates 6 Hex numbers
+// The user can override this in the wizard
+
+function generateDeviceCode(existingCodes: string[]): string {
+  // Format: CW- followed by exactly 6 hex characters (0-9, A-F)
+  // Matches the device code flashed onto the ESP32 (derived from MAC address)
+  const hex = Array.from({ length: 6 }, () =>
+    '0123456789ABCDEF'[Math.floor(Math.random() * 16)]
+  ).join('');
+  const code = `CW-${hex}`;
+  if (existingCodes.includes(code)) return generateDeviceCode(existingCodes);
+  return code;
+}
 
 // ── Produce image analysis — routes through backend /ai/vision proxy ─────────
 import { aiApi } from '../Lib/api';
@@ -595,7 +606,7 @@ function RemoveProduceSheet({
 
 // ── Add Device Wizard ─────────────────────────────────────────────────────────
 
-function AddDeviceModal({ onClose }: { onClose: () => void }) {
+function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGoToSettings: () => void }) {
   const { addDevice, addToast, devices } = useApp();
 
   const [step, setStep] = useState(0);
@@ -605,8 +616,8 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
   const existingCodes = devices.map(d => d.deviceCode).filter(Boolean) as string[];
   // deviceCode stores the FULL code (CW-XXXXXX) for passing to the API.
   // codeSuffix is just the editable 6-char hex part shown in the split input.
-  const [deviceCode, setDeviceCode] = useState('');
-  const [codeSuffix, setCodeSuffix] = useState('');
+  const [deviceCode, setDeviceCode] = useState(() => generateDeviceCode(existingCodes));
+  const [codeSuffix, setCodeSuffix] = useState(() => generateDeviceCode(existingCodes).slice(3));
   const [codeError,  setCodeError]  = useState('');
   const [unitName,   setUnitName]   = useState('');
   const [location,   setLocation]   = useState('');
@@ -767,6 +778,17 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
                       className={inputBase + ' font-mono rounded-l-none flex-1'}
                       style={{ fontSize: 16, height: 52, letterSpacing: 2 }}
                     />
+                    <button
+                      onClick={() => {
+                          const fresh = generateDeviceCode(existingCodes);
+                          setDeviceCode(fresh);
+                          setCodeSuffix(fresh.slice(3));
+                          setCodeError('');
+                        }}
+                      className="ml-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-[#0984E3] active:bg-[#EBF4FF] whitespace-nowrap self-center"
+                      style={{ backgroundColor: 'rgba(9,132,227,0.08)' }}>
+                      Regenerate
+                    </button>
                   </div>
                   {codeError
                     ? <p className="text-xs text-red-500 font-medium">{codeError}</p>
@@ -809,6 +831,7 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
                   <p className="text-xs font-semibold text-[#1D4ED8] mb-1">What happens next?</p>
                   <p className="text-xs text-[#1E40AF] leading-relaxed">
                     Next you'll set up produce details — you can take a photo and our AI will assess the condition automatically.
+                    Connection instructions are in <span className="font-semibold">Settings → How to Connect</span>.
                   </p>
                 </div>
               </motion.div>
@@ -1048,6 +1071,26 @@ function AddDeviceModal({ onClose }: { onClose: () => void }) {
                   </div>
                 )}
 
+                <div className="rounded-2xl p-4" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
+                  <p className="text-xs font-semibold text-[#1D4ED8] mb-1">Ready to connect your ESP32?</p>
+                  <p className="text-xs text-[#1E40AF] leading-relaxed mb-3">
+                    The full step-by-step connection guide — including your Device ID <span className="font-mono font-bold">{deviceCode}</span>, API endpoint, firmware flashing, and WiFi setup — is available in Settings.
+                  </p>
+                  <button
+                    onClick={() => { onClose(); onGoToSettings(); }}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-xs font-semibold active:scale-[0.98]"
+                    style={{ backgroundColor: '#0984E3' }}>
+                    Go to Settings → How to Connect
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="rounded-2xl p-4" style={{ backgroundColor: '#FFF8F0', border: '1px solid #F5CBA7' }}>
+                  <p className="text-xs font-semibold text-[#C0501A] mb-1">No hardware yet?</p>
+                  <p className="text-xs text-[#7A3010] leading-relaxed">
+                    That's fine — the device is registered and the simulation is running. Come back to the guide when your ESP32 is ready.
+                  </p>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1113,7 +1156,7 @@ const CONFIGURE_PRODUCE = WIZARD_PRODUCE;
 const CONFIGURE_STATES  = PRODUCE_STATES;
 
 function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => void }) {
-  const { updateDevice, addToast, isAdvancedUser } = useApp();
+  const { updateDevice, updateProduceSetup, addToast, isAdvancedUser } = useApp();
   const [activeTab, setActiveTab] = useState<ConfigTab>('identity');
   const [saving,    setSaving]    = useState(false);
 
@@ -1121,8 +1164,8 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
   const [unitName,  setUnitName]  = useState(device.unitName || device.name);
   const [location,  setLocation]  = useState(device.location);
 
-  // Produce — handled live by ProduceModeSelector, no local state needed.
-  // Condition, facility, transport remain for the metadata fields below.
+  // Produce
+  const [produceId,    setProduceId]    = useState<WizardProduceId>((device.produceMode as WizardProduceId) || 'mixed');
   const [produceState, setProduceState] = useState<ProduceState>(device.produceState || 'fresh');
   const [facilitySize, setFacilitySize] = useState<FacilitySizeId>((device.facilitySize as FacilitySizeId) || 'small');
   const [transportHours, setTransportHours] = useState(device.transportHours ?? 2);
@@ -1138,6 +1181,22 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
   // Offsets
   const [tempOffset,  setTempOffset]  = useState(String(device.tempOffset  ?? 0));
   const [humidOffset, setHumidOffset] = useState(String(device.humidOffset ?? 0));
+
+  // Reset all local state when the device being configured changes
+  useEffect(() => {
+    setProduceId((device.produceMode as WizardProduceId) || 'mixed');
+    setProduceState(device.produceState || 'fresh');
+    setFacilitySize((device.facilitySize as FacilitySizeId) || 'small');
+    setTransportHours(device.transportHours ?? 2);
+    setUseCustom(device.useCustomThresholds ?? false);
+    setWarnTemp(String(device.warningTemperature  ?? 10));
+    setCritTemp(String(device.criticalTemperature ?? 15));
+    setWarnHumid(String(device.warningHumidity    ?? 80));
+    setCritHumid(String(device.criticalHumidity   ?? 90));
+    setHumidHigh(device.humidAlertHigh !== false);
+    setTempOffset(String(device.tempOffset  ?? 0));
+    setHumidOffset(String(device.humidOffset ?? 0));
+  }, [device.id]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -1155,8 +1214,9 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
         location: location.trim(),
       });
 
-      // Produce condition metadata (produce mode itself is applied live by ProduceModeSelector)
-      updateDevice(device.id, {
+      // Produce
+      updateProduceSetup(device.id, {
+        produceMode:  produceId,
         produceState,
         facilitySize,
         transportHours,
@@ -1277,10 +1337,9 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                 initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
                 className="space-y-5 pt-2">
 
-                {/* What are you storing? — now per-device via ProduceModeSelector */}
                 <ProduceModeSelector
                   deviceId={device.id}
-                  currentMode={(device.produceMode as ProduceMode) || 'mixed'}
+                  currentMode={(produceId as ProduceMode) || 'mixed'}
                 />
 
                 <div>
@@ -1346,7 +1405,7 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                 <div className="p-3 rounded-xl" style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
                   <p className="text-[10px] text-[#6B7280] uppercase tracking-wide mb-1.5">Targets that will be applied</p>
                   {(() => {
-                    const targets = getStateAdjustedTargets((device.produceMode ?? 'mixed') as ProduceMode, produceState);
+                    const targets = getStateAdjustedTargets(produceId as ProduceMode, produceState);
                     return (
                       <div className="flex gap-4">
                         <span className="text-sm font-bold text-[#0984E3]">🌡 {targets.targetTemperature}°C</span>
@@ -1730,7 +1789,7 @@ if (isLoading) return <DevicesSkeleton />;
           <ConfigureSheet key="configure" device={configuringDevice} onClose={() => setConfiguringDevice(null)} />
         )}
         {showAddModal && (
-          <AddDeviceModal key="add" onClose={() => setShowAddModal(false)} />
+          <AddDeviceModal key="add" onClose={() => setShowAddModal(false)} onGoToSettings={() => { setShowAddModal(false); setActivePage('settings'); }} />
         )}
         {removingDevice && (
           <RemoveProduceSheet

@@ -240,9 +240,8 @@ export default function ProduceModeSelector({ deviceId, currentMode }: ProduceMo
   type ViewState = 'idle' | 'confirm' | 'grid';
   const [viewState, setViewState] = useState<ViewState>('idle');
 
-  const produceMode = currentMode;
-  const surveyDone  = user.surveyComplete === true;
-  const profile     = PRODUCE_PROFILES[produceMode];
+  const surveyDone = user.surveyComplete === true;
+  const profile    = PRODUCE_PROFILES[currentMode];
 
   const primaryModes: ProduceMode[] = ['mixed', 'tubers', 'fruits', 'leafy'];
   const allModes: ProduceMode[]     = [...primaryModes, 'legumes', 'meat'];
@@ -399,7 +398,7 @@ export default function ProduceModeSelector({ deviceId, currentMode }: ProduceMo
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
               {visibleModes.map(modeId => {
                 const p      = PRODUCE_PROFILES[modeId];
-                const active = produceMode === modeId;
+                const active = currentMode === modeId;
                 return (
                   <button
                     key={modeId}
@@ -473,7 +472,7 @@ export default function ProduceModeSelector({ deviceId, currentMode }: ProduceMo
 
       {/* Trade-off warnings — always visible */}
       <AnimatePresence mode="wait">
-        <TradeoffWarnings key={produceMode} profile={profile} />
+        <TradeoffWarnings key={currentMode} profile={profile} />
       </AnimatePresence>
     </div>
   );
