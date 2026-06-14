@@ -102,7 +102,12 @@ export default function SyncBanner() {
         const pending = await getPendingActions();
         if (pending.length > 0) {
           try {
-            const result = await syncApi.drain(pending.map(p => ({ id: p.id, ...p.action })));
+            const result = await syncApi.drain(pending.map(p => ({
+              id:        p.id,
+              action:    p.action,
+              createdAt: p.createdAt,
+              attempts:  p.attempts,
+            })));
             if (result.succeeded > 0) {
               const newCount = await getPendingCount();
               setPendingCount(newCount);
