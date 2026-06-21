@@ -4,7 +4,7 @@ import {
 } from 'react';
 import { enqueueAction, clearQueue } from '../Lib/ActionQueue';
 import {
-  authApi, devicesApi, alertsApi, settingsApi, usersApi,
+  authApi, bootstrapApi, devicesApi, alertsApi, settingsApi, usersApi,
   connectWebSocket,
 } from '../Lib/api';
 import { getToken, clearTokens, getUserId } from '../Lib/tokenStorage';
@@ -532,17 +532,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async function bootstrap() {
       setIsLoading(true);
       try {
-        const [profileRes, devicesRes, alertsRes, settingsRes] = await Promise.all([
-          usersApi.me(),
-          devicesApi.list(),
-          alertsApi.list({ limit: 100 }),
-          settingsApi.get(),
-        ]);
+        // Single round trip — replaces 4 parallel calls
+        const { user: u, devices: rawDevices, alerts: rawAlerts, settings: rawSettings } =
+          await bootstrapApi.get();
 
         if (cancelled) return;
 
-        // User
-        const u = profileRes.user;
+        // User — phone and username come from backend but are not in the
+        // frontend User interface; map only the fields the app actually uses
         setUser({
           id:                u.id,
           name:              u.name,
@@ -553,29 +550,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
           notificationEmail: u.notificationEmail ?? '',
         });
 
-        // Settings
-        if (settingsRes.settings) {
-          setSettings(mapSettings(settingsRes.settings));
-        }
+        // Settings — rawSettings is always a full object (backend fills
+        // defaults for new users), so mapSettings never receives null
+        setSettings(mapSettings(rawSettings));
 
         // Devices
-        const mappedDevices = (devicesRes.devices ?? []).map(mapDevice);
+        const mappedDevices = (rawDevices ?? []).map(mapDevice);
         setDevices(mappedDevices);
 
-        // Initialise sim state for every device
+        // Initialise sim state — seed from last known real reading in
+        // localStorage if available; never generate fake sparkline data
         for (const device of mappedDevices) {
           if (!simRef.current[device.id]) {
-            simRef.current[device.id] = buildInitialSimState(device);
+            const lastReading = loadLastReading(device.id);
+            const base = buildInitialSimState(device);
+            simRef.current[device.id] = lastReading
+              ? { ...base, currentTemperature: lastReading.temperature, currentHumidity: lastReading.humidity }
+              : base;
           }
-          // Seed sparkline data
-          const tgt = PRODUCE_THRESHOLDS[device.produceMode ?? 'mixed']?.targetTemperature ?? 8;
-          deviceReadingsRef.current[device.id] = Array.from({ length: 24 }, (_, i) => ({
-            time: new Date(Date.now() - (23 - i) * 3_600_000)
-              .toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
-            temperature: parseFloat((tgt + (Math.random() - 0.5) * 2).toFixed(1)),
-          }));
         }
-        setDeviceReadings({ ...deviceReadingsRef.current });
         setDeviceHistories(Object.fromEntries(
           mappedDevices.map(d => [d.id, simRef.current[d.id]?.sensorHistory ?? []])
         ));
@@ -588,8 +581,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setSelectedSim(simRef.current[first.id] ?? buildInitialSimState(first));
         }
 
-        // Alerts — map backend shape to frontend shape
-        setAlerts((alertsRes.alerts ?? []).map(mapAlert));
+        // Alerts
+        setAlerts((rawAlerts ?? []).map(mapAlert));
+
+        // Save to offline cache — rawSettings is always a full object here,
+        // never null, so the cache always has valid settings to restore from
+        saveBootstrapCache({
+          user:     u,
+          devices:  rawDevices ?? [],
+          alerts:   rawAlerts  ?? [],
+          settings: rawSettings,
+          savedAt:  Date.now(),
+        });
 
         // Open WebSocket for each online device
         for (const device of mappedDevices) {
@@ -599,12 +602,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         if (!cancelled) {
           console.error('[AppContext] Bootstrap failed:', err);
-          // If 401 (token expired), force logout
+
+          // 401 — token expired or invalid, force logout
           if ((err as any)?.status === 401) {
             clearTokens();
             setIsAuthenticated(false);
             setActivePage('login');
+            return;
           }
+
+          // Network failure or server unreachable — restore from offline cache
+          const cache = loadBootstrapCache();
+          if (cache) {
+            console.info('[AppContext] Offline — restoring from cache');
+
+            const u = cache.user;
+            setUser({
+              id:                u.id,
+              name:              u.name,
+              email:             u.email ?? '',
+              avatar:            avatarFromName(u.name),
+              role:              u.role as UserRole,
+              surveyComplete:    u.surveyComplete ?? false,
+              notificationEmail: u.notificationEmail ?? '',
+            });
+
+            // Settings — use cached value if present, otherwise fall back to
+            // DEFAULT_SETTINGS so the app is never in an undefined settings state
+            setSettings(cache.settings ? mapSettings(cache.settings) : DEFAULT_SETTINGS);
+
+            const mappedDevices = (cache.devices ?? []).map(mapDevice);
+            setDevices(mappedDevices);
+
+            for (const device of mappedDevices) {
+              const lastReading = loadLastReading(device.id);
+              const base = buildInitialSimState(device);
+              simRef.current[device.id] = lastReading
+                ? { ...base, currentTemperature: lastReading.temperature, currentHumidity: lastReading.humidity }
+                : base;
+            }
+            setDeviceHistories(Object.fromEntries(
+              mappedDevices.map(d => [d.id, simRef.current[d.id]?.sensorHistory ?? []])
+            ));
+
+            const firstOnline = mappedDevices.find(d => d.status === 'online');
+            const first = firstOnline ?? mappedDevices[0];
+            if (first) {
+              setSelectedDeviceId(first.id);
+              setSelectedSim(simRef.current[first.id] ?? buildInitialSimState(first));
+            }
+
+            setAlerts((cache.alerts ?? []).map(mapAlert));
+          }
+          // If no cache exists (first ever load with no network) the app
+          // stays on the loading screen — nothing meaningful to show without data
         }
       } finally {
         if (!cancelled) setIsLoading(false);
