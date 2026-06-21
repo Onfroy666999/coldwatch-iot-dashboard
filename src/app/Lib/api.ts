@@ -413,6 +413,13 @@ export const aiApi = {
   vision: async (payload: {
     base64Image: string;
     mimeType:    string;
-  }): Promise<{ state: string; confidence: string; explanation: string }> =>
+    deviceId?:   string; // links the assessment to a device's history server-side
+  }): Promise<{ detectedProduce: string | null; state: string; confidence: string; explanation: string }> =>
     fetchAPI('/ai/vision', { method: 'POST', body: JSON.stringify(payload) }),
+
+  // GET /ai/assessments/:deviceId — a device's produce assessment history,
+  // most recent first. Useful for showing past check-ins on a device, or
+  // feeding history into a future AI context.
+  assessmentsForDevice: async (deviceId: string): Promise<{ assessments: any[]; count: number }> =>
+    fetchAPI(`/ai/assessments/${deviceId}`),
 };
