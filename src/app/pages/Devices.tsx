@@ -1214,9 +1214,9 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
         location: location.trim(),
       });
 
-      // Produce
+      // Produce metadata (mode is applied live via ProduceModeSelector)
       updateProduceSetup(device.id, {
-        produceMode:  produceId,
+        produceMode:  device.produceMode as ProduceMode || 'mixed',
         produceState,
         facilitySize,
         transportHours,
@@ -1339,7 +1339,7 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
 
                 <ProduceModeSelector
                   deviceId={device.id}
-                  currentMode={(produceId as ProduceMode) || 'mixed'}
+                  currentMode={(device.produceMode as ProduceMode) || 'mixed'}
                 />
 
                 <div>

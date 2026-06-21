@@ -134,6 +134,19 @@ export const authApi = {
 
 // ── Devices ───────────────────────────────────────────────────────────────────
 
+// ── Bootstrap (single round-trip app load) ────────────────────────────────────
+
+export const bootstrapApi = {
+  get: async (): Promise<{
+    user:     any;
+    devices:  any[];
+    alerts:   any[];
+    settings: any;
+  }> => fetchAPI('/bootstrap'),
+};
+
+// ── Devices ───────────────────────────────────────────────────────────────────
+
 export const devicesApi = {
   list: async (): Promise<{ devices: any[] }> =>
     fetchAPI('/devices'),
