@@ -20,7 +20,8 @@ export interface SensorReading {
 export interface Alert {
   id: string;
   severity: 'critical' | 'warning' | 'info';
-  message: string;
+  message: string;       // short label: "Temperature too high"
+  report?: string;       // full narrative: what ColdWatch did while the user was away
   deviceId: string;
   deviceName: string;
   timestamp: Date;
@@ -158,8 +159,68 @@ const DEFAULT_SETTINGS: Settings = {
   alertRepeatInterval: '15min',
   userPhone: '', escalationContact: '',
   compactMode: false, tempUnit: 'C',
-  samplingInterval: '10s', dataRetention: '30d', autoLogoutMinutes: 0,
+  samplingInterval: '15s', dataRetention: '30d', autoLogoutMinutes: 0,
 };
+
+// ── Offline cache helpers ─────────────────────────────────────────────────────
+// Bootstrap cache — saves the last successful API response so the app can
+// render meaningful data when the backend is unreachable.
+
+const BOOTSTRAP_CACHE_KEY = 'cw_bootstrap_cache';
+const LAST_READING_PREFIX  = 'cw_last_reading_';
+
+interface BootstrapCache {
+  user:     any;
+  devices:  any[];
+  alerts:   any[];
+  settings: any;
+  savedAt:  number;
+}
+
+interface LastReadingEntry {
+  temperature: number;
+  humidity:    number;
+  savedAt:     number;
+}
+
+function saveBootstrapCache(data: BootstrapCache): void {
+  try { localStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify(data)); } catch { /* storage full */ }
+}
+
+function loadBootstrapCache(): BootstrapCache | null {
+  try {
+    const raw = localStorage.getItem(BOOTSTRAP_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as BootstrapCache) : null;
+  } catch { return null; }
+}
+
+function clearBootstrapCache(): void {
+  try { localStorage.removeItem(BOOTSTRAP_CACHE_KEY); } catch { /* */ }
+}
+
+function saveLastReading(deviceId: string, temperature: number, humidity: number): void {
+  try {
+    localStorage.setItem(
+      LAST_READING_PREFIX + deviceId,
+      JSON.stringify({ temperature, humidity, savedAt: Date.now() })
+    );
+  } catch { /* storage full */ }
+}
+
+function loadLastReading(deviceId: string): LastReadingEntry | null {
+  try {
+    const raw = localStorage.getItem(LAST_READING_PREFIX + deviceId);
+    return raw ? (JSON.parse(raw) as LastReadingEntry) : null;
+  } catch { return null; }
+}
+
+function clearLastReadingCache(): void {
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith(LAST_READING_PREFIX))
+      .forEach(k => localStorage.removeItem(k));
+  } catch { /* */ }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -183,10 +244,34 @@ function mapAlert(a: any): Alert {
     resolved:      'resolved',
     auto_resolved: 'auto_resolved',
   };
+  const isAutoResolved = a.status === 'auto_resolved';
+
+  // Derive a short system action label from the report text so the collapsed
+  // card and AlertTimeline's "System response" event both have something to show.
+  // The report always contains "ColdWatch automatically turned cooling ON/OFF"
+  // — extract that clause rather than duplicating the logic here.
+  let systemAction: string | undefined;
+  if (isAutoResolved && a.report) {
+    if (a.report.includes('turned cooling ON')) {
+      systemAction = 'ColdWatch engaged cooling automatically';
+    } else if (a.report.includes('turned cooling OFF')) {
+      systemAction = 'ColdWatch stopped cooling automatically';
+    } else {
+      systemAction = 'ColdWatch took automatic action';
+    }
+  }
+
   return {
     id:          a.id,
     severity:    a.severity as Alert['severity'],
-    message:     a.report ?? typeToMessage[a.type] ?? a.type,
+    // message is always the short human-readable label for the alert type.
+    // report is the full narrative written by the backend — either the auto-engage
+    // explanation ("ColdWatch turned cooling ON after 2 hours...") or the
+    // alertEngine's resolution note. These are separate fields so the UI can
+    // show the short label as a title and the report as a "what happened" block.
+    message:      typeToMessage[a.type] ?? a.type,
+    report:       a.report ?? undefined,
+    systemAction,
     deviceId:    a.deviceId,
     deviceName:  a.deviceName,
     timestamp:   new Date(a.createdAt),
@@ -194,7 +279,7 @@ function mapAlert(a: any): Alert {
     tempC:       a.type?.includes('TEMP')     ? a.triggerValue   : undefined,
     humidityPct: a.type?.includes('HUMIDITY') ? a.triggerValue   : undefined,
     resolvedAt:  a.resolvedAt ? new Date(a.resolvedAt) : undefined,
-    autoResolved: a.status === 'auto_resolved',
+    autoResolved: isAutoResolved,
   };
 }
 
@@ -468,6 +553,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ],
           };
 
+          // Persist to localStorage so offline boot shows real last values
+          saveLastReading(deviceId, temperature, humidity);
+
           if (deviceId === selectedDeviceId) {
             setSelectedSim(prev => ({ ...prev, currentTemperature: temperature, currentHumidity: humidity }));
           }
@@ -570,7 +658,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         }
         setDeviceHistories(Object.fromEntries(
-          mappedDevices.map(d => [d.id, simRef.current[d.id]?.sensorHistory ?? []])
+          mappedDevices.map((d: Device) => [d.id, simRef.current[d.id]?.sensorHistory ?? []])
         ));
 
         // Select first online device, or first device overall
@@ -642,7 +730,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 : base;
             }
             setDeviceHistories(Object.fromEntries(
-              mappedDevices.map(d => [d.id, simRef.current[d.id]?.sensorHistory ?? []])
+              mappedDevices.map((d: Device) => [d.id, simRef.current[d.id]?.sensorHistory ?? []])
             ));
 
             const firstOnline = mappedDevices.find(d => d.status === 'online');
@@ -782,7 +870,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
       .catch(err => {
         addToast({ id: `add-err-${Date.now()}`, type: 'error', message: err?.message ?? 'Failed to add device.' });
-        enqueueAction({ type: 'ADD_DEVICE', payload: { name, location } });
+        enqueueAction({
+          type: 'ADD_DEVICE',
+          payload: {
+            name,
+            location,
+            deviceCode,
+            unitName,
+            produceMode:         produceInfo?.produceMode,
+            produceState:        produceInfo?.produceState,
+            facilitySize:        produceInfo?.facilitySize,
+            transportHours:      produceInfo?.transportHours,
+            useCustomThresholds: !!thresholds,
+            warningTemperature:  thresholds?.warningTemperature  ?? DEFAULT_SETTINGS.warningTemperature,
+            criticalTemperature: thresholds?.criticalTemperature ?? DEFAULT_SETTINGS.criticalTemperature,
+            warningHumidity:     thresholds?.warningHumidity     ?? DEFAULT_SETTINGS.warningHumidity,
+            criticalHumidity:    thresholds?.criticalHumidity    ?? DEFAULT_SETTINGS.criticalHumidity,
+            humidAlertHigh:      thresholds?.humidAlertHigh,
+          },
+        });
       });
   }, [addToast]); // eslint-disable-line
 
@@ -871,6 +977,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     authApi.logout().catch(() => {});
     clearTokens();
     clearQueue().catch(() => {});
+    clearBootstrapCache();
+    clearLastReadingCache();
     setIsAuthenticated(false);
     setActivePage('login');
     // Reset state

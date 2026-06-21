@@ -22,6 +22,9 @@ import SyncBanner from './components/SyncBanner';
 import AIAssistant, { type NixHandle } from './components/AIAssistant';
 const PAGE_ORDER = ['dashboard', 'alerts', 'history', 'devices', 'settings'];
 
+// ── Nix AI assistant — temporarily disabled ─────────────────────────────────
+const NIX_ENABLED = false;
+
 const slideVariants = {
   enter:  (dir: number) => ({ opacity: 0, x: dir * 32 }),
   center: { opacity: 1, x: 0 },
@@ -208,6 +211,8 @@ function AppContent() {
       <BottomNav />
       <ToastContainer />
 
+      {NIX_ENABLED && (
+      <>
       {/* ── Nix AI floating button ──────────────────────────────────────────────────
           Interaction model (mobile-first):
           • Tap (< 450 ms)   → open / close chat drawer
@@ -409,6 +414,8 @@ function AppContent() {
         onNavigate={handleNixNavigate}
         onVoiceStateChange={setNixListening}
       />
+      </>
+      )}
     </div>
   );
 }
