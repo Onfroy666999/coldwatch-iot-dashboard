@@ -49,15 +49,17 @@ import { aiApi, produceRecordsApi } from '../Lib/api';
 async function analyseProduceImage(
   base64Image: string,
   mimeType: string,
-  _produceLabel: string
-): Promise<{ state: ProduceState; confidence: 'high' | 'medium' | 'low'; explanation: string }> {
-  const result = await aiApi.vision({ base64Image, mimeType });
+  _produceLabel: string,
+  deviceId?: string,
+): Promise<{ state: ProduceState; confidence: 'high' | 'medium' | 'low'; explanation: string; detectedProduce: string | null }> {
+  const result = await aiApi.vision({ base64Image, mimeType, deviceId });
   const validStates: ProduceState[] = ['fresh', 'in-between', 'dried', 'almost-damaged'];
   if (!validStates.includes(result.state as ProduceState)) throw new Error('Invalid state from AI');
   return {
-    state:       result.state as ProduceState,
-    confidence:  (result.confidence ?? 'medium') as 'high' | 'medium' | 'low',
-    explanation: result.explanation ?? '',
+    state:           result.state as ProduceState,
+    confidence:      (result.confidence ?? 'medium') as 'high' | 'medium' | 'low',
+    explanation:     result.explanation ?? '',
+    detectedProduce: result.detectedProduce ?? null,
   };
 }
 
@@ -228,14 +230,12 @@ function RemoveProduceSheet({
     conditionImageBase64?: string;
     conditionImageMime?: string;
     aiAssessment?: string;
-    notes: string;
   }) => void;
 }) {
-  const [step, setStep] = useState(0); // 0=condition, 1=photo, 2=notes, 3=confirm
-  const STEP_LABELS = ['Condition', 'Photo', 'Notes', 'Confirm'];
+  const [step, setStep] = useState(0); // 0=condition, 1=photo, 2=confirm
+  const STEP_LABELS = ['Condition', 'Photo', 'Confirm'];
 
   const [condition,   setCondition]   = useState<RemovalConditionId>('fresh');
-  const [notes,       setNotes]       = useState('');
   const [submitting,  setSubmitting]  = useState(false);
 
   // Photo / AI state
@@ -267,7 +267,7 @@ function RemoveProduceSheet({
       const { base64, mimeType } = await fileToBase64(file);
       setImageBase64(base64);
       setImageMime(mimeType);
-      const result = await analyseProduceImage(base64, mimeType, produceLabel);
+      const result = await analyseProduceImage(base64, mimeType, produceLabel, device.id);
       setAiResult(result);
     } catch {
       setAiError('Could not analyse image. Select condition manually or try again.');
@@ -297,19 +297,16 @@ function RemoveProduceSheet({
       conditionImageBase64: imageBase64 ?? undefined,
       conditionImageMime:   imageMime   ?? undefined,
       aiAssessment:         aiAssessment || undefined,
-      notes,
     });
     setSubmitting(false);
   };
-
-  const inputBase = "w-full px-4 py-3 rounded-xl border border-[#E4E7EC] bg-[#F3F4F6] text-[#111827] outline-none focus:border-[#0984E3] focus:ring-2 focus:ring-[#0984E3]/20 transition-all text-sm";
 
   return (
     <>
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="fixed inset-0 bg-black/50 z-[55] backdrop-blur-sm"
-        onClick={step < 3 ? onClose : undefined}
+        onClick={step < 2 ? onClose : undefined}
       />
       <motion.div
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
@@ -326,7 +323,7 @@ function RemoveProduceSheet({
             <p className="font-bold text-[#111827] text-lg">Remove Produce</p>
             <WizardPills step={step} labels={STEP_LABELS} />
           </div>
-          {step < 3 && (
+          {step < 2 && (
             <button onClick={onClose}
               className="w-8 h-8 rounded-full bg-[#F3F4F6] flex items-center justify-center active:bg-[#E4E7EC]">
               <X className="w-4 h-4 text-[#6B7280]" />
@@ -462,31 +459,8 @@ function RemoveProduceSheet({
               </motion.div>
             )}
 
-            {/* Step 2 — Notes */}
+            {/* Step 2 — Confirm removal */}
             {step === 2 && (
-              <motion.div key="r2"
-                initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
-                className="px-5 pb-6 space-y-4">
-                <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">
-                  Additional notes (optional)
-                </p>
-                <p className="text-xs text-[#6B7280] leading-relaxed">
-                  Any observations about the storage period? Issues noticed, temperature problems, anything unusual? This helps our AI improve future recommendations.
-                </p>
-                <textarea
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  placeholder="e.g. Temperature fluctuated during the first week due to door being left open..."
-                  rows={5}
-                  className={inputBase + ' resize-none'}
-                  style={{ lineHeight: '1.5' }}
-                />
-                <p className="text-[10px] text-[#9CA3AF] text-right">{notes.length}/500</p>
-              </motion.div>
-            )}
-
-            {/* Step 3 — Confirm removal */}
-            {step === 3 && (
               <motion.div key="r3"
                 initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
                 className="px-5 pb-6 space-y-4">
@@ -543,12 +517,6 @@ function RemoveProduceSheet({
                         <p className="text-[11px] text-[#374151] leading-relaxed italic">"{aiAssessment}"</p>
                       </div>
                     )}
-                    {notes && (
-                      <div className="pt-1">
-                        <p className="text-[10px] text-[#6B7280] mb-1">Notes</p>
-                        <p className="text-[11px] text-[#374151] leading-relaxed">{notes}</p>
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -565,7 +533,7 @@ function RemoveProduceSheet({
 
         {/* Bottom actions */}
         <div className="px-5 pb-8 pt-3 flex gap-2.5 flex-shrink-0" style={{ borderTop: '1px solid #F3F4F6' }}>
-          {step > 0 && step < 3 && (
+          {step > 0 && step < 2 && (
             <button onClick={() => setStep(s => s - 1)}
               className="w-11 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 active:bg-[#E4E7EC]"
               style={{ border: '1.5px solid #E4E7EC' }}>
@@ -573,16 +541,16 @@ function RemoveProduceSheet({
             </button>
           )}
 
-          {step < 3 && (
+          {step < 2 && (
             <button onClick={() => setStep(s => s + 1)}
               className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98] flex items-center justify-center gap-2"
               style={{ backgroundColor: '#0984E3' }}>
-              {step === 2 ? 'Review Summary' : 'Continue'}
+              {step === 1 ? 'Review Summary' : 'Continue'}
               <ChevronRight className="w-4 h-4" />
             </button>
           )}
 
-          {step === 3 && (
+          {step === 2 && (
             <>
               <button onClick={onClose}
                 className="flex-1 h-12 rounded-2xl border border-[#E4E7EC] text-[#6B7280] text-sm font-semibold active:bg-[#F3F4F6]">
@@ -1603,7 +1571,6 @@ if (isLoading) return <DevicesSkeleton />;
       conditionImageBase64?: string;
       conditionImageMime?: string;
       aiAssessment?: string;
-      notes: string;
     }
   ) => {
     const storageDurationDays = device.storedSince ? daysSince(device.storedSince) : 0;
