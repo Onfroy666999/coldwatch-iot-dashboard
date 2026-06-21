@@ -799,7 +799,6 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                   <p className="text-xs font-semibold text-[#1D4ED8] mb-1">What happens next?</p>
                   <p className="text-xs text-[#1E40AF] leading-relaxed">
                     Next you'll set up produce details — you can take a photo and our AI will assess the condition automatically.
-                    Connection instructions are in <span className="font-semibold">Settings → How to Connect</span>.
                   </p>
                 </div>
               </motion.div>
@@ -1024,7 +1023,7 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                     <CheckCircle2 className="w-5 h-5 text-[#27AE60]" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-[#166534]">{unitName} added successfully</p>
+                    <p className="text-sm font-bold text-[#166534]">{unitName} Added successfully</p>
                     <p className="text-xs text-[#166534]/70 mt-0.5">
                       Device ID: <span className="font-mono font-bold">{deviceCode}</span>
                     </p>
@@ -1039,24 +1038,11 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                   </div>
                 )}
 
-                <div className="rounded-2xl p-4" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
-                  <p className="text-xs font-semibold text-[#1D4ED8] mb-1">Ready to connect your ESP32?</p>
-                  <p className="text-xs text-[#1E40AF] leading-relaxed mb-3">
-                    The full step-by-step connection guide — including your Device ID <span className="font-mono font-bold">{deviceCode}</span>, API endpoint, firmware flashing, and WiFi setup — is available in Settings.
-                  </p>
-                  <button
-                    onClick={() => { onClose(); onGoToSettings(); }}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-xs font-semibold active:scale-[0.98]"
-                    style={{ backgroundColor: '#0984E3' }}>
-                    Go to Settings → How to Connect
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
+              
                 <div className="rounded-2xl p-4" style={{ backgroundColor: '#FFF8F0', border: '1px solid #F5CBA7' }}>
                   <p className="text-xs font-semibold text-[#C0501A] mb-1">No hardware yet?</p>
                   <p className="text-xs text-[#7A3010] leading-relaxed">
-                    That's fine — the device is registered and the simulation is running. Come back to the guide when your ESP32 is ready.
+                    That's fine the device is registered and the simulation is running.
                   </p>
                 </div>
               </motion.div>
