@@ -44,7 +44,7 @@ function generateDeviceCode(existingCodes: string[]): string {
 }
 
 // ── Produce image analysis — routes through backend /ai/vision proxy ─────────
-import { aiApi } from '../Lib/api';
+import { aiApi, produceRecordsApi } from '../Lib/api';
 
 async function analyseProduceImage(
   base64Image: string,
@@ -1606,14 +1606,41 @@ if (isLoading) return <DevicesSkeleton />;
       notes: string;
     }
   ) => {
-    // In the real backend integration this will POST to /produce-records first,
-    // then DELETE /devices/:id. For now we just delete locally and show a toast.
+    const storageDurationDays = device.storedSince ? daysSince(device.storedSince) : 0;
+
+    try {
+      // Save the produce record first — if this fails we do NOT delete the
+      // device, so the user can try again without losing their data.
+      await produceRecordsApi.create({
+        deviceId:            device.id,
+        deviceCode:          device.deviceCode,
+        unitName:            device.unitName,
+        conditionOnRemoval:  record.conditionOnRemoval,
+        conditionImageBase64: record.conditionImageBase64,
+        conditionImageMime:  record.conditionImageMime,
+        aiAssessment:        record.aiAssessment,
+        storageDurationDays,
+        produceMode:         device.produceMode,
+      });
+    } catch {
+      // Record save failed — notify the user and abort. The device stays
+      // registered; they can retry or remove without saving the record.
+      addToast({
+        id:       `toast-record-err-${Date.now()}`,
+        type:     'error',
+        message:  'Could not save produce record. Check your connection and try again.',
+        duration: 6000,
+      });
+      return;
+    }
+
+    // Record is saved — now remove the device from the app and the backend.
     deleteDevice(device.id);
     setRemovingDevice(null);
     addToast({
       id:       `toast-remove-${Date.now()}`,
       type:     'success',
-      message:  `${device.deviceCode || device.id} removed. Produce record saved.`,
+      message:  `${device.unitName ?? device.deviceCode ?? 'Device'} removed. Produce record saved.`,
       duration: 5000,
     });
   };

@@ -217,12 +217,28 @@ function AlertCard({
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 md:px-5 md:pb-5" onClick={e => e.stopPropagation()}>
-              {/* Description */}
-              <p className="text-sm text-[#6B7280] mb-4">
-                {isAutoResolved
-                  ? 'This alert was detected and resolved automatically while auto mode was active. Review the timeline and acknowledge when ready.'
-                  : 'This alert was triggered by values outside acceptable thresholds. Review the timeline and take action below.'}
-              </p>
+
+              {/* What ColdWatch did — shown for auto-resolved alerts that have a report */}
+              {isAutoResolved && alert.report ? (
+                <div
+                  className="rounded-xl p-3.5 mb-4 flex gap-3"
+                  style={{ backgroundColor: 'rgba(9,132,227,0.06)', border: '1px solid rgba(9,132,227,0.15)' }}
+                >
+                  <Zap className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">
+                      What ColdWatch did while you were away
+                    </p>
+                    <p className="text-sm text-[#374151] leading-relaxed">{alert.report}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-[#6B7280] mb-4">
+                  {isAutoResolved
+                    ? 'This alert was detected and resolved automatically while auto mode was active. Review the timeline and acknowledge when ready.'
+                    : 'This alert was triggered by values outside acceptable thresholds. Review the timeline and take action below.'}
+                </p>
+              )}
 
               {/* Timeline */}
               {showTimeline && <AlertTimeline alert={alert} fmtTemp={fmtTemp} />}
