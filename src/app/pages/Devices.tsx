@@ -658,22 +658,28 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
     setStep(1);
   };
 
-  const handleStep2 = () => {
+  const handleStep2 = async () => {
     setSaving(true);
-    setTimeout(() => {
+    try {
       if (skipProduce) {
-        addDevice(unitName.trim(), location.trim(), undefined, deviceCode.trim().toUpperCase(), unitName.trim());
+        await addDevice(unitName.trim(), location.trim(), undefined, deviceCode.trim().toUpperCase(), unitName.trim());
       } else {
-        addDevice(unitName.trim(), location.trim(), {
+        await addDevice(unitName.trim(), location.trim(), {
           produceMode:  produceId,
           produceState,
           facilitySize,
           transportHours,
         }, deviceCode.trim().toUpperCase(), unitName.trim());
       }
-      setSaving(false);
+      // Only advance to the Done screen once the server has confirmed the
+      // device was created and setDevices has already been called.
       setStep(3);
-    }, 600);
+    } catch {
+      // addDevice already showed an error toast — stay on step 2 so the
+      // user can retry without losing their inputs.
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inputBase = "w-full px-4 py-3 rounded-xl border border-[#E4E7EC] bg-[#F3F4F6] text-[#111827] outline-none focus:border-[#0984E3] focus:ring-2 focus:ring-[#0984E3]/20 transition-all text-sm";

@@ -400,7 +400,7 @@ interface AppContextType {
   updateDeviceConfig: (id: string, patch: Partial<Device>) => void;
   updateUser: (patch: Partial<User>) => void;
   completeSurvey: (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => void;
-  addDevice: (name: string, location: string, produceInfo?: any, deviceCode?: string, unitName?: string, storedSince?: Date) => void;
+  addDevice: (name: string, location: string, produceInfo?: any, deviceCode?: string, unitName?: string) => Promise<Device>;
   updateProduceSetup: (deviceId: string, produceInfo: any) => void;
   deleteDevice: (id: string) => void;
   login: (email: string, name: string, id: string, avatar: string, role?: UserRole, surveyComplete?: boolean) => void;
@@ -834,9 +834,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     produceInfo?: { produceMode: ProduceMode; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
     deviceCode?: string,
     unitName?: string,
-  ) => {
+  ): Promise<Device> => {
     const thresholds = produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode] : null;
-    devicesApi.create({
+    return devicesApi.create({
       name,
       location,
       type:                'fridge',
@@ -866,7 +866,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setDevices(prev => [...prev, mapped]);
         setDeviceReadings(prev => ({ ...prev, [mapped.id]: deviceReadingsRef.current[mapped.id] }));
         setDeviceHistories(prev => ({ ...prev, [mapped.id]: simRef.current[mapped.id]?.sensorHistory ?? [] }));
+        // Keep the bootstrap cache in sync so the new device survives an
+        // offline reload without needing a full restart.
+        const existing = loadBootstrapCache();
+        if (existing) {
+          saveBootstrapCache({
+            ...existing,
+            devices: [...existing.devices, device],
+            savedAt: Date.now(),
+          });
+        }
         addToast({ id: `add-${mapped.id}`, type: 'success', message: `Device ${mapped.name} added.` });
+        return mapped;
       })
       .catch(err => {
         addToast({ id: `add-err-${Date.now()}`, type: 'error', message: err?.message ?? 'Failed to add device.' });
@@ -889,6 +900,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             humidAlertHigh:      thresholds?.humidAlertHigh,
           },
         });
+        throw err; // re-throw so the wizard can catch it and stay on step 2
       });
   }, [addToast]); // eslint-disable-line
 
