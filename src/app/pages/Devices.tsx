@@ -138,8 +138,8 @@ function estimateShelfLife(
 function WizardPills({ step, labels }: { step: number; labels: string[] }) {
   return (
     <div className="flex gap-2 items-center">
-      {labels.map((l, i) => (
-        <div key={i} className="flex flex-col items-center gap-0.5">
+      {labels.map((_, i) => (
+        <div key={i} className="flex flex-col items-center">
           <motion.div
             animate={{
               width: i === step ? 28 : 8,
@@ -148,7 +148,6 @@ function WizardPills({ step, labels }: { step: number; labels: string[] }) {
             transition={{ duration: 0.25 }}
             style={{ height: 5, borderRadius: 99 }}
           />
-          {i === step && <span className="text-[9px] font-semibold text-[#0984E3]">{l}</span>}
         </div>
       ))}
     </div>
