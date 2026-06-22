@@ -64,7 +64,12 @@ async function fetchAPI<T = any>(endpoint: string, options: RequestInit = {}): P
 
   let data: any;
   try {
-    data = await response.json();
+    // 204 No Content has no body — attempting response.json() on an empty
+    // body throws a SyntaxError which in some environments (Capacitor WebView)
+    // surfaces as a network failure. Skip the parse entirely for no-body responses.
+    data = response.status === 204 || response.headers.get('content-length') === '0'
+      ? {}
+      : await response.json();
   } catch {
     data = {};
   }

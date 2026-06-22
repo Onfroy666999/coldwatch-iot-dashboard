@@ -118,21 +118,30 @@ export default function Dashboard() {
             Good {hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening'}, {greeting}!
           </h2>
           <p className="text-blue-100 text-sm leading-relaxed">
-            {activeAlerts.length > 0 ? `${activeAlerts.length} active alert${activeAlerts.length > 1 ? 's' : ''} need your attention.` : 'Your cold storage systems are running smoothly.'}
+            {activeAlerts.length > 0
+              ? `${activeAlerts.length} active alert${activeAlerts.length > 1 ? 's' : ''} need your attention.`
+              : selectedDevice?.status === 'online'
+                ? 'Your cold storage systems are running smoothly.'
+                : selectedDevice
+                  ? 'Your device is offline. Check your connection or sensor.'
+                  : 'Add a device to start monitoring your cold storage.'
+            }
           </p>
-          {/* Live data pulse indicator */}
-          <div className="flex items-center gap-1.5 mt-3">
-            <span
-              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${secondsAgo <= 4 ? 'animate-pulse' : ''}`}
-              style={{
-                backgroundColor: secondsAgo <= 4 ? '#A7F3D0' : '#FDE68A',
-                boxShadow: secondsAgo <= 4 ? '0 0 6px rgba(167,243,208,0.8)' : 'none',
-              }}
-            />
-            <span className="text-xs text-blue-100/80">
-              {secondsAgo <= 4 ? 'Live data' : `Updated ${secondsAgo}s ago`}
-            </span>
-          </div>
+          {/* Live data pulse — only shown when device is actually online */}
+          {selectedDevice?.status === 'online' && (
+            <div className="flex items-center gap-1.5 mt-3">
+              <span
+                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${secondsAgo <= 4 ? 'animate-pulse' : ''}`}
+                style={{
+                  backgroundColor: secondsAgo <= 4 ? '#A7F3D0' : '#FDE68A',
+                  boxShadow: secondsAgo <= 4 ? '0 0 6px rgba(167,243,208,0.8)' : 'none',
+                }}
+              />
+              <span className="text-xs text-blue-100/80">
+                {secondsAgo <= 4 ? 'Live data' : `Updated ${secondsAgo}s ago`}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -163,7 +172,7 @@ export default function Dashboard() {
           {isSimulated && (
             <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              Simulated data
+              Last known data
             </span>
           )}
         </div>

@@ -44,7 +44,7 @@ export default function TopBar() {
             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
               style={{ backgroundColor: isLive ? '#16A34A' : '#DC2626', animation: isLive ? 'pulse 2s infinite' : 'none' }} />
             <span className="text-xs font-semibold" style={{ color: isLive ? '#16A34A' : '#DC2626' }}>
-              {isLive ? 'Live' : 'Offline'}
+              {isLive ? 'Device Live' : 'Device Offline'}
             </span>
           </div>
 
