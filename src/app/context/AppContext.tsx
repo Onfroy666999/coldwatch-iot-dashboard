@@ -8,6 +8,7 @@ import {
   connectWebSocket,
 } from '../Lib/api';
 import { getToken, clearTokens, getUserId } from '../Lib/tokenStorage';
+import { initPushNotifications } from '../Lib/pushNotifications';
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
@@ -516,9 +517,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }));
     }
 
-    // Persist to backend
-    devicesApi.update(deviceId, patch).catch(() => {
-      enqueueAction({ type: 'UPDATE_DEVICE', payload: { id: deviceId, patch } });
+    // Persist to backend — targetTemperature/targetHumidity are frontend-only
+    // display values (not Device columns); sending them tripped updateDeviceSchema's
+    // .strict() check and silently 400'd this PATCH on every produce mode switch,
+    // so produceMode/thresholds were never actually saved, same as the
+    // updateProduceSetup bug above.
+    const backendPatch = {
+      produceMode:         patch.produceMode,
+      warningTemperature:  patch.warningTemperature,
+      criticalTemperature: patch.criticalTemperature,
+      warningHumidity:     patch.warningHumidity,
+      criticalHumidity:    patch.criticalHumidity,
+    };
+    devicesApi.update(deviceId, backendPatch).catch(() => {
+      enqueueAction({ type: 'UPDATE_DEVICE', payload: { id: deviceId, patch: backendPatch } });
     });
   }, [selectedDeviceId]);
 
@@ -760,6 +772,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (sim) setSelectedSim({ ...sim });
   }, [selectedDeviceId]);
 
+  // ── Push notification registration (native only) ────────────────────────────
+  // Registers this device's FCM token with the backend so notifyUser() can
+  // actually reach it — previously nothing ever called this, so pushToken
+  // stayed null and every push send was a silent no-op. No-op on web.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const cleanup = initPushNotifications();
+    return cleanup;
+  }, [isAuthenticated]);
+
   // ── Periodic alerts refresh (every 30s) ──────────────────────────────────────
   // Keeps alerts in sync even if the WebSocket for a device isn't connected.
   useEffect(() => {
@@ -914,8 +936,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...d, ...produceInfo, ...thresholds,
       produceSetupComplete: true, useCustomThresholds: true,
     } : d));
-    devicesApi.update(deviceId, { ...produceInfo, ...thresholds, produceSetupComplete: true, useCustomThresholds: true })
-      .catch(() => {});
+    // targetTemperature/targetHumidity are frontend-only display values derived
+    // from PRODUCE_THRESHOLDS — they aren't columns on the Device table and
+    // updateDeviceSchema is .strict(), so sending them made the ENTIRE PATCH
+    // request 400 every time. That meant produceMode, produceState, and the
+    // warning/critical thresholds below never actually persisted either —
+    // only the optimistic local state above made it look like it worked.
+    const backendPatch = {
+      produceMode:         produceInfo.produceMode,
+      produceState:        produceInfo.produceState,
+      facilitySize:        produceInfo.facilitySize,
+      transportHours:      produceInfo.transportHours,
+      warningTemperature:  thresholds.warningTemperature,
+      criticalTemperature: thresholds.criticalTemperature,
+      warningHumidity:     thresholds.warningHumidity,
+      criticalHumidity:    thresholds.criticalHumidity,
+      humidAlertHigh:      thresholds.humidAlertHigh,
+      produceSetupComplete: true,
+      useCustomThresholds:  true,
+    };
+    devicesApi.update(deviceId, backendPatch).catch(() => {
+      // Same offline-retry pattern as updateDevice — without this, a produce
+      // setup completed while offline would silently never sync back.
+      enqueueAction({ type: 'UPDATE_DEVICE', payload: { id: deviceId, patch: backendPatch } });
+    });
     if (simRef.current[deviceId]) {
       simRef.current[deviceId] = { ...simRef.current[deviceId], ...adjusted };
     }
@@ -987,6 +1031,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     wsRefs.current = {};
 
     authApi.logout().catch(() => {});
+    usersApi.removePushToken().catch(() => {}); // must fire before clearTokens() while the JWT is still valid
     clearTokens();
     clearQueue().catch(() => {});
     clearBootstrapCache();
