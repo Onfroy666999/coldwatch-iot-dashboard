@@ -38,6 +38,8 @@ export interface Alert {
   durationMinutes?: number;
   systemAction?: string;
   autoResolved?: boolean;
+  autoActionAttemptedAt?: Date;  // set when Stage 2a command was sent — alert still open
+  autoActionCommand?: 'ON' | 'OFF'; // what the system commanded
 }
 
 // ── Device types ──────────────────────────────────────────────────────────────
@@ -235,6 +237,8 @@ export function mapAlert(a: any): Alert {
     humidityPct: a.type?.includes('HUMIDITY') ? a.triggerValue : undefined,
     resolvedAt:  a.resolvedAt ? new Date(a.resolvedAt) : undefined,
     autoResolved: isAutoResolved,
+    autoActionAttemptedAt: a.autoActionAttemptedAt ? new Date(a.autoActionAttemptedAt) : undefined,
+    autoActionCommand:     a.autoActionCommand ?? undefined,
   };
 }
 
