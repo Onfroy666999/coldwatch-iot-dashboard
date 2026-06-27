@@ -28,21 +28,6 @@ function daysSince(d: Date): number {
 const getBatteryColor = (level: number) =>
   level > 50 ? '#27AE60' : level > 20 ? '#E67E22' : '#C0392B';
 
-// ── Device code generation ────────────────────────────────────────────────────
-// Generates 6 Hex numbers
-// The user can override this in the wizard
-
-function generateDeviceCode(existingCodes: string[]): string {
-  // Format: CW- followed by exactly 6 hex characters (0-9, A-F)
-  // Matches the device code flashed onto the ESP32 (derived from MAC address)
-  const hex = Array.from({ length: 6 }, () =>
-    '0123456789ABCDEF'[Math.floor(Math.random() * 16)]
-  ).join('');
-  const code = `CW-${hex}`;
-  if (existingCodes.includes(code)) return generateDeviceCode(existingCodes);
-  return code;
-}
-
 // ── Produce image analysis — routes through backend /ai/vision proxy ─────────
 import { aiApi, produceRecordsApi } from '../Lib/api';
 
@@ -583,8 +568,8 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
   const existingCodes = devices.map(d => d.deviceCode).filter(Boolean) as string[];
   // deviceCode stores the FULL code (CW-XXXXXX) for passing to the API.
   // codeSuffix is just the editable 6-char hex part shown in the split input.
-  const [deviceCode, setDeviceCode] = useState(() => generateDeviceCode(existingCodes));
-  const [codeSuffix, setCodeSuffix] = useState(() => generateDeviceCode(existingCodes).slice(3));
+  const [deviceCode, setDeviceCode] = useState('');
+  const [codeSuffix, setCodeSuffix] = useState('');
   const [codeError,  setCodeError]  = useState('');
   const [unitName,   setUnitName]   = useState('');
   const [location,   setLocation]   = useState('');
@@ -751,17 +736,7 @@ function AddDeviceModal({ onClose, onGoToSettings }: { onClose: () => void; onGo
                       className={inputBase + ' font-mono rounded-l-none flex-1'}
                       style={{ fontSize: 16, height: 52, letterSpacing: 2 }}
                     />
-                    <button
-                      onClick={() => {
-                          const fresh = generateDeviceCode(existingCodes);
-                          setDeviceCode(fresh);
-                          setCodeSuffix(fresh.slice(3));
-                          setCodeError('');
-                        }}
-                      className="ml-2 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-[#0984E3] active:bg-[#EBF4FF] whitespace-nowrap self-center"
-                      style={{ backgroundColor: 'rgba(9,132,227,0.08)' }}>
-                      Regenerate
-                    </button>
+
                   </div>
                   {codeError
                     ? <p className="text-xs text-red-500 font-medium">{codeError}</p>
