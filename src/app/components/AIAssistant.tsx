@@ -47,7 +47,7 @@ import { aiApi } from '../Lib/api';
 
 // Keep model constants for readability — they are sent to the backend proxy
 // which validates them against an allowlist before forwarding to Groq.
-const GROQ_MODEL_CONVERSATION = 'llama-3.1-8b-instant';
+const GROQ_MODEL_CONVERSATION = 'gpt-oss-20b';
 const GROQ_MODEL_TRANSLATION  = 'llama-3.3-70b-versatile';
 // AI is always "available" from the frontend's perspective — the backend
 // handles the key check and returns 503 if not configured.
