@@ -131,7 +131,8 @@ function AlertCard({
 }) {
   const style      = SEVERITY_STYLE[alert.severity];
   const statusBadge = STATUS_BADGE[alert.status] ?? STATUS_BADGE.acknowledged;
-  const isAutoResolved = alert.status === 'auto_resolved';
+  const isAutoResolved         = alert.status === 'auto_resolved';
+  const isPendingConfirmation  = alert.status === 'new' && !!alert.autoActionAttemptedAt;
   const showTimeline   = isExpanded && (alert.severity === 'critical' || isAutoResolved || alert.peakTempC != null || alert.peakHumidityPct != null);
 
   return (
@@ -202,6 +203,13 @@ function AlertCard({
                 <Zap className="w-3 h-3" />{alert.systemAction}
               </p>
             )}
+            {/* Pending confirmation banner (collapsed) */}
+            {!isExpanded && isPendingConfirmation && (
+              <p className="mt-1.5 text-[11px] text-amber-500 flex items-center gap-1">
+                <Zap className="w-3 h-3" />
+                ColdWatch {alert.autoActionCommand === 'ON' ? 'turned cooling ON' : 'turned cooling OFF'} — confirming effect…
+              </p>
+            )}
           </div>
         </div>
       </button>
@@ -217,6 +225,23 @@ function AlertCard({
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 md:px-5 md:pb-5" onClick={e => e.stopPropagation()}>
+
+              {/* Pending confirmation panel — shown when action was sent but not yet confirmed */}
+              {isPendingConfirmation && (
+                <div className="mb-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                    <p className="text-sm font-semibold text-amber-700">Automatic action taken — monitoring</p>
+                  </div>
+                  <p className="text-sm text-amber-700 leading-relaxed">
+                    ColdWatch {alert.autoActionCommand === 'ON' ? 'turned cooling ON' : 'turned cooling OFF'} automatically
+                    {alert.autoActionAttemptedAt
+                      ? ` at ${alert.autoActionAttemptedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                      : ''
+                    }. Waiting 30 minutes to confirm the fix worked. You will receive a follow-up notification.
+                  </p>
+                </div>
+              )}
 
               {/* What ColdWatch did — shown for auto-resolved alerts that have a report */}
               {isAutoResolved && alert.report ? (
