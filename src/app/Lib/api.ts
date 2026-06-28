@@ -354,6 +354,22 @@ export const produceRecordsApi = {
     fetchAPI('/produce-records'),
 };
 
+// ── AI Insights ───────────────────────────────────────────────────────────────
+
+export const insightsApi = {
+  list: async (deviceId: string): Promise<{ insights: AIInsight[] }> =>
+    fetchAPI(`/insights/${deviceId}`),
+};
+
+export interface AIInsight {
+  id:        string;
+  type:      string;
+  title:     string;
+  body:      string;
+  severity:  'info' | 'warning';
+  updatedAt: string;
+}
+
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 // Token is passed as a query parameter — the backend verifies it on the
 // upgrade request before the WebSocket handshake completes.

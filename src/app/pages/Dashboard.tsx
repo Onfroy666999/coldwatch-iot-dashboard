@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Thermometer, Droplets, Activity, AlertTriangle, TrendingUp, TrendingDown, Snowflake, ChevronRight, MapPin, Wifi, WifiOff } from 'lucide-react';
+import { Thermometer, Droplets, Activity, AlertTriangle, TrendingUp, TrendingDown, Snowflake, ChevronRight, MapPin, Wifi, WifiOff, Lightbulb } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { insightsApi, type AIInsight } from '../Lib/api';
 import ControlPanel from '../components/ControlPanel';
 import { usePageLoading, DashboardSkeleton } from '../components/Skeleton.tsx';
 
@@ -19,6 +20,21 @@ const SEVERITY_STYLES: Record<string, { bar: string; badge: string; label: strin
 export default function Dashboard() {
   const isLoading = usePageLoading();
   const { currentTemperature, currentHumidity, systemStatus, alerts, sensorHistory, settings, user, setActivePage, devices, selectedDeviceId, setSelectedDeviceId, isOnline, lastReadingAt } = useApp();
+
+  const [insights, setInsights] = useState<AIInsight[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+
+  // Fetch insights whenever the selected device changes
+  useEffect(() => {
+    if (!selectedDeviceId) return;
+    let cancelled = false;
+    setInsightsLoading(true);
+    insightsApi.list(selectedDeviceId)
+      .then(({ insights: data }) => { if (!cancelled) setInsights(data); })
+      .catch(() => { if (!cancelled) setInsights([]); })
+      .finally(() => { if (!cancelled) setInsightsLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedDeviceId]);
 
   // Live "last updated" pulse 
   const [secondsAgo, setSecondsAgo] = useState(0);
@@ -252,6 +268,76 @@ export default function Dashboard() {
           {activeAlerts.length > 0 && <p className="text-xs mt-2 px-2 py-1 rounded-lg inline-block font-medium bg-red-500/10 text-red-500">Needs attention</p>}
         </div>
       </div>
+
+      {/* AI Insights */}
+      {(insightsLoading || insights.length > 0) && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Lightbulb className="w-4 h-4 text-[#0984E3]" />
+              <span className="text-sm font-semibold text-[#111827]">Storage insights</span>
+            </div>
+            <span className="text-[11px] text-[#9CA3AF]">Last 7 days</span>
+          </div>
+
+          {insightsLoading ? (
+            <div className="space-y-3">
+              {[1, 2].map(i => (
+                <div key={i} className="bg-white rounded-2xl border border-[#E4E7EC] p-4 animate-pulse">
+                  <div className="flex gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-[#F3F4F6] flex-shrink-0" />
+                    <div className="flex-1 space-y-2 pt-1">
+                      <div className="h-2.5 bg-[#F3F4F6] rounded w-1/2" />
+                      <div className="h-2 bg-[#F3F4F6] rounded w-full" />
+                      <div className="h-2 bg-[#F3F4F6] rounded w-4/5" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {insights.map(insight => {
+                const isWarning = insight.severity === 'warning';
+                return (
+                  <div
+                    key={insight.id}
+                    className="bg-white rounded-2xl border border-[#E4E7EC] overflow-hidden"
+                    style={{ borderLeft: `3px solid ${isWarning ? '#E67E22' : '#0984E3'}`, borderRadius: '0 16px 16px 0' }}
+                  >
+                    <div className="flex items-start gap-3 p-4">
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: isWarning ? 'rgba(230,126,34,0.1)' : 'rgba(9,132,227,0.08)' }}
+                      >
+                        <Lightbulb
+                          className="w-4 h-4"
+                          style={{ color: isWarning ? '#E67E22' : '#0984E3' }}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                            style={{
+                              backgroundColor: isWarning ? 'rgba(230,126,34,0.1)' : 'rgba(9,132,227,0.08)',
+                              color: isWarning ? '#E67E22' : '#0984E3',
+                            }}
+                          >
+                            {isWarning ? 'Action needed' : 'Informational'}
+                          </span>
+                        </div>
+                        <p className="text-xs font-semibold text-[#111827] mb-1">{insight.title}</p>
+                        <p className="text-[11px] text-[#6B7280] leading-relaxed">{insight.body}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Alerts + Control Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
