@@ -181,8 +181,15 @@ export default function ControlPanel() {
   const accentHumid = '#0891B2';
 
   // Chilling floor check (always in °C internally)
+  // isBelowChill must require an explicitly-set produceMode — produceMode
+  // above falls back to 'mixed' purely for styling/color purposes when no
+  // produce has been configured, and 'mixed' has a non-null chillingFloor.
+  // Without this guard, any device that skipped produce setup would show
+  // the "chilling injury risk" banner it was never actually eligible for.
   const chillingFloor = profile.chillingFloor;
-  const isBelowChill  = chillingFloor !== null && toInternal(tempInput) < chillingFloor;
+  const isBelowChill  = !!selectedDevice?.produceMode
+    && chillingFloor !== null
+    && toInternal(tempInput) < chillingFloor;
 
   // Status colours — use effective per-device thresholds
   const tempStatus =

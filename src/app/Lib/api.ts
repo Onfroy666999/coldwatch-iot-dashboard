@@ -327,7 +327,7 @@ export const usersApi = {
 
 export const syncApi = {
   drain: async (actions: any[]): Promise<{
-    results:   Array<{ id: string; type: string; status: 'ok' | 'error'; error?: string }>;
+    results:   Array<{ id: string; type: string; status: 'ok' | 'error'; error?: string; permanent?: boolean }>;
     succeeded: number;
     failed:    number;
   }> =>

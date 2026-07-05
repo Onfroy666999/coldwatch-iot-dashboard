@@ -13,6 +13,9 @@
 // If you add something here and it needs a React import, it belongs in a hook
 // or a component instead.
 
+import type { CropId } from '../data/produce';
+import { deriveTargetsForCrops } from '../data/produce';
+
 // ── Sensor & alert types ──────────────────────────────────────────────────────
 
 export interface SensorReading {
@@ -63,6 +66,15 @@ export interface Device {
   warningHumidity: number;
   criticalHumidity: number;
   humidAlertHigh?: boolean;
+  /**
+   * Go-forward source of truth for what's stored in this device: one or
+   * more specific crops. Category (tubers/fruits/...) is derived from this,
+   * never stored separately — see data/produce.ts.
+   */
+  cropIds?: CropId[];
+  /** @deprecated legacy category field — still populated for devices set up
+   * before Chunk 6 (wizard integration) migrates every device onto cropIds.
+   * Kept only so existing devices keep displaying correctly in the interim. */
   produceMode?: ProduceMode;
   produceState?: ProduceState;
   facilitySize?: 'small' | 'medium' | 'large';
@@ -181,8 +193,23 @@ export function avatarFromName(name: string): string {
   return name.trim().split(/\s+/).map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
 }
 
+/** @deprecated category-based path — kept for devices not yet migrated to cropIds. */
 export function getStateAdjustedTargets(mode: ProduceMode, state: ProduceState) {
   const base = PRODUCE_THRESHOLDS[mode];
+  const adj  = STATE_ADJUSTMENTS[state];
+  return {
+    targetTemperature: parseFloat(
+      Math.min(base.criticalTemperature - 1, Math.max(base.targetTemperature + adj.tempOffset, 0)).toFixed(1)
+    ),
+    targetHumidity: parseFloat(
+      Math.min(98, Math.max(30, base.targetHumidity + adj.humidOffset)).toFixed(0)
+    ),
+  };
+}
+
+/** Go-forward version: derives base targets from the device's actual crop(s). */
+export function getStateAdjustedTargetsForCrops(cropIds: CropId[], state: ProduceState) {
+  const base = deriveTargetsForCrops(cropIds);
   const adj  = STATE_ADJUSTMENTS[state];
   return {
     targetTemperature: parseFloat(
@@ -260,6 +287,7 @@ export function mapDevice(d: any): Device {
     warningHumidity:     d.warningHumidity     ?? 80,
     criticalHumidity:    d.criticalHumidity    ?? 90,
     humidAlertHigh:      d.humidAlertHigh,
+    cropIds:             Array.isArray(d.crops) && d.crops.length ? d.crops as CropId[] : undefined,
     produceMode:         d.produceMode  as ProduceMode  | undefined,
     produceState:        d.produceState as ProduceState | undefined,
     facilitySize:        d.facilitySize as Device['facilitySize'],
@@ -295,8 +323,13 @@ export function mapSettings(s: any): Settings {
 
 /** Build an initial simulation state for a device. */
 export function buildInitialSimState(device: Device): DeviceSimState {
-  const targetTemp  = device.produceMode ? PRODUCE_THRESHOLDS[device.produceMode].targetTemperature : 8;
-  const targetHumid = device.produceMode ? PRODUCE_THRESHOLDS[device.produceMode].targetHumidity    : 85;
+  const cropTargets = device.cropIds?.length ? deriveTargetsForCrops(device.cropIds) : null;
+  const targetTemp  = cropTargets
+    ? cropTargets.targetTemperature
+    : device.produceMode ? PRODUCE_THRESHOLDS[device.produceMode].targetTemperature : 8;
+  const targetHumid = cropTargets
+    ? cropTargets.targetHumidity
+    : device.produceMode ? PRODUCE_THRESHOLDS[device.produceMode].targetHumidity : 85;
   const now = new Date();
   const sensorHistory: SensorReading[] = Array.from({ length: 60 }, (_, i) => ({
     timestamp:   new Date(now.getTime() - (60 - i) * 60000),
