@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { RefreshCw, CheckCircle2 } from 'lucide-react';
-import { getPendingCount, getPendingActions, drainQueue, type ColdWatchAction } from '../Lib/ActionQueue';
+import { getPendingCount, getPendingActions, drainQueue, removeAction, incrementAttempts, type ColdWatchAction } from '../Lib/ActionQueue';
 import { syncApi, alertsApi, devicesApi, settingsApi, usersApi } from '../Lib/api';
 import { useApp } from '../context/AppContext';
 
@@ -65,7 +65,7 @@ async function executeAction(action: ColdWatchAction): Promise<void> {
 }
 
 export default function SyncBanner() {
-  const { isOnline } = useApp();
+  const { isOnline, refreshDevices } = useApp();
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing,      setSyncing]      = useState(false);
   const [justSynced,   setJustSynced]   = useState(false);
@@ -108,18 +108,38 @@ export default function SyncBanner() {
               createdAt: p.createdAt,
               attempts:  p.attempts,
             })));
-            if (result.succeeded > 0) {
-              const newCount = await getPendingCount();
-              setPendingCount(newCount);
-              if (newCount === 0) {
-                setJustSynced(true);
-                setTimeout(() => setJustSynced(false), 3000);
+
+            // Clear every action the server actually finished with — both
+            // successes and permanent rejections. Previously only pending
+            // count was re-read here without ever removing entries from
+            // IndexedDB, so the queue never drained and the same actions
+            // (including permanently-invalid ones) were resent on every
+            // 3-second poll indefinitely.
+            for (const r of result.results) {
+              if (r.status === 'ok' || r.permanent) {
+                await removeAction(r.id);
+              } else {
+                await incrementAttempts(r.id);
               }
+            }
+
+            if (result.succeeded > 0) {
+              // A queued ADD_DEVICE/DELETE_DEVICE may have just landed on the
+              // server — refresh so it shows up now instead of at next login.
+              await refreshDevices();
+            }
+
+            const newCount = await getPendingCount();
+            setPendingCount(newCount);
+            if (newCount === 0) {
+              setJustSynced(true);
+              setTimeout(() => setJustSynced(false), 3000);
             }
           } catch {
             // Batch sync failed (e.g. 404 on /sync) — fall back to individual calls
             const processed = await drainQueue(executeAction);
             if (processed > 0) {
+              await refreshDevices();
               const newCount = await getPendingCount();
               setPendingCount(newCount);
               if (newCount === 0) {

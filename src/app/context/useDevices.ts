@@ -35,6 +35,19 @@ import type {
 } from './types';
 import { connectWebSocket } from '../Lib/api';
 
+// ── Retry classification ─────────────────────────────────────────────────────
+// An action should only be queued for offline retry when the failure was
+// transient (no connection, or the server itself errored). A 4xx response
+// means the request was actively rejected — invalid device code, already
+// claimed, failed validation, etc. — and will *never* succeed by retrying,
+// so it must not be queued. Queuing 4xx failures is what caused devices with
+// codes that don't exist in DeviceRegistry to "come back" later once that
+// code was eventually claimed by someone else.
+function isRetryableError(err: any): boolean {
+  const status = err?.status;
+  return status === 0 || status === undefined || status >= 500;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface UseDevicesOptions {
@@ -77,6 +90,7 @@ export interface UseDevicesReturn {
   deleteDevice: (id: string) => void;
   /** Seed device state from bootstrap — not for arbitrary mutation. */
   seedDevices: (rawDevices: any[], options?: { selectedDeviceId?: string }) => void;
+  refreshDevices: () => Promise<void>;
   /** Expose wsRefs so AppProvider can close all sockets on logout. */
   wsRefs: MutableRefObject<Record<string, WebSocket | null>>;
 }
@@ -261,8 +275,10 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       warningHumidity:     patch.warningHumidity,
       criticalHumidity:    patch.criticalHumidity,
     };
-    devicesApi.update(deviceId, backendPatch).catch(() => {
-      enqueueAction({ type: 'UPDATE_DEVICE', payload: { id: deviceId, patch: backendPatch } });
+    devicesApi.update(deviceId, backendPatch).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'UPDATE_DEVICE', payload: { id: deviceId, patch: backendPatch } });
+      }
     });
   }, [selectedDeviceId]);
 
@@ -293,8 +309,10 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       produceSetupComplete: true,
       useCustomThresholds:  true,
     };
-    devicesApi.update(deviceId, backendPatch).catch(() => {
-      enqueueAction({ type: 'UPDATE_DEVICE', payload: { id: deviceId, patch: backendPatch } });
+    devicesApi.update(deviceId, backendPatch).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'UPDATE_DEVICE', payload: { id: deviceId, patch: backendPatch } });
+      }
     });
 
     if (simRef.current[deviceId]) {
@@ -359,22 +377,32 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       })
       .catch(err => {
         addToast({ id: `add-err-${Date.now()}`, type: 'error', message: err?.message ?? 'Failed to add device.' });
-        enqueueAction({
-          type: 'ADD_DEVICE',
-          payload: {
-            name, location, deviceCode, unitName,
-            produceMode:         produceInfo?.produceMode,
-            produceState:        produceInfo?.produceState,
-            facilitySize:        produceInfo?.facilitySize,
-            transportHours:      produceInfo?.transportHours,
-            useCustomThresholds: !!thresholds,
-            warningTemperature:  thresholds?.warningTemperature  ?? DEFAULT_SETTINGS.warningTemperature,
-            criticalTemperature: thresholds?.criticalTemperature ?? DEFAULT_SETTINGS.criticalTemperature,
-            warningHumidity:     thresholds?.warningHumidity     ?? DEFAULT_SETTINGS.warningHumidity,
-            criticalHumidity:    thresholds?.criticalHumidity    ?? DEFAULT_SETTINGS.criticalHumidity,
-            humidAlertHigh:      thresholds?.humidAlertHigh,
-          },
-        });
+
+        // Only queue for offline retry when the failure was transient (no
+        // connection / server error). A rejected device code, an
+        // already-claimed code, or a validation error is a permanent
+        // rejection of this exact request — retrying it later can never
+        // succeed on its own merits, and if the code is later claimed by
+        // someone else it would silently "add" a device the user never
+        // actually confirmed. See isRetryableError above.
+        if (isRetryableError(err)) {
+          enqueueAction({
+            type: 'ADD_DEVICE',
+            payload: {
+              name, location, deviceCode, unitName,
+              produceMode:         produceInfo?.produceMode,
+              produceState:        produceInfo?.produceState,
+              facilitySize:        produceInfo?.facilitySize,
+              transportHours:      produceInfo?.transportHours,
+              useCustomThresholds: !!thresholds,
+              warningTemperature:  thresholds?.warningTemperature  ?? DEFAULT_SETTINGS.warningTemperature,
+              criticalTemperature: thresholds?.criticalTemperature ?? DEFAULT_SETTINGS.criticalTemperature,
+              warningHumidity:     thresholds?.warningHumidity     ?? DEFAULT_SETTINGS.warningHumidity,
+              criticalHumidity:    thresholds?.criticalHumidity    ?? DEFAULT_SETTINGS.criticalHumidity,
+              humidAlertHigh:      thresholds?.humidAlertHigh,
+            },
+          });
+        }
         throw err; // re-throw so the wizard stays on step 2 on failure
       });
   }, [addToast]); // eslint-disable-line
@@ -385,8 +413,10 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     setDevices(prev => prev.map(d => d.id === id ? { ...d, ...patch } : d));
     const backendPatch: Record<string, any> = { ...patch };
     if (patch.name) backendPatch.unitName = patch.name;
-    devicesApi.update(id, backendPatch).catch(() => {
-      enqueueAction({ type: 'UPDATE_DEVICE', payload: { id, patch: patch as Record<string, unknown> } });
+    devicesApi.update(id, backendPatch).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'UPDATE_DEVICE', payload: { id, patch: patch as Record<string, unknown> } });
+      }
     });
   }, []);
 
@@ -408,8 +438,10 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     setDeviceReadings(prev => { const n = { ...prev }; delete n[id]; return n; });
     setDeviceHistories(prev => { const n = { ...prev }; delete n[id]; return n; });
 
-    devicesApi.delete(id).catch(() => {
-      enqueueAction({ type: 'DELETE_DEVICE', payload: { id } });
+    devicesApi.delete(id).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'DELETE_DEVICE', payload: { id } });
+      }
     });
   }, []);
 
@@ -459,6 +491,45 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     }
   }, [openWebSocket]);
 
+  // ── refreshDevices ────────────────────────────────────────────────────────
+  // Re-fetches the device list from the server and merges it into local
+  // state. Used after the offline action queue drains — a queued ADD_DEVICE
+  // (or DELETE_DEVICE) can succeed in the background, and without this the
+  // new/removed device wouldn't show up until the next full login/bootstrap.
+  // Unlike seedDevices (bootstrap-only), this preserves existing local state
+  // for devices that were already present rather than replacing everything.
+  const refreshDevices = useCallback(async () => {
+    try {
+      const { devices: rawDevices } = await devicesApi.list();
+      const mappedDevices = (rawDevices ?? []).map(mapDevice);
+      const serverIds = new Set(mappedDevices.map(d => d.id));
+
+      setDevices(prev => {
+        const existingIds = new Set(prev.map(d => d.id));
+        const kept  = prev.filter(d => serverIds.has(d.id));
+        const added = mappedDevices.filter(d => !existingIds.has(d.id));
+        return [...kept, ...added];
+      });
+
+      for (const device of mappedDevices) {
+        if (!simRef.current[device.id]) {
+          const lastReading = loadLastReading(device.id);
+          const base = buildInitialSimState(device);
+          simRef.current[device.id] = lastReading
+            ? { ...base, currentTemperature: lastReading.temperature, currentHumidity: lastReading.humidity, lastReadingAt: lastReading.savedAt }
+            : base;
+          setDeviceReadings(prev => ({ ...prev, [device.id]: [] }));
+          setDeviceHistories(prev => ({ ...prev, [device.id]: simRef.current[device.id]?.sensorHistory ?? [] }));
+        }
+        if (device.status === 'online' && !wsRefs.current[device.id]) {
+          openWebSocket(device.id);
+        }
+      }
+    } catch {
+      // Best-effort — the next sync tick or login will pick it up.
+    }
+  }, [openWebSocket]);
+
   return {
     devices,
     selectedDeviceId,
@@ -482,6 +553,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     updateProduceSetup,
     deleteDevice,
     seedDevices,
+    refreshDevices,
     wsRefs,
   };
 }

@@ -162,9 +162,19 @@ export async function drainQueue(
       await executor(entry.action);
       await removeAction(entry.id);
       processed++;
-    } catch {
-      // Keep in queue, increment attempts — will retry next time
-      await incrementAttempts(entry.id);
+    } catch (err) {
+      // A 4xx response means the server actively rejected the request
+      // (invalid device code, already claimed, failed validation, etc.) —
+      // retrying it will never succeed, so drop it instead of leaving it to
+      // be resent forever. Only genuinely transient failures (no status /
+      // offline, or 5xx) stay queued for retry.
+      const status = (err as any)?.status;
+      const permanent = typeof status === 'number' && status >= 400 && status < 500;
+      if (permanent) {
+        await removeAction(entry.id);
+      } else {
+        await incrementAttempts(entry.id);
+      }
     }
   }
 

@@ -32,7 +32,11 @@ import { useAuth }     from './useAuth';
 import { useAlerts }   from './useAlerts';
 import { useSettings } from './useSettings';
 import { useDevices }  from './useDevices';
-import type { ToastMessage } from './types';
+import type {
+  Alert, Device, DeviceConfig, DeviceReading, DeviceSimState,
+  SensorReading, Settings, User, UserRole,
+  ProduceMode, ProduceState, ToastMessage,
+} from './types';
 
 // ── Re-export all named types the rest of the app imports from this file ───────
 // Source of truth is now types.ts; these re-exports keep every consumer's
@@ -60,6 +64,7 @@ interface AppContextType {
   targetHumidity:     number;
   autoMode:           boolean;
   sensorHistory:      SensorReading[];
+  lastReadingAt:      number | undefined;
   selectedDeviceId:   string;
   setSelectedDeviceId: (id: string) => void;
   // ── Alerts ──────────────────────────────────────────────────────────────────
@@ -81,6 +86,7 @@ interface AppContextType {
   updateDevice:       (id: string, patch: Partial<Device>) => void;
   updateDeviceConfig: (id: string, patch: Partial<Device>) => void; // alias
   deleteDevice:       (id: string) => void;
+  refreshDevices:     () => Promise<void>;
   updateProduceSetup: (deviceId: string, produceInfo: any) => void;
   reconnectWebSockets: () => void;
   // ── Produce ─────────────────────────────────────────────────────────────────
@@ -177,7 +183,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       devices.wsRefs.current = {};
       // Reset each hook's own state
       alerts.seedAlerts([]);
-      settings.seedSettings(DEFAULT_SETTINGS);
+      settings.seedSettings(DEFAULT_SETTINGS as unknown as Record<string, unknown>);
       devices.seedDevices([]);
     },
   });
@@ -213,7 +219,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           notificationEmail: u.notificationEmail ?? '',
         });
 
-        settings.seedSettings(rawSettings);
+        settings.seedSettings(rawSettings as unknown as Record<string, unknown>);
         alerts.seedAlerts((rawAlerts ?? []).map(mapAlert));
         devices.seedDevices(rawDevices ?? []);
 
@@ -248,7 +254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             surveyComplete:    u.surveyComplete ?? false,
             notificationEmail: u.notificationEmail ?? '',
           });
-          settings.seedSettings(cache.settings ?? DEFAULT_SETTINGS);
+          settings.seedSettings((cache.settings ?? DEFAULT_SETTINGS) as unknown as Record<string, unknown>);
           alerts.seedAlerts((cache.alerts ?? []).map(mapAlert));
           devices.seedDevices(cache.devices ?? []);
         }
@@ -299,6 +305,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       targetHumidity:     devices.selectedSim.targetHumidity,
       autoMode:           devices.selectedSim.autoMode,
       sensorHistory:      devices.selectedSim.sensorHistory,
+      lastReadingAt:      devices.selectedSim.lastReadingAt,
       selectedDeviceId:   devices.selectedDeviceId,
       setSelectedDeviceId: devices.setSelectedDeviceId,
       // Alerts
@@ -316,6 +323,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updateDevice:        devices.updateDevice,
       updateDeviceConfig:  devices.updateDevice,
       deleteDevice:        devices.deleteDevice,
+      refreshDevices:      devices.refreshDevices,
       updateProduceSetup:  devices.updateProduceSetup,
       reconnectWebSockets: devices.reconnectWebSockets,
       // Produce
