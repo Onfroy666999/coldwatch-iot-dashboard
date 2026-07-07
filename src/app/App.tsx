@@ -21,6 +21,7 @@ import { Analytics } from '@vercel/analytics/react';
 import { WifiOff, Snowflake } from 'lucide-react';
 import SyncBanner from './components/SyncBanner';
 import AIAssistant, { type NixHandle } from './components/AIAssistant';
+import { App as CapacitorApp } from '@capacitor/app';
 const PAGE_ORDER = ['dashboard', 'alerts', 'history', 'devices', 'settings'];
 
 // ── Nix AI assistant — temporarily disabled ─────────────────────────────────
@@ -34,7 +35,7 @@ const slideVariants = {
 
 
 function AppContent() {
-  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user, isLoading } = useApp();
+  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user, isLoading, reconnectWebSockets } = useApp();
   const [showSplash, setShowSplash] = useState(true);
 
   // Onboarding flow — only show if not previously completed
@@ -68,6 +69,54 @@ function AppContent() {
   // Direction tracking — must be here, before any early returns
   const prevPageRef = useRef(activePage);
   const [direction, setDirection] = useState(0);
+
+  // reconnectWebSockets' identity changes on every device selection change
+  // (it's built on openWebSocket, which depends on selectedDeviceId) — kept
+  // in a ref so the listener-registration effect below only depends on
+  // isAuthenticated, not on something that churns during normal use.
+  const reconnectWebSocketsRef = useRef(reconnectWebSockets);
+  useEffect(() => { reconnectWebSocketsRef.current = reconnectWebSockets; }, [reconnectWebSockets]);
+
+  // Reconnect any dead device WebSockets whenever the app returns to the
+  // foreground. This matters specifically because a backgrounded WebView
+  // can be fully suspended by the OS, which silently kills the socket at
+  // the transport level without ever firing the JS 'close' event — so the
+  // per-socket reconnect-on-close logic in useDevices.ts never triggers.
+  // reconnectWebSockets() sidesteps that by actively checking readyState
+  // the moment we're back, rather than waiting for an event that may never
+  // arrive. Without this, the Dashboard's live tile can silently freeze on
+  // stale data indefinitely while History (a fresh fetch every time) stays
+  // correct — which is exactly what was happening before this was wired up.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Guards the async addListener race below: if cleanup runs before the
+    // promise resolves, the handle must be removed the moment it arrives
+    // instead of being silently assigned to a variable nothing reads again.
+    let cancelled = false;
+    let capacitorListener: { remove: () => void } | undefined;
+
+    CapacitorApp.addListener('resume', () => reconnectWebSocketsRef.current())
+      .then(handle => {
+        if (cancelled) { handle.remove(); return; }
+        capacitorListener = handle;
+      })
+      .catch(() => {
+        // Not running under Capacitor (e.g. plain browser) — the
+        // visibilitychange listener below covers that case instead.
+      });
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') reconnectWebSocketsRef.current();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      capacitorListener?.remove();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [isAuthenticated]);
 
   // Dynamic tab title
   useEffect(() => {
