@@ -18,7 +18,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { authApi, usersApi, settingsApi } from '../Lib/api';
 import { getToken, clearTokens, getUserId } from '../Lib/tokenStorage';
-import { enqueueAction, clearQueue } from '../Lib/ActionQueue';
+import { enqueueAction, clearQueue, isRetryableError } from '../Lib/ActionQueue';
 import { clearBootstrapCache, clearLastReadingCache } from './offlineCache';
 import { avatarFromName } from './types';
 import type { User, UserRole, Settings } from './types';
@@ -55,6 +55,7 @@ export interface UseAuthReturn {
     role: UserRole,
     notifPrefs: Partial<Settings>,
     notificationEmail?: string,
+    notificationPhone?: string,
   ) => void;
   updateUser: (patch: Partial<User>) => void;
 }
@@ -136,15 +137,25 @@ export function useAuth({ onReset, autoLogoutMinutes }: UseAuthOptions): UseAuth
     role: UserRole,
     notifPrefs: Partial<Settings>,
     notificationEmail?: string,
+    notificationPhone?: string,
   ) => {
     setUser(prev => ({
       ...prev,
       role,
       surveyComplete: true,
       ...(notificationEmail ? { notificationEmail } : {}),
+      ...(notificationPhone ? { notificationPhone } : {}),
     }));
-    usersApi.updateProfile({ role, surveyComplete: true, notificationEmail }).catch(() => {});
-    settingsApi.update(notifPrefs as Record<string, unknown>).catch(() => {});
+    usersApi.updateProfile({ role, surveyComplete: true, notificationEmail, notificationPhone }).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'UPDATE_USER', payload: { role, surveyComplete: true, notificationEmail, notificationPhone } });
+      }
+    });
+    settingsApi.update(notifPrefs as Record<string, unknown>).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'UPDATE_SETTINGS', payload: notifPrefs as Record<string, unknown> });
+      }
+    });
   }, []);
 
   // ── updateUser ────────────────────────────────────────────────────────────
@@ -159,10 +170,13 @@ export function useAuth({ onReset, autoLogoutMinutes }: UseAuthOptions): UseAuth
       name:              patch.name,
       email:             patch.email,
       notificationEmail: patch.notificationEmail,
+      notificationPhone: patch.notificationPhone,
       role:              patch.role,
-    }).catch(() => {
-      // Offline — queue the update so it retries when connectivity returns.
-      enqueueAction({ type: 'UPDATE_USER', payload: patch as Record<string, unknown> });
+    }).catch(err => {
+      if (isRetryableError(err)) {
+        // Offline/server error — queue the update so it retries when connectivity returns.
+        enqueueAction({ type: 'UPDATE_USER', payload: patch as Record<string, unknown> });
+      }
     });
   }, []);
 

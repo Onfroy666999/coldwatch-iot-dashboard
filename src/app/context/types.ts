@@ -139,6 +139,7 @@ export interface User {
   role?: UserRole;
   surveyComplete?: boolean;
   notificationEmail?: string;
+  notificationPhone?: string;
 }
 
 // ── Toast types ───────────────────────────────────────────────────────────────

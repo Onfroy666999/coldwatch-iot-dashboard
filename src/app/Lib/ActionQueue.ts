@@ -14,6 +14,7 @@ export type ColdWatchAction =
       location:            string;
       deviceCode?:         string;
       unitName?:           string;
+      crops?:              string[];
       produceMode?:        string;
       produceState?:       string;
       facilitySize?:       string;
@@ -27,6 +28,22 @@ export type ColdWatchAction =
     }}
   | { type: 'DELETE_DEVICE';      payload: { id: string } }
   | { type: 'UPDATE_DEVICE';      payload: { id: string; patch: Record<string, unknown> } };
+
+// ── Retry classification ─────────────────────────────────────────────────────
+// An action should only be queued for offline retry when the failure was
+// transient (no connection, or the server itself errored). A 4xx response
+// means the request was actively rejected — invalid input, already claimed,
+// failed validation, etc. — and will *never* succeed by retrying, so it must
+// not be queued. Every call site that enqueues an action on failure should
+// gate it with this check, not just catch-and-enqueue unconditionally —
+// otherwise a permanently-invalid request sits in the queue resending itself
+// forever (this is what originally caused devices with codes that don't
+// exist in DeviceRegistry to "come back" later once that code was claimed
+// by someone else — see useDevices.ts's addDevice).
+export function isRetryableError(err: any): boolean {
+  const status = err?.status;
+  return status === 0 || status === undefined || status >= 500;
+}
 
 export interface QueuedAction {
   id:        string;         // cuid-style unique key

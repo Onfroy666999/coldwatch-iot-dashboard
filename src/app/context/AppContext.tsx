@@ -80,7 +80,7 @@ interface AppContextType {
   deviceHistories:     Record<string, SensorReading[]>;
   addDevice: (
     name: string, location: string,
-    produceInfo?: { produceMode: ProduceMode; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
+    produceInfo?: { cropIds: import('../data/produce').CropId[]; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
     deviceCode?: string, unitName?: string,
   ) => Promise<Device>;
   updateDevice:       (id: string, patch: Partial<Device>) => void;
@@ -114,7 +114,7 @@ interface AppContextType {
   logout:            () => void;
   deleteAccount:     () => Promise<void>;
   updateUser:        (patch: Partial<User>) => void;
-  completeSurvey:    (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string) => void;
+  completeSurvey:    (role: UserRole, notifPrefs: Partial<Settings>, notificationEmail?: string, notificationPhone?: string) => void;
   // ── Toasts ──────────────────────────────────────────────────────────────────
   toasts:       ToastMessage[];
   addToast:     (toast: ToastMessage) => void;
@@ -275,8 +275,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     role: UserRole,
     notifPrefs: Partial<Settings>,
     notificationEmail?: string,
+    notificationPhone?: string,
   ) => {
-    auth.completeSurvey(role, notifPrefs, notificationEmail);
+    auth.completeSurvey(role, notifPrefs, notificationEmail, notificationPhone);
     settings.updateSettings(notifPrefs);
   }, [auth.completeSurvey, settings.updateSettings]); // eslint-disable-line
 
@@ -308,12 +309,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       lastReadingAt:      devices.selectedSim.lastReadingAt,
       selectedDeviceId:   devices.selectedDeviceId,
       setSelectedDeviceId: devices.setSelectedDeviceId,
+
       // Alerts
       alerts:               alerts.alerts,
       unreadAlertCount:     alerts.unreadAlertCount,
       acknowledgeAlert:     alerts.acknowledgeAlert,
       resolveAlert:         alerts.resolveAlert,
       acknowledgeAllAlerts: alerts.acknowledgeAllAlerts,
+
       // Devices
       devices:             devices.devices,
       deviceConfigs:       devices.devices,
@@ -326,21 +329,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshDevices:      devices.refreshDevices,
       updateProduceSetup:  devices.updateProduceSetup,
       reconnectWebSockets: devices.reconnectWebSockets,
+
       // Produce
       produceMode:         devices.produceMode,
       setProduceMode:      devices.setProduceMode,
       applyProduceProfile: devices.applyProduceProfile,
+
       // Sim controls
       setTargetTemperature: devices.setTargetTemperature,
       setTargetHumidity:    devices.setTargetHumidity,
       setAutoMode:          devices.setAutoMode,
       startCooling:         devices.startCooling,
       stopCooling:          devices.stopCooling,
+
       // Settings
       settings:       settings.settings,
       compactMode:    settings.compactMode,
       setCompactMode: settings.setCompactMode,
       updateSettings: settings.updateSettings,
+
       // Auth / user
       user:             auth.user,
       isAuthenticated:  auth.isAuthenticated,
@@ -352,10 +359,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteAccount:    auth.deleteAccount,
       updateUser:       auth.updateUser,
       completeSurvey,
+
       // Toasts
       toasts,
       addToast,
       dismissToast,
+      
       // Network
       isOnline,
       isAdvancedUser: auth.user.role === 'warehouse_manager',

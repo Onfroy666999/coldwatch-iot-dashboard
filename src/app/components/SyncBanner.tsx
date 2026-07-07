@@ -35,6 +35,7 @@ async function executeAction(action: ColdWatchAction): Promise<void> {
         type:                'fridge',
         deviceCode:          action.payload.deviceCode,
         unitName:            action.payload.unitName,
+        crops:               action.payload.crops,
         produceMode:         action.payload.produceMode,
         produceState:        action.payload.produceState,
         facilitySize:        action.payload.facilitySize as any,

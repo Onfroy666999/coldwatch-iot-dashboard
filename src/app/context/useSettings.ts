@@ -12,7 +12,7 @@
 
 import { useState, useCallback } from 'react';
 import { settingsApi } from '../Lib/api';
-import { enqueueAction } from '../Lib/ActionQueue';
+import { enqueueAction, isRetryableError } from '../Lib/ActionQueue';
 import { DEFAULT_SETTINGS, mapSettings } from './types';
 import type { Settings } from './types';
 
@@ -40,8 +40,10 @@ export function useSettings(): UseSettingsReturn {
 
   const setCompactMode = useCallback((v: boolean) => {
     setSettings(prev => ({ ...prev, compactMode: v }));
-    settingsApi.update({ compactMode: v }).catch(() => {
-      enqueueAction({ type: 'UPDATE_SETTINGS', payload: { compactMode: v } });
+    settingsApi.update({ compactMode: v }).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'UPDATE_SETTINGS', payload: { compactMode: v } });
+      }
     });
   }, []);
 
@@ -51,8 +53,10 @@ export function useSettings(): UseSettingsReturn {
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings(prev => ({ ...prev, ...patch }));
-    settingsApi.update(patch as Record<string, unknown>).catch(() => {
-      enqueueAction({ type: 'UPDATE_SETTINGS', payload: patch as Record<string, unknown> });
+    settingsApi.update(patch as Record<string, unknown>).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'UPDATE_SETTINGS', payload: patch as Record<string, unknown> });
+      }
     });
   }, []);
 

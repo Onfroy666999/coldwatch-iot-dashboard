@@ -14,7 +14,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { alertsApi } from '../Lib/api';
-import { enqueueAction } from '../Lib/ActionQueue';
+import { enqueueAction, isRetryableError } from '../Lib/ActionQueue';
 import { mapAlert } from './types';
 import type { Alert } from './types';
 
@@ -66,8 +66,10 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
     setAlerts(prev =>
       prev.map(a => a.id === id ? { ...a, status: 'acknowledged' as const } : a),
     );
-    alertsApi.acknowledge(id).catch(() => {
-      enqueueAction({ type: 'ACKNOWLEDGE_ALERT', payload: { id } });
+    alertsApi.acknowledge(id).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'ACKNOWLEDGE_ALERT', payload: { id } });
+      }
     });
   }, []);
 
@@ -75,8 +77,10 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
     setAlerts(prev =>
       prev.map(a => a.id === id ? { ...a, status: 'resolved' as const } : a),
     );
-    alertsApi.resolve(id).catch(() => {
-      enqueueAction({ type: 'RESOLVE_ALERT', payload: { id } });
+    alertsApi.resolve(id).catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'RESOLVE_ALERT', payload: { id } });
+      }
     });
   }, []);
 
@@ -88,8 +92,10 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
           : a,
       ),
     );
-    alertsApi.acknowledgeAll().catch(() => {
-      enqueueAction({ type: 'ACKNOWLEDGE_ALL_ALERTS', payload: {} });
+    alertsApi.acknowledgeAll().catch(err => {
+      if (isRetryableError(err)) {
+        enqueueAction({ type: 'ACKNOWLEDGE_ALL_ALERTS', payload: {} });
+      }
     });
   }, []);
 
