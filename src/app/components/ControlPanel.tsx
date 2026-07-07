@@ -236,13 +236,27 @@ export default function ControlPanel() {
     addToast({ id: `t-${Date.now()}`, type: 'info', message: wantAuto ? 'Switched to Auto mode' : 'Switched to Manual mode' });
   };
 
-  const handleCooling = () => {
-    if (systemStatus === 'cooling') {
-      stopCooling();
-      addToast({ id: `t-${Date.now()}`, type: 'warning', message: 'Cooling stopped manually' });
-    } else {
-      startCooling();
-      addToast({ id: `t-${Date.now()}`, type: 'success', message: 'Cooling started' });
+  const handleCooling = async () => {
+    const turningOn = systemStatus !== 'cooling';
+    try {
+      const result = turningOn ? await startCooling() : await stopCooling();
+      if (result.queued) {
+        addToast({
+          id: `t-${Date.now()}`, type: 'warning',
+          message: `${turningOn ? 'Start' : 'Stop'} cooling queued — will send once back online`,
+        });
+      } else {
+        addToast({
+          id: `t-${Date.now()}`, type: turningOn ? 'success' : 'warning',
+          message: turningOn ? 'Cooling started' : 'Cooling stopped manually',
+        });
+      }
+    } catch (err) {
+      const reason = (err as any)?.message || 'this device has no actuator configured';
+      addToast({
+        id: `t-${Date.now()}`, type: 'error',
+        message: `Couldn't ${turningOn ? 'start' : 'stop'} cooling — ${reason}`,
+      });
     }
   };
 

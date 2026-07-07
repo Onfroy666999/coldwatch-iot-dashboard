@@ -27,7 +27,8 @@ export type ColdWatchAction =
       humidAlertHigh?:     boolean;
     }}
   | { type: 'DELETE_DEVICE';      payload: { id: string } }
-  | { type: 'UPDATE_DEVICE';      payload: { id: string; patch: Record<string, unknown> } };
+  | { type: 'UPDATE_DEVICE';      payload: { id: string; patch: Record<string, unknown> } }
+  | { type: 'DEVICE_COMMAND';     payload: { id: string; command: 'ON' | 'OFF' } };
 
 // ── Retry classification ─────────────────────────────────────────────────────
 // An action should only be queued for offline retry when the failure was

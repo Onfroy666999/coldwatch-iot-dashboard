@@ -63,8 +63,8 @@ export interface UseDevicesReturn {
   setTargetTemperature: (t: number)  => void;
   setTargetHumidity:    (h: number)  => void;
   setAutoMode:          (a: boolean) => void;
-  startCooling:         () => void;
-  stopCooling:          () => void;
+  startCooling:         () => Promise<{ queued: boolean }>;
+  stopCooling:          () => Promise<{ queued: boolean }>;
   applyProduceProfile: (deviceId: string, mode: ProduceMode) => void;
   addDevice: (
     name: string,
@@ -142,14 +142,23 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       deviceId,
       (data) => {
         if (data.type === 'reading') {
-          const { temperature, humidity } = data.data;
+          const { temperature, humidity, coolerOn } = data.data;
           const now = new Date();
           const reading: SensorReading = { timestamp: now, temperature, humidity };
+
+          // coolerOn is the ESP32's own relay state, reported on every reading —
+          // ground truth for whether the Peltier is actually running. Previously
+          // discarded entirely, leaving systemStatus as a purely local guess that
+          // never corrected itself if a command was missed, auto-escalation
+          // toggled it, or the relay failed silently.
+          const realStatus: DeviceSimState['systemStatus'] | undefined =
+            typeof coolerOn === 'boolean' ? (coolerOn ? 'cooling' : 'idle') : undefined;
 
           simRef.current[deviceId] = {
             ...simRef.current[deviceId],
             currentTemperature: temperature,
             currentHumidity:    humidity,
+            ...(realStatus ? { systemStatus: realStatus } : {}),
             lastReadingAt:      now.getTime(),
             sensorHistory: [
               ...(simRef.current[deviceId]?.sensorHistory ?? []).slice(-59),
@@ -160,7 +169,13 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
           saveLastReading(deviceId, temperature, humidity);
 
           if (deviceId === selectedDeviceId) {
-            setSelectedSim(prev => ({ ...prev, currentTemperature: temperature, currentHumidity: humidity, lastReadingAt: now.getTime() }));
+            setSelectedSim(prev => ({
+              ...prev,
+              currentTemperature: temperature,
+              currentHumidity:    humidity,
+              ...(realStatus ? { systemStatus: realStatus } : {}),
+              lastReadingAt:      now.getTime(),
+            }));
           }
 
           setDeviceHistories(prev => ({
@@ -225,8 +240,41 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   const setTargetTemperature = useCallback((t: number)  => mutateSim({ targetTemperature: t }), [mutateSim]);
   const setTargetHumidity    = useCallback((h: number)  => mutateSim({ targetHumidity: h }),    [mutateSim]);
   const setAutoMode          = useCallback((a: boolean) => mutateSim({ autoMode: a }),           [mutateSim]);
-  const startCooling         = useCallback(() => mutateSim({ systemStatus: 'cooling' }),         [mutateSim]);
-  const stopCooling          = useCallback(() => mutateSim({ systemStatus: 'idle' }),            [mutateSim]);
+  // startCooling/stopCooling: optimistic local update for instant UI feedback
+  // (corrected by real coolerOn telemetry on the next reading regardless),
+  // then the actual command — this used to be pure local state with no
+  // backend call at all, so the Peltier never received anything.
+  const startCooling = useCallback(async (): Promise<{ queued: boolean }> => {
+    const deviceId = selectedDeviceId;
+    mutateSim({ systemStatus: 'cooling' });
+    try {
+      await devicesApi.sendCommand(deviceId, 'ON');
+      return { queued: false };
+    } catch (err) {
+      if (isRetryableError(err)) {
+        await enqueueAction({ type: 'DEVICE_COMMAND', payload: { id: deviceId, command: 'ON' } });
+        return { queued: true };
+      }
+      mutateSim({ systemStatus: 'idle' }); // permanent failure — revert the optimistic guess
+      throw err;
+    }
+  }, [mutateSim, selectedDeviceId]);
+
+  const stopCooling = useCallback(async (): Promise<{ queued: boolean }> => {
+    const deviceId = selectedDeviceId;
+    mutateSim({ systemStatus: 'idle' });
+    try {
+      await devicesApi.sendCommand(deviceId, 'OFF');
+      return { queued: false };
+    } catch (err) {
+      if (isRetryableError(err)) {
+        await enqueueAction({ type: 'DEVICE_COMMAND', payload: { id: deviceId, command: 'OFF' } });
+        return { queued: true };
+      }
+      mutateSim({ systemStatus: 'cooling' }); // permanent failure — revert the optimistic guess
+      throw err;
+    }
+  }, [mutateSim, selectedDeviceId]);
 
   // ── applyProduceProfile ───────────────────────────────────────────────────
 

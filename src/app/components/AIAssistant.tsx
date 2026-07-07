@@ -453,8 +453,8 @@ function executeAction(action: AIAction, app: ReturnType<typeof useApp>): boolea
         if (typeof action.value === 'number' && action.value >= 30 && action.value <= 98) { app.setTargetHumidity(action.value); return true; }
         return false;
       case 'SET_AUTO_MODE':   app.setAutoMode(Boolean(action.value)); return true;
-      case 'START_COOLING':   app.startCooling(); return true;
-      case 'STOP_COOLING':    app.stopCooling(); return true;
+      case 'START_COOLING':   app.startCooling().catch(() => {}); return true;
+      case 'STOP_COOLING':    app.stopCooling().catch(() => {}); return true;
       case 'ACKNOWLEDGE_ALERT':
         if (typeof action.value === 'string') { app.acknowledgeAlert(action.value); return true; }
         return false;
@@ -1342,9 +1342,7 @@ Only set shouldAdjust to true if: (a) the predicted temperature will exceed the 
 
       // Action 1 — start cooling if not already running
       if (isNotCooling) {
-        try {
-          app.startCooling();
-        } catch { /* silent */ }
+        app.startCooling().catch(() => { /* silent — best-effort, matches existing watchdog isolation pattern */ });
       }
 
       // Action 2 — lower target temperature preemptively if breach is imminent
