@@ -22,12 +22,13 @@
 
 import { useState, useCallback, useEffect, useRef, MutableRefObject } from 'react';
 import { devicesApi } from '../Lib/api';
-import { enqueueAction } from '../Lib/ActionQueue';
+import { enqueueAction, isRetryableError } from '../Lib/ActionQueue';
 import { getToken } from '../Lib/tokenStorage';
 import {
   PRODUCE_THRESHOLDS, DEFAULT_SETTINGS, getStateAdjustedTargets,
   mapDevice, buildInitialSimState,
 } from './types';
+import { deriveTargetsForCrops, getCategoryOfCrop, type CropId } from '../data/produce';
 import { saveLastReading, loadLastReading, saveBootstrapCache, loadBootstrapCache } from './offlineCache';
 import type {
   Device, DeviceSimState, SensorReading, DeviceReading,
@@ -35,18 +36,8 @@ import type {
 } from './types';
 import { connectWebSocket } from '../Lib/api';
 
-// ── Retry classification ─────────────────────────────────────────────────────
-// An action should only be queued for offline retry when the failure was
-// transient (no connection, or the server itself errored). A 4xx response
-// means the request was actively rejected — invalid device code, already
-// claimed, failed validation, etc. — and will *never* succeed by retrying,
-// so it must not be queued. Queuing 4xx failures is what caused devices with
-// codes that don't exist in DeviceRegistry to "come back" later once that
-// code was eventually claimed by someone else.
-function isRetryableError(err: any): boolean {
-  const status = err?.status;
-  return status === 0 || status === undefined || status >= 500;
-}
+// isRetryableError now lives in ActionQueue.ts (imported below) so every
+// hook that enqueues offline actions shares the same classification.
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,7 +69,7 @@ export interface UseDevicesReturn {
   addDevice: (
     name: string,
     location: string,
-    produceInfo?: { produceMode: ProduceMode; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
+    produceInfo?: { cropIds: CropId[]; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
     deviceCode?: string,
     unitName?: string,
   ) => Promise<Device>;
@@ -326,11 +317,20 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   const addDevice = useCallback((
     name: string,
     location: string,
-    produceInfo?: { produceMode: ProduceMode; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
+    produceInfo?: { cropIds: CropId[]; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
     deviceCode?: string,
     unitName?: string,
   ): Promise<Device> => {
-    const thresholds = produceInfo ? PRODUCE_THRESHOLDS[produceInfo.produceMode] : null;
+    const thresholds = produceInfo ? deriveTargetsForCrops(produceInfo.cropIds) : null;
+
+    // Backward-compat display field — ControlPanel and other older UI still
+    // read device.produceMode (single broad category) rather than cropIds.
+    // Single category → that category; mixed categories → 'mixed'.
+    const derivedProduceMode: ProduceMode | undefined = produceInfo?.cropIds.length
+      ? (new Set(produceInfo.cropIds.map(getCategoryOfCrop)).size === 1
+          ? (getCategoryOfCrop(produceInfo.cropIds[0]) as ProduceMode)
+          : 'mixed')
+      : undefined;
 
     return devicesApi.create({
       name,
@@ -344,7 +344,8 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       warningHumidity:     thresholds?.warningHumidity     ?? DEFAULT_SETTINGS.warningHumidity,
       criticalHumidity:    thresholds?.criticalHumidity    ?? DEFAULT_SETTINGS.criticalHumidity,
       humidAlertHigh:      thresholds?.humidAlertHigh,
-      produceMode:         produceInfo?.produceMode,
+      crops:               produceInfo?.cropIds,
+      produceMode:         derivedProduceMode,
       produceState:        produceInfo?.produceState,
       facilitySize:        produceInfo?.facilitySize,
       transportHours:      produceInfo?.transportHours,
@@ -390,7 +391,8 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
             type: 'ADD_DEVICE',
             payload: {
               name, location, deviceCode, unitName,
-              produceMode:         produceInfo?.produceMode,
+              crops:               produceInfo?.cropIds,
+              produceMode:         derivedProduceMode,
               produceState:        produceInfo?.produceState,
               facilitySize:        produceInfo?.facilitySize,
               transportHours:      produceInfo?.transportHours,

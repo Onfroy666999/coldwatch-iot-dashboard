@@ -177,6 +177,7 @@ export const devicesApi = {
     produceState?:         string;
     facilitySize?:         string;
     transportHours?:       number;
+    crops?:                string[];
     hasActuator?:          boolean;
   }): Promise<{ device: any; apiKey: string }> =>
     fetchAPI('/devices', { method: 'POST', body: JSON.stringify(payload) }),
@@ -302,6 +303,7 @@ export const usersApi = {
     email?:             string;
     phone?:             string;
     notificationEmail?: string;
+    notificationPhone?: string;
     role?:              string;
     surveyComplete?:    boolean;
   }): Promise<{ user: any }> =>

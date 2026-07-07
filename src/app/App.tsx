@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard';
 import Alerts from './pages/Alerts';
 import History from './pages/History';
 import Devices from './pages/Devices';
+import AddDeviceFlow from './pages/AddDeviceFlow';
 import Settings from './pages/Settings';
 import Onboarding from './pages/Onboarding';
 import SetupSurvey from './pages/SetupSurvey';
@@ -163,6 +164,7 @@ function AppContent() {
       case 'alerts':    return <Alerts />;
       case 'history':   return <History />;
       case 'devices':   return <Devices />;
+      case 'add-device': return <AddDeviceFlow />;
       case 'settings':  return <Settings />;
       case 'privacy':   return <Privacy />;
       case 'terms':     return <TermsOfService />;
@@ -191,8 +193,14 @@ function AppContent() {
       <SyncBanner />
       <Sidebar />
       <div className="md:ml-56 flex flex-col flex-1 min-h-0">
-        <TopBar />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 md:pb-8">
+        {activePage !== 'add-device' && <TopBar />}
+        <main
+          className={
+            activePage === 'add-device'
+              ? 'flex-1 overflow-y-auto'
+              : 'flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 md:pb-8'
+          }
+        >
           <AnimatePresence mode="wait" custom={direction}>
             <motion.div
               key={activePage}
@@ -208,7 +216,7 @@ function AppContent() {
           </AnimatePresence>
         </main>
       </div>
-      <BottomNav />
+      {activePage !== 'add-device' && <BottomNav />}
       <ToastContainer />
 
       {NIX_ENABLED && (
