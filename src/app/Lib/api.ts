@@ -195,6 +195,10 @@ export const devicesApi = {
   // Generate a new API key — old one is invalidated immediately
   rotateApiKey: async (id: string): Promise<{ apiKey: string; message: string }> =>
     fetchAPI(`/devices/${id}/rotate-api-key`, { method: 'POST', body: JSON.stringify({}) }),
+
+  // Manual actuator control (Start/Stop Cooling) — publishes ON/OFF over MQTT
+  sendCommand: async (id: string, command: 'ON' | 'OFF'): Promise<{ ok: boolean; command: string }> =>
+    fetchAPI(`/devices/${id}/command`, { method: 'POST', body: JSON.stringify({ command }) }),
 };
 
 // ── Alerts ────────────────────────────────────────────────────────────────────
