@@ -110,6 +110,18 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   const deviceReadingsRef = useRef<Record<string, DeviceReading[]>>({});
   const alertStateRef     = useRef<Record<string, { temp: string; humid: string }>>({});
 
+  // Live pointer to selectedDeviceId. openWebSocket's message handler must read
+  // this instead of the closed-over selectedDeviceId value — a WebSocket, once
+  // opened, keeps its onmessage closure forever, so comparing against the plain
+  // variable would freeze the comparison at whatever selectedDeviceId was the
+  // instant that particular socket was opened (often the pre-bootstrap ''
+  // value, since seedDevices calls setSelectedDeviceId and openWebSocket in the
+  // same tick, before the new selectedDeviceId is committed). That silently
+  // dropped every live reading update — the Dashboard only ever looked correct
+  // right after a fresh mount, when the one-time simRef→selectedSim sync ran.
+  const selectedDeviceIdRef = useRef(selectedDeviceId);
+  useEffect(() => { selectedDeviceIdRef.current = selectedDeviceId; }, [selectedDeviceId]);
+
   // ── Sync selectedDeviceId → selectedSim ──────────────────────────────────
   // When the user switches devices, snap the displayed sim to the stored state
   // for that device without waiting for the next WebSocket reading.
@@ -130,9 +142,11 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
 
   // ── openWebSocket ─────────────────────────────────────────────────────────
   // Opens one WebSocket per device. The onClose callback reconnects after 5s
-  // — it calls openWebSocket recursively via setTimeout, which is why
-  // selectedDeviceId is in the dependency array (the reading handler reads it
-  // to decide whether to update selectedSim). eslint-disable-line is intentional.
+  // by calling openWebSocket recursively via setTimeout. The reading handler
+  // reads selectedDeviceIdRef (not the selectedDeviceId variable) to decide
+  // whether to update selectedSim, so this callback's identity no longer needs
+  // to depend on selectedDeviceId — sockets stay open and correctly wired
+  // across device-selection changes instead of being torn down and reopened.
 
   const openWebSocket = useCallback((deviceId: string) => {
     const existing = wsRefs.current[deviceId];
@@ -168,7 +182,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
 
           saveLastReading(deviceId, temperature, humidity);
 
-          if (deviceId === selectedDeviceId) {
+          if (deviceId === selectedDeviceIdRef.current) {
             setSelectedSim(prev => ({
               ...prev,
               currentTemperature: temperature,
@@ -208,7 +222,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     );
 
     wsRefs.current[deviceId] = ws;
-  }, [selectedDeviceId, addAlert]); // eslint-disable-line
+  }, [addAlert]);
 
   // ── reconnectWebSockets ───────────────────────────────────────────────────
   // Called by App.tsx when the app returns to foreground.
