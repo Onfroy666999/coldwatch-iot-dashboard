@@ -397,7 +397,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       produceState:        produceInfo?.produceState,
       facilitySize:        produceInfo?.facilitySize,
       transportHours:      produceInfo?.transportHours,
-      hasActuator:         false,
+      hasActuator:         true, // every ColdWatch unit ships with a Peltier module
     })
       .then(({ device }) => {
         const mapped = mapDevice(device);
