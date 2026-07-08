@@ -84,6 +84,11 @@ export interface Device {
   unitName?: string;
   storedSince?: Date;
   hasActuator?: boolean;
+  /** Per-device override, in minutes, that scales the whole auto-resolve
+   * escalation pipeline (escalate/auto-engage/confirm) proportionally.
+   * Null/undefined = use production defaults (60min base). Meant for testing
+   * — see the Configure sheet's Offsets tab. */
+  autoResolveMinutes?: number | null;
 }
 
 // Alias kept for backward compat — DeviceConfig is Device
@@ -298,6 +303,7 @@ export function mapDevice(d: any): Device {
     unitName:            d.unitName,
     storedSince:         d.storedSince ? new Date(d.storedSince) : undefined,
     hasActuator:         d.hasActuator ?? false,
+    autoResolveMinutes:  d.autoResolveMinutes ?? null,
   };
 }
 
