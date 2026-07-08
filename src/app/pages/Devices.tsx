@@ -558,13 +558,13 @@ function RemoveProduceSheet({
 
 // ── Configure Sheet ───────────────────────────────────────────────────────────
 // Tabbed bottom sheet letting users update all device settings after creation:
-// Identity (name/location), Produce setup, Alert thresholds, Sensor offsets
+// Identity (name/location), Produce setup, Alert thresholds, Sensor offsets + auto-resolve speed
 
 const CONFIG_TABS = [
   { id: 'identity',   label: 'Identity'   },
   { id: 'produce',    label: 'Produce'    },
   { id: 'thresholds', label: 'Thresholds' },
-  { id: 'offsets',    label: 'Offsets'    },
+  { id: 'advanced',   label: 'Advanced'   },
 ] as const;
 type ConfigTab = typeof CONFIG_TABS[number]['id'];
 
@@ -598,6 +598,11 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
   const [tempOffset,  setTempOffset]  = useState(String(device.tempOffset  ?? 0));
   const [humidOffset, setHumidOffset] = useState(String(device.humidOffset ?? 0));
 
+  // Auto-resolve speed override (testing) — empty string means "use default"
+  const [autoResolveMinutes, setAutoResolveMinutes] = useState(
+    device.autoResolveMinutes != null ? String(device.autoResolveMinutes) : ''
+  );
+
   // Reset all local state when the device being configured changes
   useEffect(() => {
     setProduceId((device.produceMode as WizardProduceId) || 'mixed');
@@ -612,6 +617,7 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
     setHumidHigh(device.humidAlertHigh !== false);
     setTempOffset(String(device.tempOffset  ?? 0));
     setHumidOffset(String(device.humidOffset ?? 0));
+    setAutoResolveMinutes(device.autoResolveMinutes != null ? String(device.autoResolveMinutes) : '');
   }, [device.id]);
 
   useEffect(() => {
@@ -648,11 +654,13 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
         humidAlertHigh:      humidHigh,
       });
 
-      // Offsets (advanced users only)
+      // Offsets + auto-resolve speed override (advanced users only)
       if (isAdvancedUser) {
+        const trimmedSpeed = autoResolveMinutes.trim();
         updateDevice(device.id, {
           tempOffset:  parseFloat(tempOffset)  || 0,
           humidOffset: parseFloat(humidOffset) || 0,
+          autoResolveMinutes: trimmedSpeed === '' ? null : Math.min(1440, Math.max(1, parseInt(trimmedSpeed, 10) || 60)),
         });
       }
 
@@ -704,7 +712,7 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
         {/* Tabs */}
         <div className="px-5 pb-2 flex-shrink-0">
           <div className="flex gap-1 p-1 rounded-xl bg-[#F3F4F6]">
-            {CONFIG_TABS.filter(t => t.id !== 'offsets' || isAdvancedUser).map(tab => (
+            {CONFIG_TABS.filter(t => t.id !== 'advanced' || isAdvancedUser).map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -933,8 +941,8 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
             )}
 
             {/* ── Offsets (advanced users only) ── */}
-            {activeTab === 'offsets' && isAdvancedUser && (
-              <motion.div key="offsets"
+            {activeTab === 'advanced' && isAdvancedUser && (
+              <motion.div key="advanced"
                 initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
                 className="space-y-4 pt-2">
 
@@ -961,6 +969,33 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                   <p className="text-[11px] text-red-600 leading-relaxed">
                     ⚠️ Large offsets can mask real temperature problems. Only set these if you have verified the discrepancy with a calibrated reference thermometer.
                   </p>
+                </div>
+
+                {/* Auto-resolve speed override */}
+                <div className="pt-2 border-t border-[#E4E7EC] space-y-1">
+                  <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Auto-Resolve Speed (Testing)</label>
+                  <p className="text-[10px] text-[#6B7280] mb-1.5">
+                    Production alerts escalate after 1hr, auto-engage the Peltier after 2hr, and confirm after 30min more.
+                    Enter a number here to scale all three proportionally for this device only — e.g. "1" gives a
+                    1min → 2min → 30sec pipeline for fast testing. Leave blank to use the normal timing.
+                  </p>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={1440}
+                    value={autoResolveMinutes}
+                    onChange={e => setAutoResolveMinutes(e.target.value)}
+                    placeholder="Default (60)"
+                    className={inputBase}
+                    style={{ height: 48 }}
+                  />
+                  {autoResolveMinutes.trim() !== '' && (
+                    <p className="text-[10px] text-[#0984E3] mt-1">
+                      This device will escalate after {autoResolveMinutes}min, auto-engage after {Number(autoResolveMinutes) * 2}min,
+                      and confirm {Number(autoResolveMinutes) * 0.5}min after that.
+                    </p>
+                  )}
                 </div>
               </motion.div>
             )}
