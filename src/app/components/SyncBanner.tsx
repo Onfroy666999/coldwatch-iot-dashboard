@@ -59,7 +59,12 @@ async function executeAction(action: ColdWatchAction): Promise<void> {
       break;
 
     case 'DEVICE_COMMAND':
-      await devicesApi.sendCommand(action.payload.id, action.payload.command);
+      // Actuator commands are no longer queued going forward (see
+      // useDevices.ts) — a stale ON/OFF replayed later can be actively wrong
+      // by the time it lands. This case only exists to clear out any
+      // DEVICE_COMMAND entry a client on an older app version may have
+      // already queued locally; it's discarded rather than sent.
+      console.warn('[SyncBanner] Dropping stale queued DEVICE_COMMAND (commands are no longer queued)');
       break;
 
     default:
@@ -174,13 +179,13 @@ export default function SyncBanner() {
   }, [isOnline, pendingCount, drain]);
 
   // Periodic retry — catches anything stuck. The effect above only re-fires
-  // when pendingCount's *value* changes; if a single action keeps failing
-  // for the same reason (e.g. a DEVICE_COMMAND queued because the target
-  // device itself is offline, not because we are), pendingCount stays flat
-  // at the same number and React bails out of re-running that effect, so
-  // the action would otherwise never be retried again until something else
-  // changes the count or the app reloads. This interval exists specifically
-  // to catch that case.
+  // when pendingCount's *value* changes; if a single action keeps failing for
+  // the same reason (e.g. an UPDATE_DEVICE edit rejected by a transient 5xx),
+  // pendingCount stays flat at the same number and React bails out of
+  // re-running that effect, so the action would otherwise never be retried
+  // again until something else changes the count or the app reloads. This
+  // interval exists specifically to catch that case. (DEVICE_COMMAND actions
+  // no longer queue at all, so they're not a concern here anymore.)
   useEffect(() => {
     if (!isOnline) return;
     const interval = setInterval(() => { drain(); }, 20000);
