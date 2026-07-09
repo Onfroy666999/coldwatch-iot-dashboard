@@ -64,8 +64,8 @@ export const CATEGORIES: Record<CategoryId, CategoryMeta> = {
 
 export type CropId =
   | 'cassava' | 'yam' | 'cocoyam' | 'sweet-potato'
-  | 'tomato' | 'pepper' | 'plantain' | 'orange' | 'mango' | 'pineapple' | 'watermelon'
-  | 'cabbage' | 'lettuce' | 'kontomire' | 'spring-onion'
+  | 'tomato' | 'pepper' | 'bell-pepper' | 'plantain' | 'banana' | 'orange' | 'mango' | 'pineapple' | 'watermelon'
+  | 'cabbage' | 'lettuce' | 'kontomire' | 'spring-onion' | 'onion'
   | 'cowpea' | 'groundnut' | 'soybean'
   | 'chicken' | 'beef' | 'tilapia';
 
@@ -123,7 +123,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   cassava: {
     id: 'cassava', category: 'tubers', label: 'Cassava', imageId: 'cassava',
     targetTemperature: 12, tempRange: [10, 15], targetHumidity: 88, humidityRange: [85, 90],
-    warningTemperature: 15, criticalTemperature: 18, warningHumidity: 82, criticalHumidity: 92,
+    warningTemperature: 15, criticalTemperature: 18, warningHumidity: 82, criticalHumidity: 75,
     chillingFloor: 10, humidAlertHigh: false,
     ethyleneRole: 'neutral', odorRisk: 'neutral',
     storageNote: 'Cassava deteriorates fast once harvested regardless of temperature — high humidity slows moisture loss, which matters more than extreme cold here.',
@@ -173,7 +173,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   tomato: {
     id: 'tomato', category: 'fruits', label: 'Tomato', imageId: 'tomato',
     targetTemperature: 13, tempRange: [12, 15], targetHumidity: 90, humidityRange: [85, 90],
-    warningTemperature: 16, criticalTemperature: 19, warningHumidity: 82, criticalHumidity: 93,
+    warningTemperature: 16, criticalTemperature: 19, warningHumidity: 82, criticalHumidity: 75,
     chillingFloor: 12, humidAlertHigh: false,
     ethyleneRole: 'producer-high', odorRisk: 'neutral',
     storageNote: 'Below 12°C, tomatoes lose flavour and develop pitting even if they look fine on the outside.',
@@ -185,7 +185,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   pepper: {
     id: 'pepper', category: 'fruits', label: 'Pepper', imageId: 'pepper',
     targetTemperature: 10, tempRange: [8, 12], targetHumidity: 92, humidityRange: [90, 95],
-    warningTemperature: 13, criticalTemperature: 16, warningHumidity: 86, criticalHumidity: 97,
+    warningTemperature: 13, criticalTemperature: 16, warningHumidity: 86, criticalHumidity: 78,
     chillingFloor: 7, humidAlertHigh: false,
     ethyleneRole: 'producer-low', odorRisk: 'neutral',
     storageNote: 'Needs very high humidity — peppers lose crispness fast in dry air, well before temperature becomes the issue.',
@@ -194,10 +194,30 @@ export const CROPS: Record<CropId, CropProfile> = {
       { icon: 'ℹ️', text: 'More cold-tolerant than most fruit — chilling floor is 7°C, lower than tomato or plantain.', severity: 'info' },
     ],
   },
+  'bell-pepper': {
+    // Sourced from UC Davis Postharvest Research and Extension Center's
+    // bell pepper fact sheet: non-climacteric, very low ethylene production
+    // (0.1-0.2 µl/kg·hr), optimal storage ~7.5°C with chilling injury
+    // developing below ~5°C after extended storage, very high humidity
+    // needs. Near-identical Capsicum physiology to the existing 'pepper'
+    // (chili) entry — same genus, same postharvest profile — kept as a
+    // separate crop since bell pepper is the distinct sweet variety
+    // commonly grown here, not a duplicate of chili/scotch bonnet.
+    id: 'bell-pepper', category: 'fruits', label: 'Bell Pepper', imageId: 'bell-pepper',
+    targetTemperature: 8, tempRange: [7, 10], targetHumidity: 92, humidityRange: [90, 95],
+    warningTemperature: 11, criticalTemperature: 14, warningHumidity: 86, criticalHumidity: 78,
+    chillingFloor: 7, humidAlertHigh: false,
+    ethyleneRole: 'producer-low', odorRisk: 'neutral',
+    storageNote: 'Same family as chili pepper — very low ethylene, needs very high humidity, and water loss (not cold) is the main quality risk.',
+    tips: [
+      { icon: '💧', text: 'Very high humidity (90–95%) needed — bell peppers shrivel fast in dry air.', severity: 'warn' },
+      { icon: 'ℹ️', text: "Don't store below 7°C for long — pitting and decay develop after about two weeks at that temperature.", severity: 'info' },
+    ],
+  },
   plantain: {
     id: 'plantain', category: 'fruits', label: 'Plantain', imageId: 'plantain',
     targetTemperature: 13, tempRange: [12, 14], targetHumidity: 88, humidityRange: [85, 90],
-    warningTemperature: 15, criticalTemperature: 18, warningHumidity: 82, criticalHumidity: 93,
+    warningTemperature: 15, criticalTemperature: 18, warningHumidity: 82, criticalHumidity: 75,
     chillingFloor: 12, humidAlertHigh: false,
     ethyleneRole: 'producer-high', odorRisk: 'neutral',
     storageNote: 'Skin blackens fast below 12°C — this is the classic banana-family chilling injury.',
@@ -206,10 +226,28 @@ export const CROPS: Record<CropId, CropProfile> = {
       { icon: 'ℹ️', text: 'Ripens quickly above 14°C — monitor closely if you need a longer storage window.', severity: 'info' },
     ],
   },
+  banana: {
+    // Sourced from UC Davis PREC's banana fact sheets: climacteric,
+    // chilling injury develops below ~13°C (symptoms: peel browning, dull/
+    // smokey coloration, failure to ripen), 85-95% humidity. Distinct
+    // profile from plantain despite being the same genus (Musa) — banana
+    // is the sweet dessert fruit, plantain the cooking starch, and banana's
+    // chilling threshold sits about a degree higher across most sources.
+    id: 'banana', category: 'fruits', label: 'Banana', imageId: 'banana',
+    targetTemperature: 14, tempRange: [13, 15], targetHumidity: 88, humidityRange: [85, 90],
+    warningTemperature: 16, criticalTemperature: 19, warningHumidity: 82, criticalHumidity: 75,
+    chillingFloor: 13, humidAlertHigh: false,
+    ethyleneRole: 'producer-high', odorRisk: 'neutral',
+    storageNote: 'Chilling injury (peel browning, failure to ripen) develops below 13°C — slightly more cold-sensitive than plantain.',
+    tips: [
+      { icon: '🍌', text: "Don't store below 13°C — peel browns and ripening can fail entirely.", severity: 'warn' },
+      { icon: 'ℹ️', text: 'A strong ethylene producer — keep away from ethylene-sensitive leafy vegetables if storing together.', severity: 'info' },
+    ],
+  },
   orange: {
     id: 'orange', category: 'fruits', label: 'Orange', imageId: 'orange',
     targetTemperature: 8, tempRange: [5, 10], targetHumidity: 88, humidityRange: [85, 90],
-    warningTemperature: 11, criticalTemperature: 14, warningHumidity: 82, criticalHumidity: 93,
+    warningTemperature: 11, criticalTemperature: 14, warningHumidity: 82, criticalHumidity: 75,
     chillingFloor: 3, humidAlertHigh: false,
     ethyleneRole: 'producer-low', odorRisk: 'neutral',
     storageNote: 'Citrus tolerates cold much better than tropical fruit — this is the least chilling-sensitive fruit in the list.',
@@ -221,7 +259,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   mango: {
     id: 'mango', category: 'fruits', label: 'Mango', imageId: 'mango',
     targetTemperature: 12, tempRange: [10, 13], targetHumidity: 88, humidityRange: [85, 90],
-    warningTemperature: 14, criticalTemperature: 17, warningHumidity: 82, criticalHumidity: 93,
+    warningTemperature: 14, criticalTemperature: 17, warningHumidity: 82, criticalHumidity: 75,
     chillingFloor: 10, humidAlertHigh: false,
     ethyleneRole: 'producer-high', odorRisk: 'neutral',
     storageNote: 'Ripens fast once above target — the storage window is short compared to citrus.',
@@ -233,7 +271,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   pineapple: {
     id: 'pineapple', category: 'fruits', label: 'Pineapple', imageId: 'pineapple',
     targetTemperature: 10, tempRange: [7, 13], targetHumidity: 88, humidityRange: [85, 90],
-    warningTemperature: 14, criticalTemperature: 17, warningHumidity: 82, criticalHumidity: 93,
+    warningTemperature: 14, criticalTemperature: 17, warningHumidity: 82, criticalHumidity: 75,
     chillingFloor: 7, humidAlertHigh: false,
     ethyleneRole: 'producer-low', odorRisk: 'neutral',
     storageNote: 'Chilling injury shows up as a dull, water-soaked look at the base — check that spot first if something seems off.',
@@ -244,7 +282,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   watermelon: {
     id: 'watermelon', category: 'fruits', label: 'Watermelon', imageId: 'watermelon',
     targetTemperature: 10, tempRange: [7, 15], targetHumidity: 88, humidityRange: [85, 90],
-    warningTemperature: 16, criticalTemperature: 19, warningHumidity: 82, criticalHumidity: 93,
+    warningTemperature: 16, criticalTemperature: 19, warningHumidity: 82, criticalHumidity: 75,
     chillingFloor: 5, humidAlertHigh: false,
     ethyleneRole: 'producer-low', odorRisk: 'neutral',
     storageNote: 'The most cold-tolerant fruit here — widest safe range of any crop in the fruits category.',
@@ -257,7 +295,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   cabbage: {
     id: 'cabbage', category: 'leafy', label: 'Cabbage', imageId: 'cabbage',
     targetTemperature: 3, tempRange: [0, 5], targetHumidity: 97, humidityRange: [95, 98],
-    warningTemperature: 6, criticalTemperature: 9, warningHumidity: 90, criticalHumidity: 100,
+    warningTemperature: 6, criticalTemperature: 9, warningHumidity: 90, criticalHumidity: 80,
     chillingFloor: null, humidAlertHigh: false,
     ethyleneRole: 'sensitive', odorRisk: 'neutral',
     storageNote: 'Tolerates near-freezing well — the real risk here is humidity dropping, not temperature.',
@@ -268,7 +306,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   lettuce: {
     id: 'lettuce', category: 'leafy', label: 'Lettuce', imageId: 'lettuce',
     targetTemperature: 2, tempRange: [0, 4], targetHumidity: 98, humidityRange: [95, 100],
-    warningTemperature: 5, criticalTemperature: 8, warningHumidity: 90, criticalHumidity: 100,
+    warningTemperature: 5, criticalTemperature: 8, warningHumidity: 90, criticalHumidity: 80,
     chillingFloor: null, humidAlertHigh: false,
     ethyleneRole: 'sensitive', odorRisk: 'neutral',
     storageNote: 'The most humidity-demanding crop in the whole dataset — wilts within hours below 90%.',
@@ -280,7 +318,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   kontomire: {
     id: 'kontomire', category: 'leafy', label: 'Kontomire (Cocoyam Leaves)', imageId: 'kontomire',
     targetTemperature: 5, tempRange: [2, 7], targetHumidity: 93, humidityRange: [90, 95],
-    warningTemperature: 8, criticalTemperature: 11, warningHumidity: 86, criticalHumidity: 98,
+    warningTemperature: 8, criticalTemperature: 11, warningHumidity: 86, criticalHumidity: 78,
     chillingFloor: null, humidAlertHigh: false,
     ethyleneRole: 'sensitive', odorRisk: 'neutral',
     storageNote: 'Wilts fast — this is a short-hold crop even under ideal conditions.',
@@ -291,7 +329,7 @@ export const CROPS: Record<CropId, CropProfile> = {
   'spring-onion': {
     id: 'spring-onion', category: 'leafy', label: 'Spring Onion', imageId: 'spring-onion',
     targetTemperature: 2, tempRange: [0, 4], targetHumidity: 95, humidityRange: [90, 95],
-    warningTemperature: 5, criticalTemperature: 8, warningHumidity: 86, criticalHumidity: 98,
+    warningTemperature: 5, criticalTemperature: 8, warningHumidity: 86, criticalHumidity: 78,
     chillingFloor: null, humidAlertHigh: false,
     ethyleneRole: 'neutral', odorRisk: 'emits',
     storageNote: 'Thin stalks dry out quickly — treat humidity as seriously as you would for lettuce.',
@@ -299,10 +337,33 @@ export const CROPS: Record<CropId, CropProfile> = {
       { icon: '💧', text: 'Thin stalks lose moisture fast — keep humidity at 90–95%.', severity: 'warn' },
     ],
   },
+  onion: {
+    // Sourced directly from UC Davis PREC's "Onions (Dry)" fact sheet —
+    // genuinely different from almost everything else in this dataset.
+    // Recommended long-term storage is 0°C at only 65-70% humidity (most
+    // other produce here wants 85-95%); UC Davis explicitly states
+    // "ethylene may encourage sprouting and growth of decay-causing fungi"
+    // (ethylene-sensitive, not a producer) and that onions are "both
+    // storage-odor sources for other commodities... and storage-odor
+    // absorbers" — bidirectional, but 'emits' is the operative direction
+    // for compatibility warnings here. humidAlertHigh is true because the
+    // danger direction is excess humidity causing rot, the opposite of
+    // most crops in this list.
+    id: 'onion', category: 'leafy', label: 'Onion', imageId: 'onion',
+    targetTemperature: 1, tempRange: [0, 4], targetHumidity: 67, humidityRange: [65, 70],
+    warningTemperature: 5, criticalTemperature: 10, warningHumidity: 75, criticalHumidity: 85,
+    chillingFloor: null, humidAlertHigh: true,
+    ethyleneRole: 'sensitive', odorRisk: 'emits',
+    storageNote: 'Needs low humidity (65–70%), not high — the opposite of most produce. Excess humidity causes rot, not dryness.',
+    tips: [
+      { icon: '⚠️', text: 'Keep humidity low (65–70%) with good ventilation — high humidity causes rot, unlike most other crops.', severity: 'warn' },
+      { icon: 'ℹ️', text: 'Ethylene exposure encourages sprouting and decay — keep away from ripening fruit.', severity: 'info' },
+    ],
+  },
 
   // ── Legumes ───────────────────────────────────────────────────────────────────
   cowpea: {
-    id: 'cowpea', category: 'legumes', label: 'Cowpea', imageId: 'cowpea',
+    id: 'cowpea', category: 'legumes', label: 'Cowpea (Beans)', imageId: 'cowpea',
     targetTemperature: 15, tempRange: [12, 20], targetHumidity: 65, humidityRange: [60, 70],
     warningTemperature: 22, criticalTemperature: 27, warningHumidity: 74, criticalHumidity: 80,
     chillingFloor: null, humidAlertHigh: true,
@@ -451,14 +512,30 @@ export function getCompatibility(cropIds: CropId[]): CompatibilityResult {
 
   // Caution — humidity ranges don't overlap, even though temperature does.
   // More forgiving than a temperature clash since humidity varies more by
-  // shelf position within a device, so this stays a warning, not a block.
+  // shelf position within a device, so this stays a warning, not a block —
+  // UNLESS the crops also disagree on alert *direction* (humidAlertHigh).
+  // The device data model (see backend Device.humidAlertHigh) only supports
+  // one direction per device — a single boolean, not independent low/high
+  // bounds. So mixing a "too dry" crop with a "too humid" crop isn't just
+  // uncomfortable, it's a real monitoring gap: whichever direction the
+  // combined thresholds end up favoring, the other crop's actual danger
+  // zone goes completely unwatched, silently. That's a hard block, not a
+  // caution — a second device is the only real fix, not compartments.
   const humidLow  = Math.max(...profiles.map(p => p.humidityRange[0]));
   const humidHigh = Math.min(...profiles.map(p => p.humidityRange[1]));
   if (rangeLow <= rangeHigh && humidLow > humidHigh) {
-    reasons.push({
-      tier: 'caution',
-      message: `Humidity needs don't overlap (one needs ${humidLow}% or higher, another needs ${humidHigh}% or lower) — workable if positioned in different zones of the same unit, but not ideal.`,
-    });
+    const directionMismatch = profiles.some(p => p.humidAlertHigh) && profiles.some(p => !p.humidAlertHigh);
+    if (directionMismatch) {
+      reasons.push({
+        tier: 'incompatible',
+        message: `These crops need opposite humidity conditions — one needs it kept dry (below ${humidHigh}%) to avoid rot, another needs it kept humid (above ${humidLow}%) to avoid wilting. A single device can only watch for one direction at a time, so combining them leaves one crop's actual danger zone completely unmonitored — use separate devices, not just separate crates.`,
+      });
+    } else {
+      reasons.push({
+        tier: 'caution',
+        message: `Humidity needs don't overlap (one needs ${humidLow}% or higher, another needs ${humidHigh}% or lower) — workable if positioned in different zones of the same unit, but not ideal.`,
+      });
+    }
   }
 
   // Caution — an odor emitter (currently just spring onion) can transfer
@@ -563,6 +640,13 @@ export function deriveTargetsForCrops(cropIds: CropId[]): CombinedTargets {
   const humidAlertHigh = profiles.some(p => p.humidAlertHigh);
   // If any crop's danger direction is "too humid", the combined ceiling must
   // respect the strictest (lowest) high-humidity warning among those crops.
+  // NOTE: when the set mixes both directions (some crops need low humidity,
+  // others need high), getCompatibility() now flags that as 'incompatible'
+  // (see above) precisely because no single warningHumidity/criticalHumidity
+  // pair can protect both — this branch's output in that case is the same
+  // kind of documented best-effort fallback as the temperature side below,
+  // not a real fix. It exists so the function always returns *a* number
+  // rather than throwing, not because the number is trustworthy here.
   const highRiskProfiles = profiles.filter(p => p.humidAlertHigh);
   const lowRiskProfiles = profiles.filter(p => !p.humidAlertHigh);
   const warningHumidity = highRiskProfiles.length

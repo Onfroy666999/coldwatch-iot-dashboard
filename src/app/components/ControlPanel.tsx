@@ -239,19 +239,16 @@ export default function ControlPanel() {
   const handleCooling = async () => {
     const turningOn = systemStatus !== 'cooling';
     try {
-      const result = turningOn ? await startCooling() : await stopCooling();
-      if (result.queued) {
-        addToast({
-          id: `t-${Date.now()}`, type: 'warning',
-          message: `${turningOn ? 'Start' : 'Stop'} cooling queued — will send once back online`,
-        });
-      } else {
-        addToast({
-          id: `t-${Date.now()}`, type: turningOn ? 'success' : 'warning',
-          message: turningOn ? 'Cooling started' : 'Cooling stopped manually',
-        });
-      }
+      turningOn ? await startCooling() : await stopCooling();
+      addToast({
+        id: `t-${Date.now()}`, type: turningOn ? 'success' : 'warning',
+        message: turningOn ? 'Cooling started' : 'Cooling stopped manually',
+      });
     } catch (err) {
+      // Commands are never queued — every failure here (device offline, app
+      // offline, or a genuine backend error) is final and already reflected
+      // in the reverted optimistic state, so tell the user right away rather
+      // than implying it'll be retried.
       const reason = (err as any)?.message || 'this device has no actuator configured';
       addToast({
         id: `t-${Date.now()}`, type: 'error',

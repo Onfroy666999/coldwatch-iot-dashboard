@@ -63,8 +63,10 @@ export interface UseDevicesReturn {
   setTargetTemperature: (t: number)  => void;
   setTargetHumidity:    (h: number)  => void;
   setAutoMode:          (a: boolean) => void;
-  startCooling:         () => Promise<{ queued: boolean }>;
-  stopCooling:          () => Promise<{ queued: boolean }>;
+  /** Never queues — resolves once the command is actually sent, or throws immediately if it can't be. */
+  startCooling:         () => Promise<void>;
+  /** Never queues — resolves once the command is actually sent, or throws immediately if it can't be. */
+  stopCooling:          () => Promise<void>;
   applyProduceProfile: (deviceId: string, mode: ProduceMode) => void;
   addDevice: (
     name: string,
@@ -258,37 +260,63 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   // (corrected by real coolerOn telemetry on the next reading regardless),
   // then the actual command — this used to be pure local state with no
   // backend call at all, so the Peltier never received anything.
-  const startCooling = useCallback(async (): Promise<{ queued: boolean }> => {
+  //
+  // Actuator commands are deliberately never queued for later retry, unlike
+  // every other action here. A queued ON/OFF that only fires once the device
+  // or the app reconnects — possibly minutes or hours later — can be actively
+  // wrong by then (the farmer may have moved the produce, conditions may have
+  // changed, or they may have just tapped the opposite command themselves),
+  // and repeatedly toggling the Peltier module on reconnect is bad for its
+  // longevity anyway. So both known-offline cases below are checked up front
+  // and fail immediately — no network call, no queue entry — and any failure
+  // from the request itself is treated as non-retryable too.
+  const startCooling = useCallback(async (): Promise<void> => {
     const deviceId = selectedDeviceId;
+    const device   = devices.find(d => d.id === deviceId);
+
+    if (!navigator.onLine) {
+      throw new Error("You're offline — the command wasn't sent.");
+    }
+    if (device && device.status !== 'online') {
+      throw new Error("This device is offline — the command wasn't sent.");
+    }
+
     mutateSim({ systemStatus: 'cooling' });
     try {
       await devicesApi.sendCommand(deviceId, 'ON');
-      return { queued: false };
     } catch (err) {
-      if (isRetryableError(err)) {
-        await enqueueAction({ type: 'DEVICE_COMMAND', payload: { id: deviceId, command: 'ON' } });
-        return { queued: true };
+      mutateSim({ systemStatus: 'idle' }); // revert the optimistic guess
+      const apiErr = err as { offline?: true };
+      if (apiErr?.offline) {
+        throw new Error("You're offline — the command wasn't sent.");
       }
-      mutateSim({ systemStatus: 'idle' }); // permanent failure — revert the optimistic guess
       throw err;
     }
-  }, [mutateSim, selectedDeviceId]);
+  }, [mutateSim, selectedDeviceId, devices]);
 
-  const stopCooling = useCallback(async (): Promise<{ queued: boolean }> => {
+  const stopCooling = useCallback(async (): Promise<void> => {
     const deviceId = selectedDeviceId;
+    const device   = devices.find(d => d.id === deviceId);
+
+    if (!navigator.onLine) {
+      throw new Error("You're offline — the command wasn't sent.");
+    }
+    if (device && device.status !== 'online') {
+      throw new Error("This device is offline — the command wasn't sent.");
+    }
+
     mutateSim({ systemStatus: 'idle' });
     try {
       await devicesApi.sendCommand(deviceId, 'OFF');
-      return { queued: false };
     } catch (err) {
-      if (isRetryableError(err)) {
-        await enqueueAction({ type: 'DEVICE_COMMAND', payload: { id: deviceId, command: 'OFF' } });
-        return { queued: true };
+      mutateSim({ systemStatus: 'cooling' }); // revert the optimistic guess
+      const apiErr = err as { offline?: true };
+      if (apiErr?.offline) {
+        throw new Error("You're offline — the command wasn't sent.");
       }
-      mutateSim({ systemStatus: 'cooling' }); // permanent failure — revert the optimistic guess
       throw err;
     }
-  }, [mutateSim, selectedDeviceId]);
+  }, [mutateSim, selectedDeviceId, devices]);
 
   // ── applyProduceProfile ───────────────────────────────────────────────────
 

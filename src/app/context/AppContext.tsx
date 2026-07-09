@@ -97,8 +97,8 @@ interface AppContextType {
   setTargetTemperature: (t: number)  => void;
   setTargetHumidity:    (h: number)  => void;
   setAutoMode:          (a: boolean) => void;
-  startCooling:         () => Promise<{ queued: boolean }>;
-  stopCooling:          () => Promise<{ queued: boolean }>;
+  startCooling:         () => Promise<void>;
+  stopCooling:          () => Promise<void>;
   // ── Settings ────────────────────────────────────────────────────────────────
   settings:        Settings;
   compactMode:     boolean;
