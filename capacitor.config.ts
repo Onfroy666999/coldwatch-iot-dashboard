@@ -21,7 +21,7 @@ const config: CapacitorConfig = {
     },
     SplashScreen: {
       launchShowDuration:  2000,
-      backgroundColor:     '#0984E3',
+      backgroundColor:     '#FFFFFF',
       showSpinner:         false,
     },
   },
