@@ -136,4 +136,4 @@ dist
 .pnp.*
 *.pdf
 *.md
-google-services.json
+google-services.json*.zip

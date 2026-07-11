@@ -32,145 +32,144 @@ export default function TermsOfService() {
           <section>
             <h2 className="text-xl font-semibold text-[#111827] mb-3">1. Acceptance of Terms</h2>
             <p className="leading-relaxed">
-              By accessing and using the ColdWatch IoT temperature and humidity monitoring dashboard ("Services"), you accept and agree to be bound by the terms and provision of this agreement. If you do not agree to abide by the above, please do not use this service.
+              By creating an account or using ColdWatch — an IoT cold-storage monitoring app that connects to
+              physical ESP32-based sensor devices and, in some cases, controls a Peltier cooling module on your
+              behalf — you agree to be bound by these Terms. If you do not agree, please do not use ColdWatch.
             </p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-[#111827] mb-3">2. Use License</h2>
-            <p className="leading-relaxed">
-              Permission is granted to temporarily download one copy of the materials (information or software) on ColdWatch for personal, non-commercial transitory viewing only. This is the grant of a license, not a transfer of title, and under this license you may not:
-            </p>
+            <h2 className="text-xl font-semibold text-[#111827] mb-3">2. What ColdWatch Does</h2>
+            <p className="leading-relaxed">ColdWatch lets you:</p>
             <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
-              <li>Modifying or copying the materials</li>
-              <li>Using the materials for any commercial purpose or for any public display</li>
-              <li>Attempting to reverse engineer, decompile, or disassemble any software contained on ColdWatch</li>
-              <li>Removing any copyright or other proprietary notations from the materials</li>
-              <li>Transferring the materials to another person or "mirroring" the materials on any other server</li>
-              <li>Violating any applicable laws or regulations in connection with your access or use</li>
-              <li>Accessing or searching the Services through the use of any engine, software, tool, agent, or device other than the software provided by ColdWatch</li>
+              <li>Register physical devices (identified by a Device ID printed on the hardware) and view live temperature/humidity readings</li>
+              <li>Assign crops or produce to a device and receive storage guidance, compatibility warnings, and shelf-life estimates</li>
+              <li>Photograph produce for an AI-generated condition assessment</li>
+              <li>Receive alerts by email, SMS, and push notification when a device breaches its configured thresholds</li>
+              <li>Optionally allow ColdWatch to take autonomous cooling action on a device if an alert goes unresolved past a time window you set (see Section 5)</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-[#111827] mb-3">3. Disclaimer of Warranties</h2>
+            <h2 className="text-xl font-semibold text-[#111827] mb-3">3. User Accounts</h2>
             <p className="leading-relaxed">
-              The materials on ColdWatch are provided on an 'as is' basis. ColdWatch makes no warranties, expressed or implied, and hereby disclaims and negates all other warranties including, without limitation, implied warranties or conditions of merchantability, fitness for a particular purpose, or non-infringement of intellectual property or other violation of rights.
+              You're responsible for keeping your account credentials confidential and for all activity under your
+              account. Notify us immediately of any unauthorized use. You may delete your account at any time from
+              Settings — this permanently removes your account, devices, readings, and alert history.
             </p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-[#111827] mb-3">4. Limitations of Liability</h2>
+            <h2 className="text-xl font-semibold text-[#111827] mb-3">4. Sensor Data and AI Assessments</h2>
             <p className="leading-relaxed">
-              In no event shall ColdWatch or its suppliers be liable for any damages (including, without limitation, damages for loss of data or profit, or due to business interruption) arising out of the use or inability to use the materials on ColdWatch, even if ColdWatch or an authorized representative has been notified orally or in writing of the possibility of such damage.
+              Temperature, humidity, and other sensor data displayed in ColdWatch comes from your physical devices
+              and is provided for informational purposes. Sensor readings may have error margins, connectivity gaps,
+              or delays, and produce condition photos are assessed by a third-party AI model whose output is a
+              best-effort estimate, not a guarantee. ColdWatch is not responsible for spoilage, loss, or any decision
+              made based on this data or an AI assessment — you remain responsible for monitoring your stored goods.
             </p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-[#111827] mb-3">5. Accuracy of Materials</h2>
-            <p className="leading-relaxed">
-              The materials appearing on ColdWatch could include technical, typographical, or photographic errors. ColdWatch does not warrant that any of the materials on its Services are accurate, complete, or current. ColdWatch may make changes to the materials contained on its Services at any time without notice.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-semibold text-[#111827] mb-3">6. Materials and Content</h2>
-            <p className="leading-relaxed">
-              The materials on ColdWatch are protected by applicable copyright and trademark law. You agree not to modify the prints or copies of any materials and not to use any illustrations, photographs, video or audio sequences, or any graphics separately from the accompanying text.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-semibold text-[#111827] mb-3">7. Limitations on Use</h2>
-            <p className="leading-relaxed">
-              The materials in ColdWatch are provided for lawful purposes only. You may not use this site or its content:
-            </p>
-            <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
-              <li>For any unlawful purpose or to solicit others to commit unlawful acts</li>
-              <li>To violate any international, federal, provincial, or state regulations, rules, laws, or local ordinances</li>
-              <li>To infringe upon or violate intellectual property rights or other rights of others</li>
-              <li>To harass or cause distress or inconvenience to any person</li>
-              <li>To obscure or alter any copyright, trademark, or other proprietary notice</li>
-              <li>To transmit obscene or offensive material</li>
-              <li>To disrupt the normal flow of dialogue within ColdWatch's web properties</li>
-            </ul>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-semibold text-[#111827] mb-3">8. User Accounts</h2>
-            <p className="leading-relaxed">
-              If you create an account on ColdWatch, you are responsible for maintaining the confidentiality of your account information and password. You agree to accept responsibility for all activities that occur under your account. You agree to notify ColdWatch immediately of any unauthorized use of your account.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-semibold text-[#111827] mb-3">8a. Use of Email and Phone Number</h2>
-            <div className="p-4 rounded-xl mb-3" style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD' }}>
-              <p className="text-sm font-semibold text-[#0369A1] mb-2">What we use your contact details for — and nothing else</p>
-              <p className="text-sm leading-relaxed text-[#0C4A6E]">
-                By providing your email address or phone number, you acknowledge and agree to the following
-                strictly limited uses:
-              </p>
-              <ul className="list-disc list-inside mt-2 space-y-1 ml-2 text-sm text-[#0C4A6E]">
-                <li><strong>Email:</strong> Delivery of alert notifications when storage thresholds are breached, and one-time passwords (OTPs) for account verification and password resets.</li>
-                <li><strong>Phone / SMS:</strong> Delivery of SMS alert notifications when temperature or humidity thresholds are breached, and OTP delivery for password resets.</li>
-              </ul>
-              <p className="text-sm leading-relaxed text-[#0C4A6E] mt-3">
-                ColdWatch will <strong>not</strong> send marketing emails, promotional SMS messages, or share
-                your contact details with third parties for any advertising or commercial purpose. Your contact
-                details are never sold. You may remove your email or phone number from your account at any time
-                via Settings — this will disable the corresponding notification channel.
+            <h2 className="text-xl font-semibold text-[#111827] mb-3">5. Autonomous Cooling Actions</h2>
+            <div className="p-4 rounded-xl mb-3" style={{ backgroundColor: '#FFF8F0', border: '1px solid #F5CBA7' }}>
+              <p className="text-sm font-semibold text-[#C0501A] mb-2">This feature controls physical equipment without your direct input</p>
+              <p className="text-sm leading-relaxed text-[#7A3010]">
+                If a device has an unresolved alert past its configured auto-resolve window, ColdWatch may
+                automatically send an ON/OFF command to that device's Peltier module, then mark the alert resolved
+                and notify you of the action taken. You can change or disable this window per device in Settings.
+                By leaving this enabled, you accept that ColdWatch may act on your hardware without you actively
+                approving that specific action, and that ColdWatch is not liable for outcomes resulting from an
+                autonomous action taken in good faith based on the sensor data available at the time.
               </p>
             </div>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-[#111827] mb-3">9. Device Data and Monitoring</h2>
+            <h2 className="text-xl font-semibold text-[#111827] mb-3">6. Use of Email, Phone, and Push Notifications</h2>
             <p className="leading-relaxed">
-              The temperature, humidity, and other sensor data provided through ColdWatch is intended for informational purposes. While we strive for accuracy, sensor readings may have inherent limitations and error margins. ColdWatch is not responsible for any decisions made based on the data provided through our Services.
+              By providing your email, phone number, or enabling push notifications, you agree these are used only
+              for: threshold-breach alerts, autonomous-action notices, and one-time passwords (OTPs) for
+              verification and password resets. ColdWatch does not send marketing email or promotional SMS, and does
+              not sell or share your contact details for advertising. Remove any of these at any time in Settings to
+              disable that channel.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-[#111827] mb-3">7. Acceptable Use</h2>
+            <p className="leading-relaxed">You agree not to:</p>
+            <ul className="list-disc list-inside mt-2 space-y-1 ml-2">
+              <li>Use ColdWatch for any unlawful purpose or in violation of applicable regulations</li>
+              <li>Attempt to reverse engineer, decompile, or interfere with the app or its backend services</li>
+              <li>Register a device you do not own or are not authorized to monitor/control</li>
+              <li>Use the AI photo assessment feature to submit content unrelated to produce condition</li>
+              <li>Interfere with other users' devices, data, or access to the service</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-[#111827] mb-3">8. Disclaimer of Warranties</h2>
+            <p className="leading-relaxed">
+              ColdWatch is provided "as is." We make no warranty that the service, sensor readings, AI assessments,
+              or autonomous actions will be uninterrupted, error-free, or fit for a particular purpose, including
+              implied warranties of merchantability or non-infringement.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-[#111827] mb-3">9. Limitation of Liability</h2>
+            <p className="leading-relaxed">
+              To the fullest extent permitted by law, ColdWatch and its affiliates are not liable for any damages —
+              including spoiled goods, lost inventory, or business interruption — arising from use of the service,
+              inaccurate sensor data, a missed or delayed alert, or an autonomous cooling action, even if we've been
+              advised of the possibility of such damage.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-[#111827] mb-3">10. Modifications to Terms</h2>
             <p className="leading-relaxed">
-              ColdWatch may revise these terms of service for its Services at any time without notice. By using this service, you are agreeing to be bound by the then current version of these terms of service.
+              We may revise these Terms at any time. Continued use of ColdWatch after a change takes effect
+              constitutes acceptance of the revised Terms.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-[#111827] mb-3">11. Governing Law</h2>
             <p className="leading-relaxed">
-              These terms and conditions are governed by and construed in accordance with the laws of the jurisdiction in which ColdWatch operates, and you irrevocably submit to the exclusive jurisdiction of the courts in that location.
+              These Terms are governed by the laws of the Republic of Ghana, and you submit to the exclusive
+              jurisdiction of its courts for any dispute arising from your use of ColdWatch.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-[#111827] mb-3">12. Indemnification</h2>
             <p className="leading-relaxed">
-              You agree to indemnify, defend, and hold harmless ColdWatch and its affiliates, and their respective officers, directors, employees, agents, and successors from any and all claims, damages, losses, costs, and expenses (including reasonable attorneys' fees) arising out of or related to your use of the Services or violation of these Terms.
+              You agree to indemnify and hold harmless ColdWatch and its affiliates from claims, damages, or
+              expenses (including reasonable legal fees) arising from your use of the service or breach of these Terms.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-[#111827] mb-3">13. Termination</h2>
             <p className="leading-relaxed">
-              ColdWatch may terminate or suspend your account and access to the Services immediately, without prior notice or liability, for any reason whatsoever, including if you breach the Terms.
+              We may suspend or terminate your account for breach of these Terms. You may delete your account at any
+              time from Settings, which immediately and permanently removes your data.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-[#111827] mb-3">14. Entire Agreement</h2>
             <p className="leading-relaxed">
-              These Terms of Service and Privacy Policy constitute the entire agreement between you and ColdWatch regarding the use of the Services.
+              These Terms and our Privacy Policy make up the entire agreement between you and ColdWatch regarding
+              your use of the service.
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-[#111827] mb-3">15. Contact Information</h2>
-            <p className="leading-relaxed">
-              If you have questions about these Terms of Service, please contact us at:
-            </p>
+            <p className="leading-relaxed">Questions about these Terms:</p>
             <div className="mt-3 p-4 rounded-xl bg-[#F9FAFB] border border-[#E4E7EC]">
               <p className="text-sm font-medium text-[#111827]">ColdWatch Legal Team</p>
               <p className="text-sm text-[#6B7280] mt-1">Email: legal@coldwatch.app</p>
@@ -178,7 +177,7 @@ export default function TermsOfService() {
           </section>
 
           <div className="text-xs text-[#9CA3AF] pt-4 border-t border-[#E4E7EC]">
-            <p>Last Updated: April 2026</p>
+            <p>Last Updated: July 2026</p>
           </div>
         </div>
       </div>
