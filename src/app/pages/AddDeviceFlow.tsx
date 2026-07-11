@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronLeft, ChevronDown, X, XCircle, Check, Hash, Camera, Upload, Loader2, CheckCircle2,
-  AlertTriangle, Info, PackageCheck, ThermometerSnowflake, Droplets, Clock,
+  AlertTriangle, Info, PackageCheck, ThermometerSnowflake, Droplets, Clock, Maximize2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { ProduceState } from '../context/AppContext';
@@ -160,11 +160,11 @@ export function ProduceTile({
 // Compact, non-interactive image tile — used in the pairwise compatibility
 // checker. Same graceful fallback to an emoji as ProduceTile, just smaller
 // and not tappable.
-export function CropThumb({ imageId, emoji, label, size = 64 }: { imageId: string; emoji: string; label: string; size?: number }) {
+export function CropThumb({ imageId, emoji, label, size = 64, onClick }: { imageId: string; emoji: string; label: string; size?: number; onClick?: () => void }) {
   const [imgError, setImgError] = useState(false);
-  return (
-    <div className="flex flex-col items-center gap-1" style={{ width: size }}>
-      <div className="rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
+  const body = (
+    <>
+      <div className="rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 relative"
         style={{ width: size, height: size, backgroundColor: '#F3F4F6' }}>
         {!imgError ? (
           <img
@@ -176,10 +176,24 @@ export function CropThumb({ imageId, emoji, label, size = 64 }: { imageId: strin
         ) : (
           <span style={{ fontSize: size * 0.4 }}>{emoji}</span>
         )}
+        {onClick && (
+          <div className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+            style={{ backgroundColor: 'rgba(17,24,39,0.55)' }}>
+            <Maximize2 className="w-2 h-2 text-white" />
+          </div>
+        )}
       </div>
       <p className="text-[10px] font-medium text-[#374151] text-center leading-tight">{label}</p>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button onClick={onClick} className="flex flex-col items-center gap-1 active:scale-[0.96] transition-transform" style={{ width: size }}>
+        {body}
+      </button>
+    );
+  }
+  return <div className="flex flex-col items-center gap-1" style={{ width: size }}>{body}</div>;
 }
 
 function CropPhoto({ imageId, emoji, label, rounded = 'rounded-xl' }: { imageId: string; emoji: string; label: string; rounded?: string }) {
@@ -209,9 +223,52 @@ function CropChip({ id, onClick }: { id: CropId; onClick: () => void }) {
   );
 }
 
+// ── Full-size image preview — lets the user actually see what's being
+// suggested/flagged, whether it's a single crop or a paired example photo.
+interface LightboxImage { imageId: string; title: string; subtitle?: string; emoji?: string }
+
+function ImageLightbox({ image, onClose }: { image: LightboxImage; onClose: () => void }) {
+  const [imgError, setImgError] = useState(false);
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}
+      className="fixed inset-0 z-[999] flex items-center justify-center px-6"
+      style={{ backgroundColor: 'rgba(17,24,39,0.85)' }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
+        transition={{ duration: 0.2, ease: [0.34, 1.56, 0.64, 1] }}
+        className="w-full max-w-sm"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="rounded-2xl overflow-hidden bg-white">
+          <div className="w-full aspect-square flex items-center justify-center" style={{ backgroundColor: '#F3F4F6' }}>
+            {!imgError ? (
+              <img src={`/produce-images/${image.imageId}.jpg`} alt={image.title} className="w-full h-full object-cover"
+                onError={() => setImgError(true)} />
+            ) : (
+              <span className="text-6xl">{image.emoji ?? '🖼️'}</span>
+            )}
+          </div>
+          <div className="flex items-center justify-between p-4 gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-[#111827]">{image.title}</p>
+              {image.subtitle && <p className="text-xs text-[#6B7280] leading-snug mt-0.5">{image.subtitle}</p>}
+            </div>
+            <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#F3F4F6] flex items-center justify-center active:scale-95 flex-shrink-0">
+              <X className="w-4 h-4 text-[#6B7280]" />
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ── Flow ──────────────────────────────────────────────────────────────────────
 
-type FlowStep = 'device' | 'produce' | 'compat' | 'tips' | 'condition' | 'facility' | 'skip-ready' | 'done';
+type FlowStep = 'device' | 'produce' | 'compat' | 'tips' | 'condition' | 'facility' | 'review' | 'skip-ready' | 'done';
 
 const STEP_TITLES: Record<FlowStep, string> = {
   device: 'Device details',
@@ -220,6 +277,7 @@ const STEP_TITLES: Record<FlowStep, string> = {
   tips: 'Preservation tips',
   condition: 'Current condition',
   facility: 'Storage facility',
+  review: 'Review & confirm',
   'skip-ready': 'Ready to save',
   done: 'Device added',
 };
@@ -260,6 +318,7 @@ export default function AddDeviceFlow() {
   const [transportHours, setTransportHours] = useState(2);
 
   const [saving, setSaving] = useState(false);
+  const [viewingImage, setViewingImage] = useState<LightboxImage | null>(null);
 
   const { storageScore, overallTier, safeTogether, storeSeparately, hasHardBlock } =
     computeGroupCompatibility(selectedCrops);
@@ -347,7 +406,7 @@ export default function AddDeviceFlow() {
     }
   };
 
-  const totalSteps = skipProduce ? 3 : (selectedCrops.length >= 2 ? 6 : 5);
+  const totalSteps = skipProduce ? 3 : (selectedCrops.length >= 2 ? 7 : 6);
   const progressPct = Math.min(100, Math.round((stepStack.length / totalSteps) * 100));
 
   const inputBase = "w-full px-4 py-3 rounded-xl border border-[#E4E7EC] bg-[#F3F4F6] text-[#111827] outline-none focus:border-[#0984E3] focus:ring-2 focus:ring-[#0984E3]/20 transition-all text-sm";
@@ -544,12 +603,12 @@ export default function AddDeviceFlow() {
                     return (
                       <div key={i} className="rounded-2xl p-3.5 bg-white" style={{ border: `1px solid ${TIER_COLOR[p.tier]}40` }}>
                         <div className="flex items-center justify-center gap-3">
-                          <CropThumb imageId={cropA.imageId} emoji={CATEGORY_EMOJI[cropA.category]} label={cropA.label} />
+                          <CropThumb imageId={cropA.imageId} emoji={CATEGORY_EMOJI[cropA.category]} label={cropA.label} onClick={() => setViewingImage({ imageId: cropA.imageId, title: cropA.label, emoji: CATEGORY_EMOJI[cropA.category] })} />
                           <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
                             style={{ backgroundColor: TIER_COLOR[p.tier] + '20' }}>
                             <Check className="w-5 h-5" style={{ color: TIER_COLOR[p.tier] }} />
                           </div>
-                          <CropThumb imageId={cropB.imageId} emoji={CATEGORY_EMOJI[cropB.category]} label={cropB.label} />
+                          <CropThumb imageId={cropB.imageId} emoji={CATEGORY_EMOJI[cropB.category]} label={cropB.label} onClick={() => setViewingImage({ imageId: cropB.imageId, title: cropB.label, emoji: CATEGORY_EMOJI[cropB.category] })} />
                         </div>
                         <p className="text-[11px] font-semibold text-center mt-2" style={{ color: TIER_COLOR[p.tier] }}>
                           {TIER_LABEL[p.tier]}
@@ -575,12 +634,12 @@ export default function AddDeviceFlow() {
                     return (
                       <div key={i} className="rounded-2xl p-3.5 bg-white" style={{ border: `1px solid ${TIER_COLOR[p.tier]}40` }}>
                         <div className="flex items-center justify-center gap-3">
-                          <CropThumb imageId={cropA.imageId} emoji={CATEGORY_EMOJI[cropA.category]} label={cropA.label} />
+                          <CropThumb imageId={cropA.imageId} emoji={CATEGORY_EMOJI[cropA.category]} label={cropA.label} onClick={() => setViewingImage({ imageId: cropA.imageId, title: cropA.label, emoji: CATEGORY_EMOJI[cropA.category] })} />
                           <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
                             style={{ backgroundColor: TIER_COLOR[p.tier] + '20' }}>
                             <XCircle className="w-5 h-5" style={{ color: TIER_COLOR[p.tier] }} />
                           </div>
-                          <CropThumb imageId={cropB.imageId} emoji={CATEGORY_EMOJI[cropB.category]} label={cropB.label} />
+                          <CropThumb imageId={cropB.imageId} emoji={CATEGORY_EMOJI[cropB.category]} label={cropB.label} onClick={() => setViewingImage({ imageId: cropB.imageId, title: cropB.label, emoji: CATEGORY_EMOJI[cropB.category] })} />
                         </div>
                         <p className="text-[11px] font-semibold text-center mt-2" style={{ color: TIER_COLOR[p.tier] }}>
                           {TIER_LABEL[p.tier]}
@@ -608,11 +667,19 @@ export default function AddDeviceFlow() {
                     {COMPATIBILITY_EXAMPLES.map(ex => (
                       <div key={ex.id} className="flex items-center gap-3 rounded-xl p-2.5"
                         style={{ backgroundColor: ex.tier === 'compatible' ? '#F0FBF4' : '#FDF3F2' }}>
-                        <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0" style={{ backgroundColor: '#F3F4F6' }}>
+                        <button
+                          onClick={() => setViewingImage({ imageId: ex.imageId, title: ex.title, subtitle: ex.description })}
+                          className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 relative active:scale-95 transition-transform"
+                          style={{ backgroundColor: '#F3F4F6' }}
+                        >
                           <img src={`/produce-images/${ex.imageId}.jpg`} alt={ex.title}
                             className="w-full h-full object-cover"
                             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                        </div>
+                          <div className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                            style={{ backgroundColor: 'rgba(17,24,39,0.55)' }}>
+                            <Maximize2 className="w-2 h-2 text-white" />
+                          </div>
+                        </button>
                         <div className="flex-1 min-w-0">
                           <p className="text-[11px] font-semibold" style={{ color: ex.tier === 'compatible' ? '#166534' : '#C0392B' }}>
                             {ex.tier === 'compatible' ? '✓ ' : '✕ '}{ex.title}
@@ -846,6 +913,103 @@ export default function AddDeviceFlow() {
             </motion.div>
           )}
 
+          {/* ── Review — final summary before creating the device ─────────── */}
+          {step === 'review' && (
+            <motion.div key="review" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
+              transition={{ duration: 0.22 }} className="space-y-3.5">
+
+              <p className="text-xs text-[#6B7280]">Check everything below, then save to create the device.</p>
+
+              {/* Device identity */}
+              <div className="rounded-2xl p-4 bg-white space-y-2" style={{ border: '1px solid #E4E7EC' }}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Device</p>
+                  <button onClick={() => setStepStack(['device'])} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#6B7280]">Device ID</span>
+                  <span className="font-mono font-semibold text-[#111827]">{deviceCode}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#6B7280]">Storage unit</span>
+                  <span className="font-semibold text-[#111827]">{unitName}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#6B7280]">Location</span>
+                  <span className="font-semibold text-[#111827]">{location}</span>
+                </div>
+              </div>
+
+              {/* Produce */}
+              <div className="rounded-2xl p-4 bg-white space-y-2.5" style={{ border: '1px solid #E4E7EC' }}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">
+                    Produce ({selectedCrops.length})
+                  </p>
+                  <button onClick={() => setStepStack(['device', 'produce'])} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedCrops.map(id => {
+                    const crop = getCrop(id);
+                    return (
+                      <span key={id} className="flex items-center gap-1 pl-2.5 pr-3 py-1 rounded-full text-[11px] font-medium"
+                        style={{ backgroundColor: CATEGORIES[crop.category].iconBg, color: CATEGORIES[crop.category].accentColor }}>
+                        {crop.label}
+                      </span>
+                    );
+                  })}
+                </div>
+                {selectedCrops.length >= 2 && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: TIER_COLOR[overallTier] }}>
+                      <span className="text-white font-bold text-[11px]">{storageScore}</span>
+                    </div>
+                    <span className="text-[11px] font-semibold" style={{ color: TIER_COLOR[overallTier] }}>
+                      {TIER_LABEL[overallTier]}
+                    </span>
+                    {storeSeparately.length > 0 && (
+                      <span className="text-[11px] text-[#6B7280]">— {storeSeparately.length} pair{storeSeparately.length === 1 ? '' : 's'} flagged</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Condition */}
+              <div className="rounded-2xl p-4 bg-white flex items-center justify-between" style={{ border: '1px solid #E4E7EC' }}>
+                <div>
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-1">Condition</p>
+                  <p className="text-sm font-semibold text-[#111827]">
+                    {PRODUCE_STATES.find(s => s.id === produceState)?.emoji} {PRODUCE_STATES.find(s => s.id === produceState)?.label}
+                  </p>
+                </div>
+                <button onClick={() => setStepStack(['device', 'produce', 'condition'])} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
+              </div>
+
+              {/* Facility */}
+              <div className="rounded-2xl p-4 bg-white space-y-1.5" style={{ border: '1px solid #E4E7EC' }}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Storage facility</p>
+                  <button onClick={() => setStepStack(['device', 'produce', 'condition', 'facility'])} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#6B7280]">Size</span>
+                  <span className="font-semibold text-[#111827]">{FACILITY_SIZES.find(f => f.id === facilitySize)?.label}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#6B7280]">Transport time</span>
+                  <span className="font-semibold text-[#111827]">{transportHours}h</span>
+                </div>
+              </div>
+
+              {/* Shelf life estimate */}
+              <div className="rounded-2xl p-4" style={{ backgroundColor: shelfLife.color + '12', border: `1px solid ${shelfLife.color}30` }}>
+                <p className="text-xs font-semibold mb-0.5" style={{ color: shelfLife.color }}>Estimated shelf life with ColdWatch</p>
+                <p className="text-2xl font-bold" style={{ color: shelfLife.color }}>{shelfLife.label}</p>
+              </div>
+            </motion.div>
+          )}
+
           {/* ── Skip path — ready to save ─────────────────────────────────── */}
           {step === 'skip-ready' && (
             <motion.div key="skip-ready" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
@@ -919,6 +1083,11 @@ export default function AddDeviceFlow() {
           </button>
         )}
         {step === 'facility' && (
+          <button onClick={() => goTo('review')} className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98]" style={{ backgroundColor: '#0984E3' }}>
+            Continue
+          </button>
+        )}
+        {step === 'review' && (
           <button onClick={handleFinalSubmit} disabled={saving}
             className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2"
             style={{ backgroundColor: '#0984E3' }}>
@@ -938,6 +1107,10 @@ export default function AddDeviceFlow() {
           </button>
         )}
       </div>
+
+      <AnimatePresence>
+        {viewingImage && <ImageLightbox image={viewingImage} onClose={() => setViewingImage(null)} />}
+      </AnimatePresence>
     </div>
   );
 }
