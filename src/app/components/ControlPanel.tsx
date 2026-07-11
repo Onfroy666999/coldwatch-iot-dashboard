@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Zap, Power, PowerOff, AlertTriangle, Thermometer, Droplets } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { PRODUCE_PROFILES } from './ProduceModeSelector';
+import { CATEGORIES, deriveTargetsForCrops, getCategoryOfCrop, getCrop } from '../data/produce';
 
 // Unit helpers
 
@@ -170,24 +170,21 @@ export default function ControlPanel() {
 
   // Respect per-device custom thresholds — same logic as Dashboard
   const selectedDevice = devices.find(d => d.id === selectedDeviceId);
-  const produceMode = selectedDevice?.produceMode ?? 'mixed';
   const warnTemp  = selectedDevice?.useCustomThresholds ? selectedDevice.warningTemperature  : settings.warningTemperature;
   const critTemp  = selectedDevice?.useCustomThresholds ? selectedDevice.criticalTemperature  : settings.criticalTemperature;
   const warnHumid = selectedDevice?.useCustomThresholds ? selectedDevice.warningHumidity      : settings.warningHumidity;
   const critHumid = selectedDevice?.useCustomThresholds ? selectedDevice.criticalHumidity     : settings.criticalHumidity;
 
-  const profile     = PRODUCE_PROFILES[produceMode];
-  const accentTemp  = profile.accentColor;
+  const cropIds = selectedDevice?.cropIds ?? [];
+  const derivedTargets = deriveTargetsForCrops(cropIds);
+  const accentTemp = cropIds.length > 0
+    ? CATEGORIES[getCategoryOfCrop(cropIds[0])].accentColor
+    : '#0984E3';
   const accentHumid = '#0891B2';
 
   // Chilling floor check (always in °C internally)
-  // isBelowChill must require an explicitly-set produceMode — produceMode
-  // above falls back to 'mixed' purely for styling/color purposes when no
-  // produce has been configured, and 'mixed' has a non-null chillingFloor.
-  // Without this guard, any device that skipped produce setup would show
-  // the "chilling injury risk" banner it was never actually eligible for.
-  const chillingFloor = profile.chillingFloor;
-  const isBelowChill  = !!selectedDevice?.produceMode
+  const chillingFloor = derivedTargets.chillingFloor;
+  const isBelowChill  = cropIds.length > 0
     && chillingFloor !== null
     && toInternal(tempInput) < chillingFloor;
 
@@ -202,19 +199,17 @@ export default function ControlPanel() {
     currentHumidity >= warnHumid ? { label: 'Warning',  color: '#D97706' } :
                                    { label: 'Normal',   color: '#16A34A' };
 
-  // 3 presets from profile ranges — no hardcoded per-mode lookup table
-  const [tLow, tHigh] = profile.tempRange;
+  // 3 presets from the derived crop thresholds
   const tempPresets = [
-    { label: `${toDisplay(tLow).toFixed(0)}${unit}`,           value: toDisplay(tLow),           hint: 'Cool end' },
-    { label: `${toDisplay(profile.targetTemp).toFixed(0)}${unit}`, value: toDisplay(profile.targetTemp), hint: 'Ideal'    },
-    { label: `${toDisplay(tHigh).toFixed(0)}${unit}`,          value: toDisplay(tHigh),          hint: 'Warm end' },
+    { label: `${toDisplay(derivedTargets.targetTemperature - 1).toFixed(0)}${unit}`, value: toDisplay(derivedTargets.targetTemperature - 1), hint: 'Cool end' },
+    { label: `${toDisplay(derivedTargets.targetTemperature).toFixed(0)}${unit}`, value: toDisplay(derivedTargets.targetTemperature), hint: 'Ideal' },
+    { label: `${toDisplay(derivedTargets.targetTemperature + 1).toFixed(0)}${unit}`, value: toDisplay(derivedTargets.targetTemperature + 1), hint: 'Warm end' },
   ];
 
-  const [hLow, hHigh] = profile.humidityRange;
   const humidPresets = [
-    { label: `${hLow}%`,                  value: hLow,                  hint: 'Low end' },
-    { label: `${profile.targetHumidity}%`, value: profile.targetHumidity, hint: 'Ideal'   },
-    { label: `${hHigh}%`,                 value: hHigh,                 hint: 'High end' },
+    { label: `${Math.max(0, derivedTargets.targetHumidity - 3)}%`, value: Math.max(0, derivedTargets.targetHumidity - 3), hint: 'Low end' },
+    { label: `${derivedTargets.targetHumidity}%`, value: derivedTargets.targetHumidity, hint: 'Ideal' },
+    { label: `${derivedTargets.targetHumidity + 3}%`, value: derivedTargets.targetHumidity + 3, hint: 'High end' },
   ];
 
   const isTempDirty  = Math.abs(tempInput - toDisplay(targetTemperature)) > 0.05;
@@ -369,7 +364,7 @@ export default function ControlPanel() {
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-red-600 leading-relaxed">
                   <span className="font-bold">Chilling injury risk.</span>{' '}
-                  {profile.label} should stay above {toDisplay(chillingFloor!)}{unit} — cold damage causes rot within hours.
+                  {cropIds.length > 0 ? getCrop(cropIds[0]).label : 'This produce'} should stay above {toDisplay(chillingFloor!)}{unit} — cold damage causes rot within hours.
                 </p>
               </div>
             </motion.div>

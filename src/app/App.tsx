@@ -17,6 +17,7 @@ import SetupSurvey from './pages/SetupSurvey';
 import SplashScreen from './pages/SplashScreen';
 import Privacy from './pages/Privacy';
 import TermsOfService from './pages/TermsOfService';
+import ProduceGuide from './pages/ProduceGuide';
 import { Analytics } from '@vercel/analytics/react';
 import { WifiOff, Snowflake } from 'lucide-react';
 import SyncBanner from './components/SyncBanner';
@@ -217,6 +218,7 @@ function AppContent() {
       case 'settings':  return <Settings />;
       case 'privacy':   return <Privacy />;
       case 'terms':     return <TermsOfService />;
+      case 'produce-guide': return <ProduceGuide />;
       default:          return <Dashboard />;
     }
   };
@@ -242,10 +244,10 @@ function AppContent() {
       <SyncBanner />
       <Sidebar />
       <div className="md:ml-56 flex flex-col flex-1 min-h-0">
-        {activePage !== 'add-device' && <TopBar />}
+        {activePage !== 'add-device' && activePage !== 'produce-guide' && <TopBar />}
         <main
           className={
-            activePage === 'add-device'
+            activePage === 'add-device' || activePage === 'produce-guide'
               ? 'flex-1 overflow-y-auto'
               : 'flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 md:pb-8'
           }
@@ -265,7 +267,7 @@ function AppContent() {
           </AnimatePresence>
         </main>
       </div>
-      {activePage !== 'add-device' && <BottomNav />}
+      {activePage !== 'add-device' && activePage !== 'produce-guide' && <BottomNav />}
       <ToastContainer />
 
       {NIX_ENABLED && (

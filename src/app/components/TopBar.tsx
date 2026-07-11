@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, Snowflake } from 'lucide-react';
+import { Bell, Snowflake, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import ProfileSheet from './ProfileSheet';
@@ -7,6 +7,7 @@ import ProfileSheet from './ProfileSheet';
 const pageTitles: Record<string, string> = {
   dashboard: 'Dashboard', devices: 'Devices',
   alerts: 'Alerts', history: 'History', settings: 'Settings',
+  'produce-guide': 'Produce Guide',
 };
 
 export default function TopBar() {
@@ -56,6 +57,14 @@ export default function TopBar() {
               {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
             </p>
           </div>
+
+          {activePage !== 'produce-guide' && (
+            <button onClick={() => setActivePage('produce-guide')}
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-colors active:bg-gray-100"
+              aria-label="Produce storage guide">
+              <BookOpen className="w-5 h-5" style={{ color: '#6B7280' }} />
+            </button>
+          )}
 
           <button onClick={() => setActivePage('alerts')}
             className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-colors active:bg-gray-100"

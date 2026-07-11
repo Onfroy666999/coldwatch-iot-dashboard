@@ -1,14 +1,15 @@
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ChevronLeft, X, Check, Hash, Camera, Upload, Loader2, CheckCircle2,
-  AlertTriangle, Info, PackageCheck,
+  ChevronLeft, ChevronDown, X, XCircle, Check, Hash, Camera, Upload, Loader2, CheckCircle2,
+  AlertTriangle, Info, PackageCheck, ThermometerSnowflake, Droplets, Clock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { ProduceState } from '../context/AppContext';
 import {
-  CATEGORIES, getCropsByCategory, getCompatibility, getCrop, getCategoryOfCrop,
-  type CropId, type CategoryId,
+  CATEGORIES, CATEGORY_EMOJI, getCropsByCategory, getPairCompatibility, getStorageScore, scoreToTier,
+  COMPATIBILITY_EXAMPLES, getCrop, getCategoryOfCrop, getCompatibleCrops, getConflicts,
+  type CropId, type CategoryId, type PairCompatibility, type PairTier,
 } from '../data/produce';
 import { aiApi } from '../Lib/api';
 
@@ -32,14 +33,52 @@ type FacilitySizeId = typeof FACILITY_SIZES[number]['id'];
 // Fallback glyph shown until a real photo exists at /produce-images/{imageId}.jpg
 // — matches the naming convention from the Gemini image-gen prompt doc, so
 // dropping generated files into public/produce-images/ just starts working
-// with no code change.
-const CATEGORY_EMOJI: Record<CategoryId, string> = {
-  tubers: '🥔', fruits: '🥭', leafy: '🥬', legumes: '🌿', meat: '🍗',
-};
+// with no code change. (Definition lives in produce.ts — CATEGORY_EMOJI is
+// shared with ProduceGuide.tsx, not redefined here.)
 
 const CATEGORY_BASE_HOURS: Record<CategoryId, number> = {
-  tubers: 336, fruits: 96, leafy: 48, legumes: 720, meat: 72,
+  tubers: 336, fruits: 96, vegetables: 96, leafy: 48, legumes: 720, meat: 72,
 };
+
+// Chunk 3 — pairwise compatibility display. Five engine tiers map onto the
+// two visual buckets ("Safe Together" / "Store Separately") the migration
+// guide's UX section asks for: excellent/good/acceptable all read as
+// workable (green family), poor/never read as not recommended (red/orange).
+export const TIER_COLOR: Record<PairTier, string> = {
+  excellent: '#27AE60', good: '#52B788', acceptable: '#7FB37F', poor: '#E67E22', never: '#C0392B',
+};
+export const TIER_LABEL: Record<PairTier, string> = {
+  excellent: 'Excellent match', good: 'Good match', acceptable: 'Acceptable — workable',
+  poor: 'Not recommended', never: 'Never store together',
+};
+
+export interface GroupCompatibility {
+  pairwise: PairCompatibility[];
+  storageScore: number;
+  overallTier: PairTier;
+  safeTogether: PairCompatibility[];
+  storeSeparately: PairCompatibility[];
+  hasHardBlock: boolean;
+}
+
+// Shared by AddDeviceFlow's Compatibility step and Devices.tsx's Produce tab
+// (Chunk 5 unification) — one place computing "how does this whole selected
+// set score/bucket", so the two screens can never silently drift apart the
+// way CATEGORY_EMOJI once did before it was centralized.
+export function computeGroupCompatibility(cropIds: CropId[]): GroupCompatibility {
+  const pairwise: PairCompatibility[] = [];
+  for (let i = 0; i < cropIds.length; i++) {
+    for (let j = i + 1; j < cropIds.length; j++) {
+      pairwise.push(getPairCompatibility(cropIds[i], cropIds[j]));
+    }
+  }
+  const storageScore = cropIds.length >= 2 ? getStorageScore(cropIds) : 100;
+  const overallTier = scoreToTier(storageScore);
+  const safeTogether = pairwise.filter(p => p.tier === 'excellent' || p.tier === 'good' || p.tier === 'acceptable');
+  const storeSeparately = pairwise.filter(p => p.tier === 'poor' || p.tier === 'never');
+  const hasHardBlock = pairwise.some(p => p.tier === 'never');
+  return { pairwise, storageScore, overallTier, safeTogether, storeSeparately, hasHardBlock };
+}
 
 function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
@@ -53,7 +92,7 @@ function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }>
   });
 }
 
-function estimateShelfLifeForCrops(
+export function estimateShelfLifeForCrops(
   cropIds: CropId[], categoriesOf: (id: CropId) => CategoryId,
   state: ProduceState, transportHours: number,
 ): { hours: number; label: string; color: string } {
@@ -75,7 +114,7 @@ function estimateShelfLifeForCrops(
 
 // ── Produce tile (category or crop) — photo with graceful emoji fallback ────
 
-function ProduceTile({
+export function ProduceTile({
   imageId, emoji, label, tagline, selected, onClick, tint, accent, badge,
 }: {
   imageId: string; emoji: string; label: string; tagline?: string;
@@ -114,6 +153,58 @@ function ProduceTile({
       </div>
       <p className="text-xs font-semibold text-[#111827] leading-tight">{label}</p>
       {tagline && <p className="text-[10px] text-[#6B7280] leading-tight mt-0.5">{tagline}</p>}
+    </button>
+  );
+}
+
+// Compact, non-interactive image tile — used in the pairwise compatibility
+// checker. Same graceful fallback to an emoji as ProduceTile, just smaller
+// and not tappable.
+export function CropThumb({ imageId, emoji, label, size = 64 }: { imageId: string; emoji: string; label: string; size?: number }) {
+  const [imgError, setImgError] = useState(false);
+  return (
+    <div className="flex flex-col items-center gap-1" style={{ width: size }}>
+      <div className="rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
+        style={{ width: size, height: size, backgroundColor: '#F3F4F6' }}>
+        {!imgError ? (
+          <img
+            src={`/produce-images/${imageId}.jpg`}
+            alt={label}
+            className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <span style={{ fontSize: size * 0.4 }}>{emoji}</span>
+        )}
+      </div>
+      <p className="text-[10px] font-medium text-[#374151] text-center leading-tight">{label}</p>
+    </div>
+  );
+}
+
+function CropPhoto({ imageId, emoji, label, rounded = 'rounded-xl' }: { imageId: string; emoji: string; label: string; rounded?: string }) {
+  const [imgError, setImgError] = useState(false);
+  return (
+    <div className={`w-full h-full overflow-hidden flex items-center justify-center ${rounded}`} style={{ backgroundColor: '#F3F4F6' }}>
+      {!imgError ? (
+        <img src={`/produce-images/${imageId}.jpg`} alt={label} className="w-full h-full object-cover" onError={() => setImgError(true)} />
+      ) : (
+        <span className="text-3xl">{emoji}</span>
+      )}
+    </div>
+  );
+}
+
+function CropChip({ id, onClick }: { id: CropId; onClick: () => void }) {
+  const crop = getCrop(id);
+  return (
+    <button onClick={onClick}
+      className="flex items-center gap-2 pl-1.5 pr-3 py-1.5 rounded-full flex-shrink-0 active:scale-[0.97] transition-transform"
+      style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
+      <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0">
+        <CropPhoto imageId={crop.imageId} emoji={CATEGORY_EMOJI[crop.category]} label={crop.label} rounded="rounded-full" />
+      </div>
+      <span className="text-xs font-medium text-[#374151]">{crop.label}</span>
     </button>
   );
 }
@@ -170,7 +261,9 @@ export default function AddDeviceFlow() {
 
   const [saving, setSaving] = useState(false);
 
-  const compatibility = selectedCrops.length >= 2 ? getCompatibility(selectedCrops) : null;
+  const { storageScore, overallTier, safeTogether, storeSeparately, hasHardBlock } =
+    computeGroupCompatibility(selectedCrops);
+  const [showMixingGuide, setShowMixingGuide] = useState(false);
   const shelfLife = estimateShelfLifeForCrops(selectedCrops, getCategoryOfCrop, produceState, transportHours);
 
   const validateCode = (code: string) => {
@@ -422,50 +515,124 @@ export default function AddDeviceFlow() {
           )}
 
           {/* ── Mixed-storage compatibility check ────────────────────────── */}
-          {step === 'compat' && compatibility && (
+          {step === 'compat' && (
             <motion.div key="compat" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
               transition={{ duration: 0.22 }} className="space-y-4">
 
-              {compatibility.tier === 'compatible' && (
-                <div className="flex items-center gap-3 p-4 rounded-2xl" style={{ backgroundColor: '#E6F6EC', border: '1px solid #A7D7B6' }}>
-                  <CheckCircle2 className="w-5 h-5 text-[#27AE60] flex-shrink-0" />
-                  <p className="text-sm text-[#166534]">These crops store well together — no conflicts found.</p>
+              {/* Overall score */}
+              <div className="rounded-2xl p-4 flex items-center gap-4"
+                style={{ backgroundColor: TIER_COLOR[overallTier] + '15', border: `1px solid ${TIER_COLOR[overallTier]}50` }}>
+                <div className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ backgroundColor: TIER_COLOR[overallTier] }}>
+                  <span className="text-white font-bold text-lg">{storageScore}</span>
+                </div>
+                <div>
+                  <p className="text-sm font-bold" style={{ color: TIER_COLOR[overallTier] }}>{TIER_LABEL[overallTier]}</p>
+                  <p className="text-xs text-[#6B7280] mt-0.5">Overall storage score for these {selectedCrops.length} crops</p>
+                </div>
+              </div>
+
+              {/* Safe Together */}
+              {safeTogether.length > 0 && (
+                <div className="space-y-2.5">
+                  <p className="text-xs font-bold text-[#166534] uppercase tracking-wide flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Safe Together
+                  </p>
+                  {safeTogether.map((p, i) => {
+                    const cropA = getCrop(p.cropA);
+                    const cropB = getCrop(p.cropB);
+                    return (
+                      <div key={i} className="rounded-2xl p-3.5 bg-white" style={{ border: `1px solid ${TIER_COLOR[p.tier]}40` }}>
+                        <div className="flex items-center justify-center gap-3">
+                          <CropThumb imageId={cropA.imageId} emoji={CATEGORY_EMOJI[cropA.category]} label={cropA.label} />
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                            style={{ backgroundColor: TIER_COLOR[p.tier] + '20' }}>
+                            <Check className="w-5 h-5" style={{ color: TIER_COLOR[p.tier] }} />
+                          </div>
+                          <CropThumb imageId={cropB.imageId} emoji={CATEGORY_EMOJI[cropB.category]} label={cropB.label} />
+                        </div>
+                        <p className="text-[11px] font-semibold text-center mt-2" style={{ color: TIER_COLOR[p.tier] }}>
+                          {TIER_LABEL[p.tier]}
+                        </p>
+                        {p.reasons.length > 0 && (
+                          <p className="text-[11px] text-[#6B7280] leading-relaxed text-center mt-1">{p.reasons[0]}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
-              {compatibility.tier !== 'compatible' && (
-                <div className="rounded-2xl p-4 space-y-2.5" style={{
-                  backgroundColor: compatibility.tier === 'incompatible' ? '#FDEDEC' : '#FEF5EC',
-                  border: `1px solid ${compatibility.tier === 'incompatible' ? '#F5B7B1' : '#F5CBA7'}`,
-                }}>
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-4.5 h-4.5 flex-shrink-0" style={{ color: compatibility.tier === 'incompatible' ? '#C0392B' : '#C0501A' }} />
-                    <p className="text-sm font-bold" style={{ color: compatibility.tier === 'incompatible' ? '#C0392B' : '#C0501A' }}>
-                      {compatibility.tier === 'incompatible' ? 'Not ideal to store together' : 'Worth knowing before you continue'}
-                    </p>
-                  </div>
-                  {compatibility.reasons.map((r, i) => (
-                    <div key={i} className="flex items-start gap-1.5">
-                      <span className="text-xs leading-relaxed flex-shrink-0"
-                        style={{ color: r.tier === 'incompatible' ? '#C0392B' : '#C0501A' }}>
-                        {r.tier === 'incompatible' ? '⛔' : '⚠️'}
-                      </span>
-                      <p className="text-xs leading-relaxed" style={{ color: r.tier === 'incompatible' ? '#7A3010' : '#7A5A2E' }}>
-                        {r.message}
-                      </p>
-                    </div>
-                  ))}
+              {/* Store Separately */}
+              {storeSeparately.length > 0 && (
+                <div className="space-y-2.5">
+                  <p className="text-xs font-bold text-[#C0392B] uppercase tracking-wide flex items-center gap-1.5">
+                    <XCircle className="w-3.5 h-3.5" /> Store Separately
+                  </p>
+                  {storeSeparately.map((p, i) => {
+                    const cropA = getCrop(p.cropA);
+                    const cropB = getCrop(p.cropB);
+                    return (
+                      <div key={i} className="rounded-2xl p-3.5 bg-white" style={{ border: `1px solid ${TIER_COLOR[p.tier]}40` }}>
+                        <div className="flex items-center justify-center gap-3">
+                          <CropThumb imageId={cropA.imageId} emoji={CATEGORY_EMOJI[cropA.category]} label={cropA.label} />
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                            style={{ backgroundColor: TIER_COLOR[p.tier] + '20' }}>
+                            <XCircle className="w-5 h-5" style={{ color: TIER_COLOR[p.tier] }} />
+                          </div>
+                          <CropThumb imageId={cropB.imageId} emoji={CATEGORY_EMOJI[cropB.category]} label={cropB.label} />
+                        </div>
+                        <p className="text-[11px] font-semibold text-center mt-2" style={{ color: TIER_COLOR[p.tier] }}>
+                          {TIER_LABEL[p.tier]}
+                        </p>
+                        {p.reasons.length > 0 && (
+                          <p className="text-[11px] text-[#6B7280] leading-relaxed text-center mt-1">{p.reasons[0]}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
+
+              {/* General mixing-guide reference — independent of the current
+                  selection, teaches the underlying principles. */}
+              <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid #E4E7EC' }}>
+                <button onClick={() => setShowMixingGuide(v => !v)}
+                  className="w-full flex items-center justify-between p-3.5 bg-white">
+                  <span className="text-xs font-semibold text-[#374151]">Not sure what generally pairs well? See examples</span>
+                  <ChevronDown className="w-4 h-4 text-[#6B7280] transition-transform"
+                    style={{ transform: showMixingGuide ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+                </button>
+                {showMixingGuide && (
+                  <div className="p-3.5 pt-0 space-y-2.5" style={{ backgroundColor: '#FFFFFF' }}>
+                    {COMPATIBILITY_EXAMPLES.map(ex => (
+                      <div key={ex.id} className="flex items-center gap-3 rounded-xl p-2.5"
+                        style={{ backgroundColor: ex.tier === 'compatible' ? '#F0FBF4' : '#FDF3F2' }}>
+                        <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0" style={{ backgroundColor: '#F3F4F6' }}>
+                          <img src={`/produce-images/${ex.imageId}.jpg`} alt={ex.title}
+                            className="w-full h-full object-cover"
+                            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-semibold" style={{ color: ex.tier === 'compatible' ? '#166534' : '#C0392B' }}>
+                            {ex.tier === 'compatible' ? '✓ ' : '✕ '}{ex.title}
+                          </p>
+                          <p className="text-[10px] text-[#6B7280] leading-tight mt-0.5">{ex.description}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="rounded-2xl p-4" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
                 <p className="text-xs text-[#1E40AF] leading-relaxed">
                   This is guidance, not a rule — you can still add this device with the crops you've picked. Our
-                  suggestion, if it's not ideal, is a separate device for the ones flagged above.
+                  suggestion, if any pair is flagged "store separately," is a second device for those crops.
                 </p>
               </div>
 
-              {compatibility.tier === 'incompatible' && (
+              {hasHardBlock && (
                 <button onClick={handleKeepFirstOnly}
                   className="w-full py-3 rounded-2xl text-sm font-semibold text-center"
                   style={{ backgroundColor: '#FFFFFF', border: '1.5px solid #0984E3', color: '#0984E3' }}>
@@ -481,25 +648,99 @@ export default function AddDeviceFlow() {
               transition={{ duration: 0.22 }} className="space-y-3.5">
               {selectedCrops.map(id => {
                 const crop = getCrop(id);
+                const compatible = getCompatibleCrops(id);
+                const avoid = getConflicts(id);
                 return (
-                  <div key={id} className="rounded-2xl p-4 bg-white" style={{ border: '1px solid #E4E7EC' }}>
-                    <p className="text-sm font-bold text-[#111827] mb-1">{crop.label}</p>
-                    <p className="text-xs text-[#6B7280] leading-relaxed mb-2.5">{crop.storageNote}</p>
-                    <div className="space-y-1.5">
-                      {crop.tips.map((t, i) => (
-                        <div key={i} className="flex items-start gap-2">
-                          {t.severity === 'warn'
-                            ? <AlertTriangle className="w-3.5 h-3.5 text-[#E67E22] flex-shrink-0 mt-0.5" />
-                            : <Info className="w-3.5 h-3.5 text-[#0984E3] flex-shrink-0 mt-0.5" />}
-                          <p className="text-xs text-[#374151] leading-relaxed">{t.text}</p>
+                  <div key={id} className="rounded-2xl overflow-hidden bg-white" style={{ border: '1px solid #E4E7EC' }}>
+                    <div className="w-full aspect-[16/9] overflow-hidden">
+                      <CropPhoto imageId={crop.imageId} emoji={CATEGORY_EMOJI[crop.category]} label={crop.label} />
+                    </div>
+                    <div className="p-4 space-y-4">
+                      <div>
+                        <p className="text-sm font-bold text-[#111827]">{crop.label}</p>
+                        <p className="text-xs text-[#6B7280] leading-relaxed mt-1">{crop.storageNote}</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="rounded-xl p-3" style={{ backgroundColor: '#EBF4FF' }}>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <ThermometerSnowflake className="w-3.5 h-3.5" style={{ color: '#0984E3' }} />
+                            <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: '#0984E3' }}>Temperature</span>
+                          </div>
+                          <p className="text-sm font-semibold text-[#111827]">{crop.targetTemperature}°C target</p>
+                          <p className="text-[11px] text-[#6B7280]">{crop.tempRange[0]}–{crop.tempRange[1]}°C safe range</p>
                         </div>
-                      ))}
+                        <div className="rounded-xl p-3" style={{ backgroundColor: '#E6F6EC' }}>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Droplets className="w-3.5 h-3.5" style={{ color: '#1A7A3F' }} />
+                            <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: '#1A7A3F' }}>Humidity</span>
+                          </div>
+                          <p className="text-sm font-semibold text-[#111827]">{crop.targetHumidity}% target</p>
+                          <p className="text-[11px] text-[#6B7280]">{crop.humidityRange[0]}–{crop.humidityRange[1]}% safe range</p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl p-3 flex items-start gap-2.5" style={{ backgroundColor: '#F3F4F6' }}>
+                        <Clock className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: '#6B7280' }} />
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]">Shelf life</p>
+                          <p className="text-sm text-[#111827] mt-0.5">{crop.shelfLife}</p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="text-xs font-semibold uppercase tracking-wide text-[#6B7280] mb-2">Preservation tips</h3>
+                        <div className="space-y-2">
+                          {crop.tips.map((t, i) => (
+                            <div key={i} className="flex items-start gap-2 text-sm text-[#374151]">
+                              <span className="flex-shrink-0">{t.icon}</span>
+                              <span>{t.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="text-xs font-semibold uppercase tracking-wide text-[#6B7280] mb-2 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#E67E22' }} /> Common mistakes
+                        </h3>
+                        <div className="space-y-2">
+                          {crop.commonMistakes.map((m, i) => (
+                            <div key={i} className="flex items-start gap-2 text-sm text-[#374151]">
+                              <span className="flex-shrink-0 mt-0.5" style={{ color: '#E67E22' }}>•</span>
+                              <span>{m}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {compatible.length > 0 && (
+                        <div>
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-[#27AE60] mb-2 flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Stores well with
+                          </h3>
+                          <div className="flex gap-1.5 overflow-x-auto pb-1">
+                            {compatible.map(id => <CropChip key={id} id={id} onClick={() => {}} />)}
+                          </div>
+                        </div>
+                      )}
+
+                      {avoid.length > 0 && (
+                        <div>
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-[#C0392B] mb-2 flex items-center gap-1.5">
+                            <XCircle className="w-3.5 h-3.5" /> Avoid storing with
+                          </h3>
+                          <div className="flex gap-1.5 overflow-x-auto pb-1">
+                            {avoid.map(id => <CropChip key={id} id={id} onClick={() => {}} />)}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
               <p className="text-[10px] text-[#9CA3AF] text-center pt-1">
-                A dedicated Preservation Tips page (searchable anytime) is coming — for now, this covers what you've selected here.
+                These tips mirror the produce guide so you can review crop-specific storage advice while setting up a device.
               </p>
             </motion.div>
           )}
@@ -664,7 +905,7 @@ export default function AddDeviceFlow() {
         )}
         {step === 'compat' && (
           <button onClick={() => goTo('tips')} className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98]" style={{ backgroundColor: '#0984E3' }}>
-            Continue anyway
+            {storeSeparately.length > 0 ? 'Continue anyway' : 'Continue'}
           </button>
         )}
         {step === 'tips' && (

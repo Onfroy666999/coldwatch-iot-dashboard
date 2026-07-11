@@ -3,13 +3,16 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Cpu, MapPin, Wifi, WifiOff, Battery, Info, Plus, ChevronRight, ChevronLeft,
   Signal, Settings2, X, Check, Trash2, AlertTriangle, Camera, Upload,
-  Loader2, RefreshCw, CheckCircle2, PackageCheck, Clock, Hash,
+  Loader2, RefreshCw, CheckCircle2, XCircle, PackageCheck, Clock, Hash,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import type { Device, ProduceMode, ProduceState } from '../context/AppContext';
-import { getStateAdjustedTargets } from '../context/AppContext';
+import type { Device, ProduceState } from '../context/AppContext';
 import { usePageLoading, DevicesSkeleton } from '../components/Skeleton';
-import ProduceModeSelector from '../components/ProduceModeSelector';
+import {
+  CATEGORIES, CATEGORY_EMOJI, getCropsByCategory, getCrop, deriveTargetsForCrops,
+  getPairCompatibility, getStorageScore, type CropId, type CategoryId,
+} from '../data/produce';
+import { ProduceTile, CropThumb, estimateShelfLifeForCrops, computeGroupCompatibility, TIER_COLOR, TIER_LABEL } from './AddDeviceFlow';
 
 // ── Module-level helpers ───────────────────────────────────────────────────────
 
@@ -63,15 +66,6 @@ function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }>
 
 // ── Wizard / removal data ─────────────────────────────────────────────────────
 
-const WIZARD_PRODUCE = [
-  { id: 'mixed',   label: 'Mixed Produce',  tagline: 'Various crop types',                  color: '#1A65B5', tint: '#EBF3FD', emoji: '🥕, 🥜, 🥬, 🥭' },
-  { id: 'tubers',  label: 'Tubers',         tagline: 'Cassava, Yam, Cocoyam',               color: '#B84A00', tint: '#FEF0E7', emoji: '🥔, 🍠' },
-  { id: 'fruits',  label: 'Fruits',         tagline: 'Mango, Pineapple, Banana, Orange',    color: '#1A7A3F', tint: '#E6F6EC', emoji: '🥭, 🍍, 🍌, 🍊' },
-  { id: 'leafy',   label: 'Leafy Veg',      tagline: 'Lettuce, Cabbage, Kontomire',         color: '#0E7A62', tint: '#E6F6F2', emoji: '🥬, 🫑' },
-  { id: 'legumes', label: 'Legumes',        tagline: 'Cowpea, Groundnuts',                  color: '#7A5A2E', tint: '#F8F2EA', emoji: '🫛, 🥜' }, 
-  { id: 'meat',    label: 'Meat & Fish',    tagline: 'Chicken, Beef, Tilapia',              color: '#B91C1C', tint: '#FEF2F2', emoji: '🍗, 🐟, 🥩' },
-] as const;
-
 const PRODUCE_STATES: { id: ProduceState; label: string; desc: string; color: string; tint: string; emoji: string }[] = [
   { id: 'fresh',          label: 'Still Fresh',    desc: 'Just harvested or recently received',   color: '#1A7A3F', tint: '#E6F6EC', emoji: '🟢' },
   { id: 'in-between',     label: 'In-Between',     desc: 'Some time has passed since harvest',    color: '#E67E22', tint: '#FEF5EC', emoji: '🟡' },
@@ -95,28 +89,7 @@ const FACILITY_SIZES = [
   { id: 'large',  label: 'Large',  desc: 'Over 50 m²  ·  Warehouse or distributor',  color: '#0984E3' },
 ] as const;
 
-type WizardProduceId = typeof WIZARD_PRODUCE[number]['id'];
 type FacilitySizeId   = typeof FACILITY_SIZES[number]['id'];
-
-function estimateShelfLife(
-  produceId: WizardProduceId,
-  state: ProduceState,
-  transportHours: number
-): { hours: number; label: string; color: string } {
-  const BASE: Record<WizardProduceId, number> = {
-    mixed: 168, tubers: 336, fruits: 96, leafy: 48, legumes: 720, meat: 72,
-  };
-  const STATE_MULT: Record<ProduceState, number> = {
-    fresh: 1.0, 'in-between': 0.65, dried: 1.4, 'almost-damaged': 0.3,
-  };
-  const hours  = Math.max(4, Math.round((BASE[produceId] - transportHours * 1.5) * STATE_MULT[state]));
-  const color  = hours < 24 ? '#C0392B' : hours < 72 ? '#E67E22' : '#27AE60';
-  const label  = hours < 24  ? `~${hours}h — urgent`
-               : hours < 48  ? `~${hours}h — act soon`
-               : hours < 168 ? `~${Math.round(hours / 24)} days`
-               :               `~${Math.round(hours / 24 / 7)} weeks`;
-  return { hours, label, color };
-}
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 
@@ -233,7 +206,11 @@ function RemoveProduceSheet({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const storageDays = device.storedSince ? daysSince(device.storedSince) : 0;
-  const produceLabel = WIZARD_PRODUCE.find(p => p.id === device.produceMode)?.label ?? device.produceMode ?? 'Produce';
+  const produceLabel = device.cropIds?.length
+    ? device.cropIds.map(id => getCrop(id).label).join(', ')
+    : device.produceMode
+    ? device.produceMode.charAt(0).toUpperCase() + device.produceMode.slice(1)
+    : 'Produce';
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -568,7 +545,6 @@ const CONFIG_TABS = [
 ] as const;
 type ConfigTab = typeof CONFIG_TABS[number]['id'];
 
-const CONFIGURE_PRODUCE = WIZARD_PRODUCE;
 const CONFIGURE_STATES  = PRODUCE_STATES;
 
 function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => void }) {
@@ -581,7 +557,8 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
   const [location,  setLocation]  = useState(device.location);
 
   // Produce
-  const [produceId,    setProduceId]    = useState<WizardProduceId>((device.produceMode as WizardProduceId) || 'mixed');
+  const [selectedCrops, setSelectedCrops] = useState<CropId[]>(device.cropIds ?? []);
+  const [pickerCategory, setPickerCategory] = useState<CategoryId | null>(null);
   const [produceState, setProduceState] = useState<ProduceState>(device.produceState || 'fresh');
   const [facilitySize, setFacilitySize] = useState<FacilitySizeId>((device.facilitySize as FacilitySizeId) || 'small');
   const [transportHours, setTransportHours] = useState(device.transportHours ?? 2);
@@ -605,7 +582,8 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
 
   // Reset all local state when the device being configured changes
   useEffect(() => {
-    setProduceId((device.produceMode as WizardProduceId) || 'mixed');
+    setSelectedCrops(device.cropIds ?? []);
+    setPickerCategory(null);
     setProduceState(device.produceState || 'fresh');
     setFacilitySize((device.facilitySize as FacilitySizeId) || 'small');
     setTransportHours(device.transportHours ?? 2);
@@ -619,6 +597,16 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
     setHumidOffset(String(device.humidOffset ?? 0));
     setAutoResolveMinutes(device.autoResolveMinutes != null ? String(device.autoResolveMinutes) : '');
   }, [device.id]);
+
+  const toggleCrop = (id: CropId) => {
+    setSelectedCrops(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+  };
+
+  // Chunk 5 unification — same engine AddDeviceFlow's wizard uses, so editing
+  // an existing device's produce and setting it up for the first time never
+  // diverge into two different sources of truth.
+  const previewTargets = selectedCrops.length ? deriveTargetsForCrops(selectedCrops) : null;
+  const { storageScore, overallTier, safeTogether, storeSeparately } = computeGroupCompatibility(selectedCrops);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -636,9 +624,9 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
         location: location.trim(),
       });
 
-      // Produce metadata (mode is applied live via ProduceModeSelector)
+      // Produce metadata — crop-based, matching the wizard (Chunk 5 unification)
       updateProduceSetup(device.id, {
-        produceMode:  device.produceMode as ProduceMode || 'mixed',
+        cropIds: selectedCrops,
         produceState,
         facilitySize,
         transportHours,
@@ -761,10 +749,132 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                 initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
                 className="space-y-5 pt-2">
 
-                <ProduceModeSelector
-                  deviceId={device.id}
-                  currentMode={(device.produceMode as ProduceMode) || 'mixed'}
-                />
+                {pickerCategory === null ? (
+                  <>
+                    <p className="text-sm text-[#6B7280]">Tap a category, then choose exactly what's inside it. You can add more than one.</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {Object.values(CATEGORIES).map(cat => (
+                        <ProduceTile
+                          key={cat.id}
+                          imageId={cat.imageId}
+                          emoji={CATEGORY_EMOJI[cat.id]}
+                          label={cat.label}
+                          tagline={cat.tagline}
+                          selected={false}
+                          badge={selectedCrops.filter(id => getCropsByCategory(cat.id).some(c => c.id === id)).length}
+                          onClick={() => setPickerCategory(cat.id)}
+                          tint={cat.iconBg}
+                          accent={cat.accentColor}
+                        />
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => setPickerCategory(null)}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-[#0984E3] mb-1">
+                      <ChevronLeft className="w-3.5 h-3.5" /> All categories
+                    </button>
+                    <p className="text-sm text-[#6B7280]">Which exactly? Tap all that apply.</p>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {getCropsByCategory(pickerCategory).map(crop => (
+                        <ProduceTile
+                          key={crop.id}
+                          imageId={crop.imageId}
+                          emoji={CATEGORY_EMOJI[crop.category]}
+                          label={crop.label}
+                          selected={selectedCrops.includes(crop.id)}
+                          onClick={() => toggleCrop(crop.id)}
+                          tint={CATEGORIES[crop.category].iconBg}
+                          accent={CATEGORIES[crop.category].accentColor}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {selectedCrops.length > 0 && (
+                  <div className="rounded-2xl p-3.5" style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
+                    <p className="text-[10px] font-semibold text-[#6B7280] uppercase tracking-wide mb-2">
+                      Selected ({selectedCrops.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedCrops.map(id => {
+                        const crop = getCrop(id);
+                        return (
+                          <button key={id} onClick={() => toggleCrop(id)}
+                            className="flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-[11px] font-medium"
+                            style={{ backgroundColor: CATEGORIES[crop.category].iconBg, color: CATEGORIES[crop.category].accentColor }}>
+                            {crop.label} <X className="w-3 h-3" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Mixed-storage compatibility check — same engine as the wizard */}
+                {selectedCrops.length >= 2 && (
+                  <div className="rounded-2xl p-4 flex items-center gap-4"
+                    style={{ backgroundColor: TIER_COLOR[overallTier] + '15', border: `1px solid ${TIER_COLOR[overallTier]}50` }}>
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: TIER_COLOR[overallTier] }}>
+                      <span className="text-white font-bold text-sm">{storageScore}</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold" style={{ color: TIER_COLOR[overallTier] }}>{TIER_LABEL[overallTier]}</p>
+                      <p className="text-[11px] text-[#6B7280] mt-0.5">Overall storage score for these {selectedCrops.length} crops</p>
+                    </div>
+                  </div>
+                )}
+
+                {safeTogether.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-[#166534] uppercase tracking-wide flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Safe Together
+                    </p>
+                    {safeTogether.map((p, i) => {
+                      const cropA = getCrop(p.cropA);
+                      const cropB = getCrop(p.cropB);
+                      return (
+                        <div key={i} className="rounded-xl p-3 bg-white" style={{ border: `1px solid ${TIER_COLOR[p.tier]}40` }}>
+                          <div className="flex items-center justify-center gap-2.5">
+                            <CropThumb imageId={cropA.imageId} emoji={CATEGORY_EMOJI[cropA.category]} label={cropA.label} size={44} />
+                            <Check className="w-4 h-4 flex-shrink-0" style={{ color: TIER_COLOR[p.tier] }} />
+                            <CropThumb imageId={cropB.imageId} emoji={CATEGORY_EMOJI[cropB.category]} label={cropB.label} size={44} />
+                          </div>
+                          {p.reasons.length > 0 && (
+                            <p className="text-[11px] text-[#6B7280] leading-relaxed text-center mt-1.5">{p.reasons[0]}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {storeSeparately.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-[#C0392B] uppercase tracking-wide flex items-center gap-1.5">
+                      <XCircle className="w-3.5 h-3.5" /> Store Separately
+                    </p>
+                    {storeSeparately.map((p, i) => {
+                      const cropA = getCrop(p.cropA);
+                      const cropB = getCrop(p.cropB);
+                      return (
+                        <div key={i} className="rounded-xl p-3 bg-white" style={{ border: `1px solid ${TIER_COLOR[p.tier]}40` }}>
+                          <div className="flex items-center justify-center gap-2.5">
+                            <CropThumb imageId={cropA.imageId} emoji={CATEGORY_EMOJI[cropA.category]} label={cropA.label} size={44} />
+                            <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: TIER_COLOR[p.tier] }} />
+                            <CropThumb imageId={cropB.imageId} emoji={CATEGORY_EMOJI[cropB.category]} label={cropB.label} size={44} />
+                          </div>
+                          {p.reasons.length > 0 && (
+                            <p className="text-[11px] text-[#6B7280] leading-relaxed text-center mt-1.5">{p.reasons[0]}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 <div>
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">Produce Condition</p>
@@ -828,15 +938,14 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                 {/* Target preview */}
                 <div className="p-3 rounded-xl" style={{ backgroundColor: '#F3F4F6', border: '1px solid #E4E7EC' }}>
                   <p className="text-[10px] text-[#6B7280] uppercase tracking-wide mb-1.5">Targets that will be applied</p>
-                  {(() => {
-                    const targets = getStateAdjustedTargets(produceId as ProduceMode, produceState);
-                    return (
-                      <div className="flex gap-4">
-                        <span className="text-sm font-bold text-[#0984E3]">🌡 {targets.targetTemperature}°C</span>
-                        <span className="text-sm font-bold text-[#0984E3]">💧 {targets.targetHumidity}% RH</span>
-                      </div>
-                    );
-                  })()}
+                  {previewTargets ? (
+                    <div className="flex gap-4">
+                      <span className="text-sm font-bold text-[#0984E3]">🌡 {previewTargets.targetTemperature}°C</span>
+                      <span className="text-sm font-bold text-[#0984E3]">💧 {previewTargets.targetHumidity}% RH</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[#9CA3AF]">Select at least one crop above to see targets.</p>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -1069,7 +1178,9 @@ if (isLoading) return <DevicesSkeleton />;
         conditionImageMime:  record.conditionImageMime,
         aiAssessment:        record.aiAssessment,
         storageDurationDays,
-        produceMode:         device.produceMode,
+        produceMode:         device.cropIds?.length
+          ? device.cropIds.map(id => getCrop(id).label).join(', ')
+          : device.produceMode,
       });
     } catch {
       // Record save failed — notify the user and abort. The device stays
@@ -1158,11 +1269,15 @@ if (isLoading) return <DevicesSkeleton />;
             )}
 
             {/* Produce badge + storage duration */}
-            {device.produceSetupComplete && device.produceMode && (
+            {device.produceSetupComplete && (
               <div className="flex items-center gap-2 mb-4 flex-wrap">
                 <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold"
                   style={{ backgroundColor: '#EBF4FF', color: '#1A65B5' }}>
-                  {device.produceMode.charAt(0).toUpperCase() + device.produceMode.slice(1)}
+                  {device.cropIds?.length
+                    ? device.cropIds.map(id => getCrop(id).label).join(', ')
+                    : device.produceMode
+                      ? device.produceMode.charAt(0).toUpperCase() + device.produceMode.slice(1)
+                      : 'Produce'}
                 </span>
                 {device.produceState && (
                   <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold"
@@ -1254,7 +1369,7 @@ if (isLoading) return <DevicesSkeleton />;
           </div>
           <p className="text-[#111827] font-medium text-sm mb-1">Add New Device</p>
           <p className="text-[#6B7280] text-xs text-center max-w-[180px] leading-relaxed">
-            Connect an ESP32 + SHT31 cold storage unit
+            Connect your device to the app and start monitoring your produce.
           </p>
         </button>
       </div>

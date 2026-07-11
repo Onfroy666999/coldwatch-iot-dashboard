@@ -26,7 +26,7 @@ import { enqueueAction, isRetryableError } from '../Lib/ActionQueue';
 import { getToken } from '../Lib/tokenStorage';
 import {
   PRODUCE_THRESHOLDS, DEFAULT_SETTINGS, getStateAdjustedTargets,
-  mapDevice, buildInitialSimState,
+  mapDevice, buildInitialSimState, deriveLegacyProduceModeFromCrops,
 } from './types';
 import { deriveTargetsForCrops, getCategoryOfCrop, type CropId } from '../data/produce';
 import { saveLastReading, loadLastReading, saveBootstrapCache, loadBootstrapCache } from './offlineCache';
@@ -78,7 +78,7 @@ export interface UseDevicesReturn {
   updateDevice: (id: string, patch: Partial<Device>) => void;
   updateProduceSetup: (
     deviceId: string,
-    produceInfo: { produceMode: ProduceMode; produceState: ProduceState; facilitySize?: Device['facilitySize']; transportHours?: number }
+    produceInfo: { cropIds: CropId[]; produceState: ProduceState; facilitySize?: Device['facilitySize']; transportHours?: number }
   ) => void;
   deleteDevice: (id: string) => void;
   /** Seed device state from bootstrap — not for arbitrary mutation. */
@@ -211,10 +211,37 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
           // Delegate to useAlerts — it deduplicates and manages alert state
           addAlert(data.data);
         }
+
+        // Backend now broadcasts this whenever a device's online/offline
+        // status actually changes — both from the MQTT LWT handler (near-
+        // instant on a clean disconnect) and from the heartbeat fallback job
+        // (catches a device that just lost power, up to ~5min later). Before
+        // this, status changes were only ever picked up on the next full
+        // reload, since nothing pushed them to already-open connections.
+        // deviceStatus/isSimulated/badges on Dashboard.tsx all derive from
+        // this same `devices` array, so patching it here is enough — no
+        // separate selectedSim update needed.
+        if (data.type === 'device_status') {
+          const { status } = data.data as { status: 'online' | 'offline' };
+          setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status } : d));
+        }
       },
       () => {
-        // On error: mark device offline in state
-        setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, status: 'offline' } : d));
+        // This error means OUR connection to the backend hiccuped — it says
+        // nothing about whether the physical device is actually online or
+        // offline. That truth only ever comes from the backend's explicit
+        // device_status/reading broadcasts (or the initial device fetch).
+        // Previously this overwrote the device's real status with a guess,
+        // so a flaky wifi blip on the phone could show a perfectly healthy
+        // device as "offline" and leave it stuck that way.
+        //
+        // The app's own connectivity already has a correct, single source of
+        // truth — `isOnline` in AppContext (driven by the browser's
+        // online/offline events), the same signal SyncBanner and the
+        // never-queue-commands-when-offline logic in startCooling/stopCooling
+        // already use. No need for this socket to maintain a second,
+        // conflicting copy of "are we offline" on the device object itself.
+        // onClose below already handles reconnecting.
       },
       () => {
         // On close: attempt reconnect after 5s, only if the user is still authenticated
@@ -233,11 +260,13 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   const reconnectWebSockets = useCallback(() => {
     setDevices(current => {
       for (const device of current) {
-        if (device.status === 'online') {
-          const existing = wsRefs.current[device.id];
-          if (!existing || existing.readyState === WebSocket.CLOSED) {
-            openWebSocket(device.id);
-          }
+        // Every device gets a socket now, not just ones already known to be
+        // online — an offline device reconnecting is exactly the case this
+        // needs to catch, and there's no way to learn about that without a
+        // channel already open to receive the broadcast on.
+        const existing = wsRefs.current[device.id];
+        if (!existing || existing.readyState === WebSocket.CLOSED) {
+          openWebSocket(device.id);
         }
       }
       return current;
@@ -364,21 +393,39 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   }, [selectedDeviceId]);
 
   // ── updateProduceSetup ────────────────────────────────────────────────────
+  // Crop-based, matching addDevice — this is Chunk 5's unification: editing
+  // an existing device's produce now goes through the same CropId[]-driven
+  // threshold derivation as creating one, instead of the old single-category
+  // ProduceMode path. produceMode is still written alongside (derived from
+  // the crop set) purely for older UI/display that hasn't migrated off it —
+  // it's never the source of truth here.
+
+  // Shared compatibility mapping for older display/UI consumers that still
+  // read a single legacy produce mode from a device's crop set.
+  const deriveLegacyProduceMode = (cropIds: CropId[]): ProduceMode | undefined => {
+    return deriveLegacyProduceModeFromCrops(cropIds);
+  };
 
   const updateProduceSetup = useCallback((
     deviceId: string,
-    produceInfo: { produceMode: ProduceMode; produceState: ProduceState; facilitySize?: Device['facilitySize']; transportHours?: number }
+    produceInfo: { cropIds: CropId[]; produceState: ProduceState; facilitySize?: Device['facilitySize']; transportHours?: number }
   ) => {
-    const thresholds = PRODUCE_THRESHOLDS[produceInfo.produceMode];
-    const adjusted   = getStateAdjustedTargets(produceInfo.produceMode, produceInfo.produceState);
+    const thresholds = deriveTargetsForCrops(produceInfo.cropIds);
+    const derivedProduceMode = deriveLegacyProduceMode(produceInfo.cropIds);
 
     setDevices(prev => prev.map(d => d.id === deviceId ? {
-      ...d, ...produceInfo, ...thresholds,
+      ...d,
+      cropIds: produceInfo.cropIds,
+      produceMode: derivedProduceMode,
+      produceState: produceInfo.produceState,
+      facilitySize: produceInfo.facilitySize,
+      transportHours: produceInfo.transportHours,
+      ...thresholds,
       produceSetupComplete: true, useCustomThresholds: true,
     } : d));
 
     const backendPatch = {
-      produceMode:          produceInfo.produceMode,
+      crops:                produceInfo.cropIds,
       produceState:         produceInfo.produceState,
       facilitySize:         produceInfo.facilitySize,
       transportHours:       produceInfo.transportHours,
@@ -397,9 +444,9 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     });
 
     if (simRef.current[deviceId]) {
-      simRef.current[deviceId] = { ...simRef.current[deviceId], ...adjusted };
+      simRef.current[deviceId] = { ...simRef.current[deviceId], ...thresholds };
     }
-    if (deviceId === selectedDeviceId) setSelectedSim(prev => ({ ...prev, ...adjusted }));
+    if (deviceId === selectedDeviceId) setSelectedSim(prev => ({ ...prev, ...thresholds }));
   }, [selectedDeviceId]);
 
   // ── addDevice ─────────────────────────────────────────────────────────────
@@ -415,12 +462,8 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
 
     // Backward-compat display field — ControlPanel and other older UI still
     // read device.produceMode (single broad category) rather than cropIds.
-    // Single category → that category; mixed categories → 'mixed'.
-    const derivedProduceMode: ProduceMode | undefined = produceInfo?.cropIds.length
-      ? (new Set(produceInfo.cropIds.map(getCategoryOfCrop)).size === 1
-          ? (getCategoryOfCrop(produceInfo.cropIds[0]) as ProduceMode)
-          : 'mixed')
-      : undefined;
+    // See deriveLegacyProduceMode above for why this can't be a naive cast.
+    const derivedProduceMode = produceInfo ? deriveLegacyProduceMode(produceInfo.cropIds) : undefined;
 
     return devicesApi.create({
       name,
@@ -435,7 +478,6 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       criticalHumidity:    thresholds?.criticalHumidity    ?? DEFAULT_SETTINGS.criticalHumidity,
       humidAlertHigh:      thresholds?.humidAlertHigh,
       crops:               produceInfo?.cropIds,
-      produceMode:         derivedProduceMode,
       produceState:        produceInfo?.produceState,
       facilitySize:        produceInfo?.facilitySize,
       transportHours:      produceInfo?.transportHours,
@@ -482,7 +524,6 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
             payload: {
               name, location, deviceCode, unitName,
               crops:               produceInfo?.cropIds,
-              produceMode:         derivedProduceMode,
               produceState:        produceInfo?.produceState,
               facilitySize:        produceInfo?.facilitySize,
               transportHours:      produceInfo?.transportHours,
@@ -577,9 +618,12 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       setSelectedSim(simRef.current[toSelect] ?? buildInitialSimState(mappedDevices.find(d => d.id === toSelect)!));
     }
 
-    // Open WebSocket for each online device
+    // Open a WebSocket for every device, online or not — an offline device
+    // needs a live channel open too, otherwise there's nothing to deliver a
+    // "back online" broadcast on later, and the dashboard would only find
+    // out on the next reload.
     for (const device of mappedDevices) {
-      if (device.status === 'online') openWebSocket(device.id);
+      openWebSocket(device.id);
     }
   }, [openWebSocket]);
 
@@ -613,7 +657,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
           setDeviceReadings(prev => ({ ...prev, [device.id]: [] }));
           setDeviceHistories(prev => ({ ...prev, [device.id]: simRef.current[device.id]?.sensorHistory ?? [] }));
         }
-        if (device.status === 'online' && !wsRefs.current[device.id]) {
+        if (!wsRefs.current[device.id]) {
           openWebSocket(device.id);
         }
       }
