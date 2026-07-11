@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "560213417925",
+    "project_id": "coldwatch-4ccaf",
+    "storage_bucket": "coldwatch-4ccaf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:560213417925:android:42b9194f7c1c74fe98f5ac",
+        "android_client_info": {
+          "package_name": "com.coldwatch.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDGbchSdupVxsWh-KRa9qCz8t2tzmAW2pQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
