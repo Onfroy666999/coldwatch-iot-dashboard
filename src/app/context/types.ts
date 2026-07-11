@@ -13,8 +13,8 @@
 // If you add something here and it needs a React import, it belongs in a hook
 // or a component instead.
 
-import type { CropId } from '../data/produce';
-import { deriveTargetsForCrops } from '../data/produce';
+import type { CropId, CategoryId } from '../data/produce';
+import { deriveTargetsForCrops, getCategoryOfCrop } from '../data/produce';
 
 // ── Sensor & alert types ──────────────────────────────────────────────────────
 
@@ -48,6 +48,53 @@ export interface Alert {
 // ── Device types ──────────────────────────────────────────────────────────────
 
 export type ProduceMode  = 'mixed' | 'tubers' | 'fruits' | 'leafy' | 'legumes' | 'meat';
+
+// ── Legacy-mode safety net ──────────────────────────────────────────────────
+// Bug found while scoping Chunk 5: CategoryId (data/produce.ts) gained a
+// 'vegetables' member in Chunk 1 when tomato/pepper/bell-pepper were split
+// out of the old 'fruits' bucket — but ProduceMode above was never updated
+// to match, since it's the legacy system Chunk 5/6 are deprecating, not
+// actively maintained. Anywhere a category got silently cast `as
+// ProduceMode` (addDevice's derivedProduceMode, and a few places in
+// Devices.tsx that read a stored/legacy value the same unsafe way), a
+// vegetables-only device would produce the literal string "vegetables" —
+// not a compile error (the cast lies to TypeScript), but a runtime crash
+// the moment anything does PRODUCE_PROFILES[produceMode].whatever, since
+// PRODUCE_PROFILES has no such key. ControlPanel.tsx hit this every time
+// the panel opened for such a device.
+//
+// isValidProduceMode is a real runtime check (unlike an `as` cast, which is
+// compile-time only and enforces nothing once the value leaves the type
+// checker's sight) — every ProduceMode consumer should route a raw/stored
+// value through this before trusting it, since existing devices may
+// already have "vegetables" sitting in the database from before this fix.
+const VALID_PRODUCE_MODES: ReadonlySet<string> = new Set<ProduceMode>(
+  ['mixed', 'tubers', 'fruits', 'leafy', 'legumes', 'meat']
+);
+
+export function isValidProduceMode(value: unknown): value is ProduceMode {
+  return typeof value === 'string' && VALID_PRODUCE_MODES.has(value);
+}
+
+// For NEW writes (deriving a display-only legacy mode from a device's real
+// crops) — maps every CategoryId onto a valid ProduceMode instead of an
+// unsafe cast. 'vegetables' → 'fruits' since that's literally where those
+// crops lived before the Chunk 1 split, so it's the closest legacy match.
+// This function (and the whole legacy system it patches around) goes away
+// once Chunk 5/6 finish the migration and PRODUCE_PROFILES is deleted.
+export function categoryToLegacyMode(category: CategoryId): ProduceMode {
+  return category === 'vegetables' ? 'fruits' : category;
+}
+
+/** Shared compatibility helper for older UI that still expects a single legacy produce mode. */
+export function deriveLegacyProduceModeFromCrops(cropIds: CropId[]): ProduceMode | undefined {
+  if (!cropIds.length) return undefined;
+  const categories = new Set(cropIds.map(getCategoryOfCrop));
+  if (categories.size > 1) return 'mixed';
+  const only = getCategoryOfCrop(cropIds[0]);
+  return only === 'vegetables' ? 'mixed' : (only as ProduceMode);
+}
+
 export type ProduceState = 'fresh' | 'dried' | 'in-between' | 'almost-damaged';
 
 export interface Device {
@@ -277,6 +324,11 @@ export function mapAlert(a: any): Alert {
 
 /** Map a raw backend device payload to the frontend Device shape. */
 export function mapDevice(d: any): Device {
+  const cropIds = Array.isArray(d.crops) && d.crops.length ? d.crops as CropId[] : undefined;
+  const derivedProduceMode = cropIds
+    ? deriveLegacyProduceModeFromCrops(cropIds)
+    : isValidProduceMode(d.produceMode) ? d.produceMode : undefined;
+
   return {
     id:                  d.id,
     name:                d.unitName ?? d.name,
@@ -293,8 +345,8 @@ export function mapDevice(d: any): Device {
     warningHumidity:     d.warningHumidity     ?? 80,
     criticalHumidity:    d.criticalHumidity    ?? 90,
     humidAlertHigh:      d.humidAlertHigh,
-    cropIds:             Array.isArray(d.crops) && d.crops.length ? d.crops as CropId[] : undefined,
-    produceMode:         d.produceMode  as ProduceMode  | undefined,
+    cropIds,
+    produceMode:         derivedProduceMode,
     produceState:        d.produceState as ProduceState | undefined,
     facilitySize:        d.facilitySize as Device['facilitySize'],
     transportHours:      d.transportHours,

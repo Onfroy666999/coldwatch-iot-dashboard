@@ -44,6 +44,7 @@ interface AIAction {
 // The Groq API key lives in the backend .env — never in the browser.
 // Import the API base URL and token from the api lib.
 import { aiApi } from '../Lib/api';
+import { getCrop, type CropId } from '../data/produce';
 
 // Keep model constants for readability — they are sent to the backend proxy
 // which validates them against an allowlist before forwarding to Groq.
@@ -55,6 +56,27 @@ const GROQ_API_KEY = 'proxy'; // non-empty so !GROQ_API_KEY checks pass
 const MAX_HISTORY             = 20;
 const VOICE_AUTOSEND_DELAY    = 1800;
 const VALID_PAGES             = ['dashboard', 'alerts', 'history', 'devices', 'settings'] as const;
+
+function getProduceSummary(device: { cropIds?: CropId[]; produceMode?: string } | undefined): string {
+  if (device?.cropIds?.length) {
+    return device.cropIds.map(id => getCrop(id).label).join(', ');
+  }
+  return device?.produceMode ?? 'not set';
+}
+
+function getMinimumSafeTemperature(device: { cropIds?: CropId[]; produceMode?: string } | undefined): number {
+  if (device?.cropIds?.length) {
+    const floors = device.cropIds
+      .map(id => getCrop(id).chillingFloor)
+      .filter((f): f is number => f !== null);
+    return floors.length ? Math.max(...floors) : 0;
+  }
+
+  const safeMinTemp: Record<string, number> = {
+    meat: 0, leafy: 1, fruits: 4, tubers: 8, legumes: 8, mixed: 6,
+  };
+  return safeMinTemp[device?.produceMode ?? 'mixed'] ?? 0;
+}
 
 // ─── Produce image analysis (Groq Vision) ────────────────────────────────────
 // Uses llama-4-scout-17b — free on GROQ_API_KEY.
@@ -192,7 +214,7 @@ function buildAppContext(app: ReturnType<typeof useApp>) {
     selectedDevice: selectedDevice ? {
       id: selectedDevice.id, name: selectedDevice.name, location: selectedDevice.location,
       status: selectedDevice.status,
-      produceMode: selectedDevice.produceMode ?? 'not set',
+      produceMode: getProduceSummary(selectedDevice),
       produceState: selectedDevice.produceState ?? 'not set',
       facilitySize: selectedDevice.facilitySize ?? 'not set',
       transportHours: selectedDevice.transportHours ?? 'not set',
@@ -245,7 +267,7 @@ function buildAppContext(app: ReturnType<typeof useApp>) {
     allDevices: app.devices.map(d => ({
       id: d.id, name: d.name, location: d.location, status: d.status,
       isSelected: d.id === app.selectedDeviceId,
-      produceMode: d.produceMode ?? 'not set',
+      produceMode: getProduceSummary(d),
       produceState: d.produceState ?? 'not set',
       batteryLevel: d.batteryLevel ?? null,
       estimatedShelfLifeHours: d.produceState
@@ -263,8 +285,8 @@ function buildAppContext(app: ReturnType<typeof useApp>) {
       })),
     },
     user: { name: app.user.name, role: app.user.role ?? 'user' },
-    shelfLifeContext: selectedDevice?.produceMode && selectedDevice?.produceState ? {
-      produceMode: selectedDevice.produceMode,
+    shelfLifeContext: selectedDevice?.produceState ? {
+      produceMode: getProduceSummary(selectedDevice),
       produceState: selectedDevice.produceState,
       transportHours: selectedDevice.transportHours ?? 0,
       estimatedBaseHours: shelfBaseHours[selectedDevice.produceState ?? 'fresh'] ?? 96,
@@ -1053,16 +1075,13 @@ const AIAssistant = forwardRef<NixHandle, AIAssistantProps>(
     if (hist.length < 20) return; // need at least 1 minute of data
 
     const device = app.devices.find(d => d.id === app.selectedDeviceId);
-    if (!device?.produceSetupComplete || !device?.produceMode) return;
+    if (!device?.produceSetupComplete) return;
 
     optimisationRunning.current = true;
     lastOptimisedRef.current    = now;
 
     // Safe minimum temperatures by produce type — never go below these
-    const safeMinTemp: Record<string, number> = {
-      meat: 0, leafy: 1, fruits: 4, tubers: 8, legumes: 8, mixed: 6,
-    };
-    const minSafeTarget = safeMinTemp[device.produceMode] ?? 0;
+    const minSafeTarget = getMinimumSafeTemperature(device);
 
     // Build compact time-series payload — last 60 readings (3 minutes of data)
     const readings = hist.slice(-60).map((r, i) => ({
@@ -1084,7 +1103,7 @@ const AIAssistant = forwardRef<NixHandle, AIAssistantProps>(
           targetTemperature:  app.targetTemperature,
           warningThreshold:   device.warningTemperature  ?? 10,
           criticalThreshold:  device.criticalTemperature ?? 15,
-          produceMode:        device.produceMode,
+          produceMode:        getProduceSummary(device),
           minSafeTarget,
         }),
       });
@@ -1164,7 +1183,7 @@ const AIAssistant = forwardRef<NixHandle, AIAssistantProps>(
     const prompt = `You are an AI temperature optimisation engine for a cold chain storage system.
 
 DEVICE: ${device.name} (${device.location})
-PRODUCE: ${device.produceMode}, condition: ${device.produceState ?? 'unknown'}
+PRODUCE: ${getProduceSummary(device)}, condition: ${device.produceState ?? 'unknown'}
 CURRENT TEMPERATURE: ${app.currentTemperature.toFixed(1)}°C
 CURRENT TARGET: ${app.targetTemperature}°C
 WARNING THRESHOLD: ${device.warningTemperature ?? 10}°C
@@ -1335,10 +1354,7 @@ Only set shouldAdjust to true if: (a) the predicted temperature will exceed the 
       watchdogFiredRef.current.add(breachKey);
 
       // Safe minimum temperatures per produce type
-      const safeMin: Record<string, number> = {
-        meat: 0, leafy: 1, fruits: 4, tubers: 8, legumes: 8, mixed: 6,
-      };
-      const minSafe = safeMin[device.produceMode ?? 'mixed'] ?? 0;
+      const minSafe = getMinimumSafeTemperature(device);
 
       // Action 1 — start cooling if not already running
       if (isNotCooling) {
@@ -1369,7 +1385,7 @@ Only set shouldAdjust to true if: (a) the predicted temperature will exceed the 
       // Spoken alert — fires regardless of whether drawer is open
       const spokenAlert = isCriticalImminent
         ? `Automatic protection activated. The temperature is heading toward the critical threshold in about ${trend?.minsToCriticalThreshold ?? 'a few'} minutes. I have started cooling and lowered the target temperature to protect your produce.`
-        : `Temperature breach detected. I have started the cooling system automatically to protect your ${device.produceMode ?? 'produce'}.`;
+        : `Temperature breach detected. I have started the cooling system automatically to protect your ${getProduceSummary(device)}.`;
       speak(spokenAlert, isMuted, app.user.name);
 
       // If drawer is open, add a message to the chat so there is a visible record
@@ -1396,8 +1412,8 @@ Only set shouldAdjust to true if: (a) the predicted temperature will exceed the 
   useEffect(() => {
     if (!isOpen || !GROQ_API_KEY) return;
     const device = app.devices.find(d => d.id === app.selectedDeviceId);
-    if (!device?.produceMode || !device?.produceSetupComplete) return;
-    const isMeat   = device.produceMode === 'meat';
+    if (!device?.produceSetupComplete) return;
+    const isMeat   = getProduceSummary(device) === 'meat';
     const isAlmost = device.produceState === 'almost-damaged';
     const tempHigh = app.currentTemperature > app.targetTemperature + 1.5;
     const should   = (isMeat && tempHigh) || (isAlmost && tempHigh);
@@ -1411,7 +1427,7 @@ Only set shouldAdjust to true if: (a) the predicted temperature will exceed the 
         const ctx  = buildAppContext(app);
         const raw  = await groqFetch([
           { role: 'system', content: buildSystemPrompt(ctx) },
-          { role: 'user',   content: `[SYSTEM ALERT: ${device.produceMode}, state: ${device.produceState}. Temp: ${app.currentTemperature}°C vs target ${app.targetTemperature}°C. Short urgent calm warning — risk + one immediate action. 2 sentences max. No ACTION block. English only.]` },
+          { role: 'user',   content: `[SYSTEM ALERT: ${getProduceSummary(device)}, state: ${device.produceState}. Temp: ${app.currentTemperature}°C vs target ${app.targetTemperature}°C. Short urgent calm warning — risk + one immediate action. 2 sentences max. No ACTION block. English only.]` },
         ], { temperature: 0.2, max_tokens: 160 });
         const { display } = parseAction(raw);
         const content     = display || 'Warning: temperature is above the safe range for your produce.';
@@ -1487,7 +1503,7 @@ Only set shouldAdjust to true if: (a) the predicted temperature will exceed the 
     try {
       const { base64, mimeType } = await fileToBase64Chat(file);
       const dev    = app.devices.find(d => d.id === app.selectedDeviceId);
-      const label  = dev?.produceMode ? `${dev.produceMode} (${dev.produceState ?? 'condition unknown'})` : 'produce (type not set)';
+      const label  = dev?.produceState ? `${getProduceSummary(dev)} (${dev.produceState ?? 'condition unknown'})` : 'produce (type not set)';
       const result = await analyseProduceImageForChat(base64, mimeType, label);
       let responseText: string;
       if (!result) {

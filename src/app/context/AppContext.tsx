@@ -48,7 +48,7 @@ export type {
 } from './types';
 export {
   PRODUCE_THRESHOLDS, STATE_ADJUSTMENTS, DEFAULT_SETTINGS,
-  getStateAdjustedTargets, avatarFromName,
+  getStateAdjustedTargets, avatarFromName, isValidProduceMode,
 } from './types';
 
 // ── Context type ──────────────────────────────────────────────────────────────
