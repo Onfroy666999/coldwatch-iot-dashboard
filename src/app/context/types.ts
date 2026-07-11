@@ -169,7 +169,6 @@ export interface Settings {
   emailAlerts: boolean;
   smsAlerts: boolean;
   alertRepeatInterval: string;
-  userPhone: string;
   escalationContact: string;
   compactMode: boolean;
   tempUnit: 'C' | 'F';
@@ -190,6 +189,7 @@ export interface User {
   profilePicture?: string;
   role?: UserRole;
   surveyComplete?: boolean;
+  phone?: string;
   notificationEmail?: string;
   notificationPhone?: string;
 }
@@ -233,7 +233,7 @@ export const DEFAULT_SETTINGS: Settings = {
   warningHumidity: 80,    criticalHumidity: 90,
   inAppNotifications: true, emailAlerts: true, smsAlerts: false,
   alertRepeatInterval: '15min',
-  userPhone: '', escalationContact: '',
+  escalationContact: '',
   compactMode: false, tempUnit: 'C',
   samplingInterval: '15s', dataRetention: '30d', autoLogoutMinutes: 0,
 };
@@ -370,7 +370,6 @@ export function mapSettings(s: any): Settings {
     emailAlerts:         s.emailAlerts         ?? DEFAULT_SETTINGS.emailAlerts,
     smsAlerts:           s.smsAlerts           ?? DEFAULT_SETTINGS.smsAlerts,
     alertRepeatInterval: s.alertRepeatInterval ?? DEFAULT_SETTINGS.alertRepeatInterval,
-    userPhone:           s.userPhone           ?? DEFAULT_SETTINGS.userPhone,
     escalationContact:   s.escalationContact   ?? DEFAULT_SETTINGS.escalationContact,
     compactMode:         s.compactMode         ?? DEFAULT_SETTINGS.compactMode,
     tempUnit:            (s.tempUnit as 'C' | 'F') ?? DEFAULT_SETTINGS.tempUnit,

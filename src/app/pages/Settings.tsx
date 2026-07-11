@@ -222,9 +222,10 @@ function DisplaySub({ onBack, local, setLocal, save }: { onBack: () => void; loc
   );
 }
 
-function NotificationsSub({ onBack, local, setLocal, save, showNotifEmail, notifEmail, setNotifEmail, notifEmailError, setNotifEmailError, updateUser, isAdvancedUser, updateSettings }: {
+function NotificationsSub({ onBack, local, setLocal, save, showNotifEmail, notifEmail, setNotifEmail, notifEmailError, setNotifEmailError, userPhone, setUserPhone, updateUser, isAdvancedUser, updateSettings }: {
   onBack: () => void; local: AppSettings; setLocal: React.Dispatch<React.SetStateAction<AppSettings>>; save: (l: string, p: any) => void;
   showNotifEmail: boolean; notifEmail: string; setNotifEmail: (v: string) => void; notifEmailError: string; setNotifEmailError: (v: string) => void;
+  userPhone: string; setUserPhone: (v: string) => void;
   updateUser: ReturnType<typeof useApp>['updateUser']; isAdvancedUser: boolean; updateSettings: ReturnType<typeof useApp>['updateSettings'];
 }) {
   return (
@@ -251,7 +252,7 @@ function NotificationsSub({ onBack, local, setLocal, save, showNotifEmail, notif
               </div>
               <Toggle value={local.smsAlerts} onChange={() => setLocal(p => ({ ...p, smsAlerts: !p.smsAlerts }))} label="SMS alerts" />
             </div>
-            {local.smsAlerts && <input placeholder="+233 xx xxx xxxx" value={local.userPhone} onChange={e => setLocal(p => ({ ...p, userPhone: e.target.value }))} className={inputClass} />}
+            {local.smsAlerts && <input placeholder="+233 xx xxx xxxx" value={userPhone} onChange={e => setUserPhone(e.target.value)} className={inputClass} />}
           </div>
 
           <div className={`py-4 ${isAdvancedUser ? 'border-b border-[#E4E7EC]' : ''}`}>
@@ -292,7 +293,7 @@ function NotificationsSub({ onBack, local, setLocal, save, showNotifEmail, notif
               // Phone number lives on the User record, not Settings — route it correctly
               // Save phone to user profile so Arkesel SMS reaches the right number
               updateUser({
-                ...(local.userPhone?.trim() ? { phone: local.userPhone.trim() } : {}),
+                ...(userPhone.trim() ? { phone: userPhone.trim() } : {}),
                 ...(showNotifEmail && notifEmail.trim() ? { notificationEmail: notifEmail.trim() } : {}),
               });
               // Settings patch — only fields that live in the settings table
@@ -470,6 +471,11 @@ export default function Settings() {
   const [notifEmail,        setNotifEmail]        = useState(user.notificationEmail || '');
   const [notifEmailError,   setNotifEmailError]   = useState('');
   useEffect(() => { setNotifEmail(user.notificationEmail || ''); }, [user.notificationEmail]);
+  // Phone lives on the User record, not Settings — see save() below, which
+  // already routed it there correctly. This mirrors it on load too, since
+  // sourcing it from `settings` here previously always showed blank.
+  const [userPhone, setUserPhone] = useState(user.phone || '');
+  useEffect(() => { setUserPhone(user.phone || ''); }, [user.phone]);
   const isLoading = usePageLoading();
 
   if (isLoading) return <SettingsSkeleton isAdvancedUser={isAdvancedUser} />;
@@ -583,7 +589,7 @@ export default function Settings() {
 
       {/* ── Sub-pages ── */}
       {activeSub === 'display'       && <DisplaySub       key="display"       onBack={() => setActiveSub(null)} {...sharedProps} />}
-      {activeSub === 'notifications' && <NotificationsSub key="notifications" onBack={() => setActiveSub(null)} {...sharedProps} showNotifEmail={showNotifEmail} notifEmail={notifEmail} setNotifEmail={setNotifEmail} notifEmailError={notifEmailError} setNotifEmailError={setNotifEmailError} updateUser={updateUser} isAdvancedUser={isAdvancedUser} updateSettings={updateSettings} />}
+      {activeSub === 'notifications' && <NotificationsSub key="notifications" onBack={() => setActiveSub(null)} {...sharedProps} showNotifEmail={showNotifEmail} notifEmail={notifEmail} setNotifEmail={setNotifEmail} notifEmailError={notifEmailError} setNotifEmailError={setNotifEmailError} userPhone={userPhone} setUserPhone={setUserPhone} updateUser={updateUser} isAdvancedUser={isAdvancedUser} updateSettings={updateSettings} />}
       {activeSub === 'thresholds'    && <ThresholdsSub    key="thresholds"    onBack={() => setActiveSub(null)} {...sharedProps} />}
       {activeSub === 'devices'       && <DevicesSub       key="devices"       onBack={() => setActiveSub(null)} deviceConfigs={deviceConfigs} updateDeviceConfig={updateDeviceConfig} addToast={addToast} settings={settings} />}
       {activeSub === 'data'          && <DataSub          key="data"          onBack={() => setActiveSub(null)} {...sharedProps} />}
