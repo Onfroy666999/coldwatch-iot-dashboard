@@ -353,6 +353,7 @@ export const produceRecordsApi = {
     aiAssessment?:         string;
     storageDurationDays:   number;
     produceMode?:          string;
+    crops?:                string[];
   }): Promise<{ record: any }> =>
     fetchAPI('/produce-records', { method: 'POST', body: JSON.stringify(payload) }),
 

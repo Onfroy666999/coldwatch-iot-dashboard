@@ -216,6 +216,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           avatar:            avatarFromName(u.name),
           role:              u.role,
           surveyComplete:    u.surveyComplete ?? false,
+          phone:             u.phone ?? '',
           notificationEmail: u.notificationEmail ?? '',
         });
 
@@ -252,6 +253,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             avatar:            avatarFromName(u.name),
             role:              u.role,
             surveyComplete:    u.surveyComplete ?? false,
+            phone:             u.phone ?? '',
             notificationEmail: u.notificationEmail ?? '',
           });
           settings.seedSettings((cache.settings ?? DEFAULT_SETTINGS) as unknown as Record<string, unknown>);

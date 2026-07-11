@@ -169,6 +169,7 @@ export function useAuth({ onReset, autoLogoutMinutes }: UseAuthOptions): UseAuth
     usersApi.updateProfile({
       name:              patch.name,
       email:             patch.email,
+      phone:             patch.phone,
       notificationEmail: patch.notificationEmail,
       notificationPhone: patch.notificationPhone,
       role:              patch.role,

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { Device, ProduceState } from '../context/AppContext';
+import { deriveLegacyProduceModeFromCrops } from '../context/types';
 import { usePageLoading, DevicesSkeleton } from '../components/Skeleton';
 import {
   CATEGORIES, CATEGORY_EMOJI, getCropsByCategory, getCrop, deriveTargetsForCrops,
@@ -1178,8 +1179,13 @@ if (isLoading) return <DevicesSkeleton />;
         conditionImageMime:  record.conditionImageMime,
         aiAssessment:        record.aiAssessment,
         storageDurationDays,
+        // Store the real crop IDs for future per-crop querying, and keep
+        // produceMode as the broad legacy category (not a human-readable
+        // label string) so GET /produce-records/by-produce/:mode still
+        // matches devices that have migrated to cropIds.
+        crops:               device.cropIds,
         produceMode:         device.cropIds?.length
-          ? device.cropIds.map(id => getCrop(id).label).join(', ')
+          ? deriveLegacyProduceModeFromCrops(device.cropIds)
           : device.produceMode,
       });
     } catch {
