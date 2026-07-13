@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ColdWatch — Privacy Policy</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; color: #374151; line-height: 1.6; }
+    h1 { color: #111827; font-size: 28px; margin-bottom: 4px; }
+    h2 { color: #111827; font-size: 19px; margin-top: 32px; }
+    h3 { color: #111827; font-size: 16px; margin-bottom: 6px; }
+    ul { padding-left: 20px; }
+    .note { background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 12px; padding: 16px; margin-top: 16px; }
+    .note strong { color: #0369A1; }
+    .warn { background: #FFF8F0; border: 1px solid #F5CBA7; border-radius: 12px; padding: 16px; margin-top: 16px; }
+    .warn strong { color: #C0501A; }
+    .contact { background: #F9FAFB; border: 1px solid #E4E7EC; border-radius: 12px; padding: 16px; margin-top: 12px; }
+    .updated { color: #9CA3AF; font-size: 13px; border-top: 1px solid #E4E7EC; padding-top: 16px; margin-top: 32px; }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+
+  <section>
+    <h2>1. Introduction</h2>
+    <p>ColdWatch ("we," "us," "our") monitors cold-storage conditions using ESP32-based IoT sensors that report temperature and humidity readings to this app, and can take automated cooling actions on your behalf. This Privacy Policy explains what we collect, how it's used, and the specific third parties involved in running the service.</p>
+    <p>Please read this carefully. If you do not agree with these practices, please do not use ColdWatch.</p>
+  </section>
+
+  <section>
+    <h2>2. Information We Collect</h2>
+
+    <h3>Account information</h3>
+    <p>Provided directly by you:</p>
+    <ul>
+      <li>Name, email address, and phone number</li>
+      <li>Account password (stored hashed, never in plain text)</li>
+      <li>An optional emergency escalation contact for unresolved alerts</li>
+    </ul>
+
+    <h3>Device and sensor data</h3>
+    <ul>
+      <li>Temperature and humidity readings sent by your registered devices over MQTT</li>
+      <li>Device ID, connection status (online/offline), and last-seen timestamps</li>
+      <li>What produce or crops you've assigned to a device, and the facility/transport details you enter when setting it up</li>
+      <li>Alerts raised against a device, and any autonomous cooling actions ColdWatch has taken (see Section 4)</li>
+    </ul>
+
+    <h3>Produce condition photos</h3>
+    <p>If you photograph produce for AI condition assessment, the image is sent to our AI vision provider (Groq) for one-time analysis and is <strong>not stored</strong> on our servers afterward — only the resulting text assessment (e.g. "fresh," "in-between") is saved against your device.</p>
+
+    <h3>Push notification token</h3>
+    <p>If you enable push alerts, we store a device push token (via Firebase Cloud Messaging) used solely to deliver alert notifications to your phone. You can remove it at any time by disabling notifications in Settings.</p>
+  </section>
+
+  <section>
+    <h2>3. How We Use Your Information</h2>
+    <ul>
+      <li>Displaying live readings, trends, and device status on your dashboard</li>
+      <li>Raising alerts when a device's temperature or humidity breaches your thresholds</li>
+      <li>Assessing produce condition from photos you submit, using AI</li>
+      <li>Deciding whether an unresolved alert qualifies for autonomous cooling action (Section 4)</li>
+      <li>Account authentication, password resets, and account recovery</li>
+    </ul>
+    <div class="note">
+      <p><strong>Email, phone, and push — used for alerts and OTPs only</strong></p>
+      <p>Your <strong>email address</strong> is used only to send threshold-breach alert notifications and one-time passwords (OTPs) for verification and password resets, delivered via our email provider, Resend.</p>
+      <p>Your <strong>phone number</strong> is used only for SMS threshold-breach alerts and OTP delivery, sent via our SMS provider, Arkesel.</p>
+      <p>We do <strong>not</strong> send marketing email or promotional SMS, and we do <strong>not</strong> sell or share your contact details. You can remove your email or phone number at any time in Settings — doing so disables the corresponding alert channel.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. Autonomous Cooling Actions</h2>
+    <p>If an alert on your device goes unresolved for an extended period (configurable per device, in Settings), ColdWatch may automatically send a cooling command to your device's Peltier module to try to correct the condition, then mark the alert resolved and notify you of what it did and why. This is an unattended, physical action taken on your equipment — you can adjust or disable the auto-resolve window per device at any time.</p>
+  </section>
+
+  <section>
+    <h2>5. Who We Share Data With</h2>
+    <p>We do not sell, trade, or rent your personal information. Data passes through the following subprocessors strictly to operate the service:</p>
+    <ul>
+      <li><strong>Railway</strong> — hosts our application server and PostgreSQL database</li>
+      <li><strong>HiveMQ</strong> — the MQTT broker your devices connect through to send readings and receive commands</li>
+      <li><strong>Groq</strong> — processes produce condition photos for AI assessment (photo itself is not retained by us)</li>
+      <li><strong>Resend</strong> — delivers transactional email (alerts, OTPs)</li>
+      <li><strong>Arkesel</strong> — delivers SMS (alerts, OTPs)</li>
+      <li><strong>Firebase Cloud Messaging</strong> — delivers push notifications</li>
+    </ul>
+    <p>We may also disclose information if required by law, or in connection with a merger, acquisition, or sale of assets.</p>
+  </section>
+
+  <section>
+    <h2>6. Data Retention</h2>
+    <p>Sensor readings are kept according to the retention period you choose in Settings — 7, 14, 30, 90, or 365 days (30 days by default). Readings older than your chosen window are automatically and permanently deleted by a scheduled job. Account information, device configuration, and alert history are kept for as long as your account is active.</p>
+  </section>
+
+  <section>
+    <h2>7. Your Privacy Rights</h2>
+    <ul>
+      <li>Access or correct your account information directly in Settings</li>
+      <li>Change your data retention window at any time</li>
+      <li>Delete your account and all associated data permanently, from Settings — this is immediate and irreversible</li>
+      <li>Remove your email, phone, or push token to stop a specific alert channel without deleting your account</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>8. Data Security</h2>
+    <p>We use industry-standard measures — hashed passwords, encrypted connections, and access controls — to protect your information. No method of electronic transmission or storage is 100% secure, and we cannot guarantee absolute security.</p>
+  </section>
+
+  <section>
+    <h2>9. Children's Privacy</h2>
+    <p>ColdWatch is not intended for individuals under 13. We do not knowingly collect personal information from children under 13, and will delete it promptly if we become aware of such collection.</p>
+  </section>
+
+  <section>
+    <h2>10. Changes to This Privacy Policy</h2>
+    <p>We may update this Privacy Policy from time to time. Changes will be posted here with an updated "Last Updated" date. Continued use of ColdWatch after changes take effect constitutes acceptance.</p>
+  </section>
+
+  <section>
+    <h2>11. Contact Us</h2>
+    <p>Questions about this Privacy Policy or our data practices:</p>
+    <div class="contact">
+      <strong>ColdWatch Privacy Team</strong><br />
+      Email: privacy@coldwatch.app
+    </div>
+  </section>
+
+  <div class="updated">Last Updated: July 2026</div>
+</body>
+</html>
