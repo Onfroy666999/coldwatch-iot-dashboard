@@ -39,7 +39,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Camera (for produce photo in RemoveProduceSheet) -->
+    <!-- READ/WRITE_EXTERNAL_STORAGE removed: deprecated since Android 10, blocked for
+         apps targeting Android 13+ (targetSdkVersion 36). @capacitor/camera uses
+         MediaStore + the FileProvider below, so these are not needed and Play
+         Console will reject the app if declared with this target SDK. -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 </manifest>
