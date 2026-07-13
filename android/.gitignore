@@ -89,6 +89,12 @@ lint/tmp/
 # Android Profiling
 *.hprof
 
+# Upload keystore — real signing credentials, must never be committed.
+# Copy keystore.properties.example to keystore.properties and fill in real values.
+keystore.properties
+*.jks
+*.keystore
+
 # Cordova plugins for Capacitor
 capacitor-cordova-android-plugins
 
