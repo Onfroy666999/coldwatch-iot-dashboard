@@ -396,7 +396,6 @@ export interface AIInsight {
 // upgrade request before the WebSocket handshake completes.
 
 export function connectWebSocket(
-  deviceId:  string,
   onMessage: (data: any) => void,
   onError?:  (error: any) => void,
   onClose?:  () => void
@@ -408,9 +407,11 @@ export function connectWebSocket(
       return null;
     }
 
-    // Convert http(s) base URL to ws(s) and append token as query param
+    // Single multiplexed connection — streams every device this user owns,
+    // each message tagged with its deviceId, rather than one socket per
+    // device. See useDevices.ts's openWebSocket for the routing side of this.
     const wsBase = API_BASE_URL.replace(/^http/, 'ws');
-    const wsUrl  = `${wsBase}/live/${deviceId}?token=${encodeURIComponent(token)}`;
+    const wsUrl  = `${wsBase}/ws?token=${encodeURIComponent(token)}`;
     const ws     = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {

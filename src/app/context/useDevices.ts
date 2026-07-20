@@ -55,7 +55,8 @@ export interface UseDevicesReturn {
   deviceReadings: Record<string, DeviceReading[]>;
   deviceHistories: Record<string, SensorReading[]>;
   produceMode: ProduceMode;
-  openWebSocket: (deviceId: string) => void;
+  /** Opens the single multiplexed WebSocket (all owned devices, one connection). Safe to call if already open. */
+  openWebSocket: () => void;
   reconnectWebSockets: () => void;
   setSelectedDeviceId: (id: string) => void;
   setProduceMode: (mode: ProduceMode) => void;
@@ -84,8 +85,8 @@ export interface UseDevicesReturn {
   /** Seed device state from bootstrap — not for arbitrary mutation. */
   seedDevices: (rawDevices: any[], options?: { selectedDeviceId?: string }) => void;
   refreshDevices: () => Promise<void>;
-  /** Expose wsRefs so AppProvider can close all sockets on logout. */
-  wsRefs: MutableRefObject<Record<string, WebSocket | null>>;
+  /** Expose the socket ref so AppProvider can close it on logout. */
+  wsRef: MutableRefObject<WebSocket | null>;
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -108,7 +109,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   // ── Refs ──────────────────────────────────────────────────────────────────
 
   const simRef            = useRef<Record<string, DeviceSimState>>({});
-  const wsRefs            = useRef<Record<string, WebSocket | null>>({});
+  const wsRef              = useRef<WebSocket | null>(null);
   const deviceReadingsRef = useRef<Record<string, DeviceReading[]>>({});
   const alertStateRef     = useRef<Record<string, { temp: string; humid: string }>>({});
 
@@ -143,20 +144,23 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   }, [devices]);
 
   // ── openWebSocket ─────────────────────────────────────────────────────────
-  // Opens one WebSocket per device. The onClose callback reconnects after 5s
-  // by calling openWebSocket recursively via setTimeout. The reading handler
-  // reads selectedDeviceIdRef (not the selectedDeviceId variable) to decide
-  // whether to update selectedSim, so this callback's identity no longer needs
-  // to depend on selectedDeviceId — sockets stay open and correctly wired
-  // across device-selection changes instead of being torn down and reopened.
+  // ONE multiplexed connection for every device this user owns, not one per
+  // device (see the backend's websocket.ts — it now registers each connected
+  // client by userId, and every message carries a deviceId field so this
+  // side can route it). The onClose callback reconnects after 5s by calling
+  // openWebSocket recursively via setTimeout.
 
-  const openWebSocket = useCallback((deviceId: string) => {
-    const existing = wsRefs.current[deviceId];
+  const openWebSocket = useCallback(() => {
+    const existing = wsRef.current;
     if (existing && existing.readyState <= WebSocket.OPEN) return;
 
     const ws = connectWebSocket(
-      deviceId,
       (data) => {
+        const deviceId = data.deviceId as string | undefined;
+        // The initial `{ type: 'connected' }` handshake message has no
+        // deviceId — nothing to route it to, so just ignore it.
+        if (!deviceId) return;
+
         if (data.type === 'reading') {
           const { temperature, humidity, coolerOn } = data.data;
           const now = new Date();
@@ -212,12 +216,10 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
           addAlert(data.data);
         }
 
-        // Backend now broadcasts this whenever a device's online/offline
-        // status actually changes — both from the MQTT LWT handler (near-
-        // instant on a clean disconnect) and from the heartbeat fallback job
-        // (catches a device that just lost power, up to ~5min later). Before
-        // this, status changes were only ever picked up on the next full
-        // reload, since nothing pushed them to already-open connections.
+        // Backend broadcasts this whenever a device's online/offline status
+        // actually changes — both from the MQTT LWT handler (near-instant on
+        // a clean disconnect) and from the heartbeat fallback job (catches a
+        // device that just lost power, up to ~5min later).
         // deviceStatus/isSimulated/badges on Dashboard.tsx all derive from
         // this same `devices` array, so patching it here is enough — no
         // separate selectedSim update needed.
@@ -228,29 +230,24 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       },
       () => {
         // This error means OUR connection to the backend hiccuped — it says
-        // nothing about whether the physical device is actually online or
+        // nothing about whether any physical device is actually online or
         // offline. That truth only ever comes from the backend's explicit
         // device_status/reading broadcasts (or the initial device fetch).
-        // Previously this overwrote the device's real status with a guess,
-        // so a flaky wifi blip on the phone could show a perfectly healthy
-        // device as "offline" and leave it stuck that way.
         //
         // The app's own connectivity already has a correct, single source of
         // truth — `isOnline` in AppContext (driven by the browser's
         // online/offline events), the same signal SyncBanner and the
         // never-queue-commands-when-offline logic in startCooling/stopCooling
-        // already use. No need for this socket to maintain a second,
-        // conflicting copy of "are we offline" on the device object itself.
-        // onClose below already handles reconnecting.
+        // already use. onClose below already handles reconnecting.
       },
       () => {
         // On close: attempt reconnect after 5s, only if the user is still authenticated
-        wsRefs.current[deviceId] = null;
-        setTimeout(() => { if (getToken()) openWebSocket(deviceId); }, 5000);
+        wsRef.current = null;
+        setTimeout(() => { if (getToken()) openWebSocket(); }, 5000);
       }
     );
 
-    wsRefs.current[deviceId] = ws;
+    wsRef.current = ws;
   }, [addAlert]);
 
   // ── reconnectWebSockets ───────────────────────────────────────────────────
@@ -258,19 +255,9 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   // Must be declared AFTER openWebSocket.
 
   const reconnectWebSockets = useCallback(() => {
-    setDevices(current => {
-      for (const device of current) {
-        // Every device gets a socket now, not just ones already known to be
-        // online — an offline device reconnecting is exactly the case this
-        // needs to catch, and there's no way to learn about that without a
-        // channel already open to receive the broadcast on.
-        const existing = wsRefs.current[device.id];
-        if (!existing || existing.readyState === WebSocket.CLOSED) {
-          openWebSocket(device.id);
-        }
-      }
-      return current;
-    });
+    if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+      openWebSocket();
+    }
   }, [openWebSocket]);
 
   // ── mutateSim ─────────────────────────────────────────────────────────────
@@ -556,9 +543,6 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   // ── deleteDevice ──────────────────────────────────────────────────────────
 
   const deleteDevice = useCallback((id: string) => {
-    wsRefs.current[id]?.close();
-    delete wsRefs.current[id];
-
     setDevices(prev => {
       const remaining = prev.filter(d => d.id !== id);
       setSelectedDeviceId(cur => (cur !== id ? cur : (remaining[0]?.id ?? '')));
@@ -618,13 +602,9 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       setSelectedSim(simRef.current[toSelect] ?? buildInitialSimState(mappedDevices.find(d => d.id === toSelect)!));
     }
 
-    // Open a WebSocket for every device, online or not — an offline device
-    // needs a live channel open too, otherwise there's nothing to deliver a
-    // "back online" broadcast on later, and the dashboard would only find
-    // out on the next reload.
-    for (const device of mappedDevices) {
-      openWebSocket(device.id);
-    }
+    // One multiplexed socket covers every device this user owns — open it
+    // once here rather than looping per device.
+    openWebSocket();
   }, [openWebSocket]);
 
   // ── refreshDevices ────────────────────────────────────────────────────────
@@ -657,10 +637,12 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
           setDeviceReadings(prev => ({ ...prev, [device.id]: [] }));
           setDeviceHistories(prev => ({ ...prev, [device.id]: simRef.current[device.id]?.sensorHistory ?? [] }));
         }
-        if (!wsRefs.current[device.id]) {
-          openWebSocket(device.id);
-        }
       }
+      // A newly-added device's messages arrive on the already-open shared
+      // socket automatically — no per-device connection to open. Just make
+      // sure the shared socket itself is actually up (e.g. this refresh was
+      // triggered right after a fresh login).
+      openWebSocket();
     } catch {
       // Best-effort — the next sync tick or login will pick it up.
     }
@@ -690,6 +672,6 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     deleteDevice,
     seedDevices,
     refreshDevices,
-    wsRefs,
+    wsRef,
   };
 }
