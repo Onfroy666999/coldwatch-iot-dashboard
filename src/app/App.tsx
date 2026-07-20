@@ -79,18 +79,21 @@ function AppContent() {
   const prevPageRef = useRef(activePage);
   const [direction, setDirection] = useState(0);
 
-  // reconnectWebSockets' identity changes on every device selection change
-  // (it's built on openWebSocket, which depends on selectedDeviceId) — kept
-  // in a ref so the listener-registration effect below only depends on
-  // isAuthenticated, not on something that churns during normal use.
+  // reconnectWebSockets is still wrapped in a ref here defensively, even
+  // though openWebSocket now only depends on [addAlert] (not
+  // selectedDeviceId — there's one shared multiplexed socket per user now,
+  // not one per device, so device selection no longer affects its identity).
+  // Keeping the ref means the listener-registration effect below still only
+  // depends on isAuthenticated, not on anything from useDevices that could
+  // change identity for unrelated reasons in the future.
   const reconnectWebSocketsRef = useRef(reconnectWebSockets);
   useEffect(() => { reconnectWebSocketsRef.current = reconnectWebSockets; }, [reconnectWebSockets]);
 
-  // Reconnect any dead device WebSockets whenever the app returns to the
+  // Reconnect the shared WebSocket whenever the app returns to the
   // foreground. This matters specifically because a backgrounded WebView
   // can be fully suspended by the OS, which silently kills the socket at
   // the transport level without ever firing the JS 'close' event — so the
-  // per-socket reconnect-on-close logic in useDevices.ts never triggers.
+  // reconnect-on-close logic in useDevices.ts never triggers.
   // reconnectWebSockets() sidesteps that by actively checking readyState
   // the moment we're back, rather than waiting for an event that may never
   // arrive. Without this, the Dashboard's live tile can silently freeze on
