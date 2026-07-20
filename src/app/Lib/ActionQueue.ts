@@ -82,24 +82,99 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+// ── Collapsing ────────────────────────────────────────────────────────────────
+// A few action types shouldn't pile up in the queue while offline:
+//   - DEVICE_COMMAND: rapid ON/OFF toggling offline used to drain as N
+//     separate relay clicks in order once reconnected — wear on the
+//     compressor contactor for no benefit, since only the final state
+//     matters. Collapses to whichever command was issued last.
+//   - UPDATE_SETTINGS / UPDATE_DEVICE: these are patch objects (global
+//     settings, or a per-device patch). Two patches made offline back to
+//     back should merge into one pending update, not queue as two API
+//     calls where the second could stomp fields the first one set.
+// Every other action type (ACKNOWLEDGE_ALERT, ADD_DEVICE, DELETE_DEVICE,
+// etc.) is a one-shot action and must NOT collapse — collapseKeyFor
+// returns null for those, and they enqueue exactly as before.
+function collapseKeyFor(action: ColdWatchAction): { key: string; merge: boolean } | null {
+  switch (action.type) {
+    case 'DEVICE_COMMAND':
+      return { key: `DEVICE_COMMAND:${action.payload.id}`, merge: false };
+    case 'UPDATE_SETTINGS':
+      return { key: 'UPDATE_SETTINGS', merge: true };
+    case 'UPDATE_DEVICE':
+      return { key: `UPDATE_DEVICE:${action.payload.id}`, merge: true };
+    default:
+      return null;
+  }
+}
+
+// Merge an incoming patch-style action onto the one already queued under the
+// same collapse key. Only reached for the two 'merge: true' cases above.
+function mergeActionPayload(existing: ColdWatchAction, incoming: ColdWatchAction): ColdWatchAction {
+  if (existing.type === 'UPDATE_SETTINGS' && incoming.type === 'UPDATE_SETTINGS') {
+    return { type: 'UPDATE_SETTINGS', payload: { ...existing.payload, ...incoming.payload } };
+  }
+  if (existing.type === 'UPDATE_DEVICE' && incoming.type === 'UPDATE_DEVICE') {
+    return {
+      type: 'UPDATE_DEVICE',
+      payload: {
+        id:    incoming.payload.id,
+        patch: { ...existing.payload.patch, ...incoming.payload.patch },
+      },
+    };
+  }
+  // Shouldn't happen — collapseKeyFor only marks merge:true for the two
+  // cases above, and both branches are covered. Fall back to the newest
+  // action rather than throwing if this is ever reached.
+  return incoming;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 // Enqueue an action — call this from AppContext instead of making API calls directly.
+// For collapsible action types (see collapseKeyFor), this replaces or merges
+// into whichever pending entry already shares that key rather than always
+// appending a new one.
 export async function enqueueAction(action: ColdWatchAction): Promise<void> {
   const db = await openDB();
-  const entry: QueuedAction = {
-    id:        generateId(),
-    action,
-    createdAt: Date.now(),
-    attempts:  0,
-  };
+  const collapse = collapseKeyFor(action);
 
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    const req   = store.add(entry);
-    req.onsuccess = () => resolve();
-    req.onerror   = () => reject(req.error);
+
+    // store.put() both inserts (new id) and overwrites (existing id) by keyPath.
+    const put = (finalAction: ColdWatchAction, id: string, createdAt: number) => {
+      const entry: QueuedAction = { id, action: finalAction, createdAt, attempts: 0 };
+      const req = store.put(entry);
+      req.onsuccess = () => resolve();
+      req.onerror   = () => reject(req.error);
+    };
+
+    if (!collapse) {
+      put(action, generateId(), Date.now());
+      return;
+    }
+
+    // Scan pending actions for one already sharing this collapse key. The
+    // queue is small (only what accumulated while offline), so a full scan
+    // here is cheap — there's no index to look this up more directly.
+    const getAllReq = store.getAll();
+    getAllReq.onsuccess = () => {
+      const existing = (getAllReq.result as QueuedAction[])
+        .find(e => collapseKeyFor(e.action)?.key === collapse.key);
+
+      if (!existing) {
+        put(action, generateId(), Date.now());
+        return;
+      }
+
+      const finalAction = collapse.merge ? mergeActionPayload(existing.action, action) : action;
+      // Reuse the existing entry's id/createdAt so it keeps its place in the
+      // drain order instead of jumping to the back of the queue.
+      put(finalAction, existing.id, existing.createdAt);
+    };
+    getAllReq.onerror = () => reject(getAllReq.error);
   });
 }
 

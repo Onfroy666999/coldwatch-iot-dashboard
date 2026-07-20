@@ -30,7 +30,7 @@ import { mapAlert, avatarFromName, DEFAULT_SETTINGS } from './types';
 import { saveBootstrapCache, loadBootstrapCache } from './offlineCache';
 import { useAuth }     from './useAuth';
 import { useAlerts }   from './useAlerts';
-import { useSettings } from './useSettings';
+import { useSettings } from './settings';
 import { useDevices }  from './useDevices';
 import type {
   Alert, Device, DeviceConfig, DeviceReading, DeviceSimState,
@@ -287,8 +287,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!auth.isAuthenticated) return;
-    return initPushNotifications();
-  }, [auth.isAuthenticated]);
+    return initPushNotifications({
+      // App is open and in the foreground when the push lands — FCM won't
+      // show a system tray banner in this case, so surface a toast instead.
+      onNotificationReceived: (notification) => {
+        addToast({
+          id:      `push-${Date.now()}`,
+          type:    (notification.data as Record<string, string> | undefined)?.severity === 'critical' ? 'error' : 'warning',
+          message: notification.title
+            ? `${notification.title}${notification.body ? ` — ${notification.body}` : ''}`
+            : (notification.body ?? 'New alert on one of your devices'),
+        });
+      },
+      // User tapped the tray notification (background or killed-app launch).
+      // The push payload doesn't carry an alertId/deviceId yet, so this can
+      // only land on the Alerts list rather than the specific alert.
+      onNotificationAction: () => {
+        auth.setActivePage('alerts');
+      },
+    });
+  }, [auth.isAuthenticated]); // eslint-disable-line
 
   // ── Derived values ────────────────────────────────────────────────────────
 

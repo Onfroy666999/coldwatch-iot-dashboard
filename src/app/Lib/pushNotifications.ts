@@ -18,12 +18,35 @@
 // this is safe to invoke unconditionally from AppContext regardless of platform.
 
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications, type Token } from '@capacitor/push-notifications';
+import {
+  PushNotifications,
+  type Token,
+  type PushNotificationSchema,
+  type ActionPerformed,
+} from '@capacitor/push-notifications';
 import { usersApi } from './api';
 
 let initialized = false;
 
-export function initPushNotifications(): () => void {
+export interface PushNotificationCallbacks {
+  /**
+   * Fires when a push arrives while the app is in the foreground. FCM does
+   * NOT show a system tray notification in this case — without this handler
+   * a foreground user gets no signal at all that a critical alert just came
+   * in. Wire this to the app's toast system.
+   */
+  onNotificationReceived?: (notification: PushNotificationSchema) => void;
+  /**
+   * Fires when the user taps the system notification (from background or a
+   * killed state). The payload only carries `type` / `severity` / `device`
+   * / `location` today (see backend notifications.ts) — no alertId/deviceId
+   * — so this can only navigate to the Alerts list, not deep-link to the
+   * specific alert or device yet.
+   */
+  onNotificationAction?: (action: ActionPerformed) => void;
+}
+
+export function initPushNotifications(callbacks: PushNotificationCallbacks = {}): () => void {
   if (!Capacitor.isNativePlatform()) return () => {};
   if (initialized) return () => {}; // StrictMode/HMR can run effects twice — guard against double-registering listeners
   initialized = true;
@@ -39,8 +62,22 @@ export function initPushNotifications(): () => void {
     console.error('[Push] FCM registration error:', err);
   };
 
+  // Foreground delivery: Android/iOS do not surface a system tray banner
+  // while the app is open, so without this listener a temperature spike
+  // while the farmer is looking at the dashboard produces no signal at all.
+  const onNotificationReceived = (notification: PushNotificationSchema) => {
+    callbacks.onNotificationReceived?.(notification);
+  };
+
+  // Tap from the system tray (background or killed-app launch).
+  const onNotificationAction = (action: ActionPerformed) => {
+    callbacks.onNotificationAction?.(action);
+  };
+
   PushNotifications.addListener('registration', onRegistration);
   PushNotifications.addListener('registrationError', onRegistrationError);
+  PushNotifications.addListener('pushNotificationReceived', onNotificationReceived);
+  PushNotifications.addListener('pushNotificationActionPerformed', onNotificationAction);
 
   PushNotifications.requestPermissions()
     .then(({ receive }) => {
