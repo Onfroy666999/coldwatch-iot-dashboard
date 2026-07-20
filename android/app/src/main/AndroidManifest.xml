@@ -38,6 +38,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Lets FCM finish processing a message before aggressive OEM power
+         management (common on Tecno/Infinix) suspends the process mid-handle. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- Camera (for produce photo in RemoveProduceSheet) -->
     <!-- READ/WRITE_EXTERNAL_STORAGE removed: deprecated since Android 10, blocked for
          apps targeting Android 13+ (targetSdkVersion 36). @capacitor/camera uses

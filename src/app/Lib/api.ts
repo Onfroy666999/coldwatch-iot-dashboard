@@ -3,10 +3,24 @@
  * Handles authentication, request/response formatting, and error handling.
  */
 
+import { Capacitor } from '@capacitor/core';
 import { getToken, storeToken, storeUserId, clearTokens } from './tokenStorage';
 
 // No /api prefix — backend registers routes at the root level
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
+
+/**
+ * True when this build is misconfigured — running as a native Android app
+ * with no VITE_API_URL baked in at build time, so every request silently
+ * targets http://localhost:3000, which doesn't exist on a real device.
+ * Without this check, that failure is indistinguishable from a real
+ * connectivity problem: makeOfflineError() below reports it as "You are
+ * offline," which sends a user with a perfectly good internet connection
+ * down completely the wrong troubleshooting path. App.tsx checks this
+ * before rendering anything else and shows an explicit configuration-error
+ * screen instead.
+ */
+export const API_URL_MISCONFIGURED = Capacitor.isNativePlatform() && !import.meta.env.VITE_API_URL;
 
 export interface ApiError {
   status:    number;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AppProvider, useApp } from './context/AppContext';
 import Sidebar from './components/Sidebar';
@@ -19,9 +19,17 @@ import Privacy from './pages/Privacy';
 import TermsOfService from './pages/TermsOfService';
 import ProduceGuide from './pages/ProduceGuide';
 import { Analytics } from '@vercel/analytics/react';
-import { WifiOff, Snowflake } from 'lucide-react';
+import { WifiOff, Snowflake, ServerCrash } from 'lucide-react';
 import SyncBanner from './components/SyncBanner';
-import AIAssistant, { type NixHandle } from './components/AIAssistant';
+import ErrorBoundary from './components/ErrorBoundary';
+import { hydrateTokenCache } from './Lib/tokenStorage';
+import { API_URL_MISCONFIGURED } from './Lib/api';
+import type { NixHandle } from './components/AIAssistant';
+// Lazy-loaded: NIX_ENABLED is false today, so this ~98KB component (Groq
+// client, speech recognition, TTS) should never end up in the main bundle.
+// A static import ships it unconditionally regardless of the flag; this
+// only pulls the chunk in if NIX_ENABLED flips true.
+const AIAssistant = lazy(() => import('./components/AIAssistant'));
 import { App as CapacitorApp } from '@capacitor/app';
 const PAGE_ORDER = ['dashboard', 'alerts', 'history', 'devices', 'settings'];
 
@@ -466,13 +474,15 @@ function AppContent() {
       </div>
 
       {/* ── AI Assistant drawer ── */}
-      <AIAssistant
-        ref={nixRef}
-        isOpen={showAssistant}
-        onClose={() => setShowAssistant(false)}
-        onNavigate={handleNixNavigate}
-        onVoiceStateChange={setNixListening}
-      />
+      <Suspense fallback={null}>
+        <AIAssistant
+          ref={nixRef}
+          isOpen={showAssistant}
+          onClose={() => setShowAssistant(false)}
+          onNavigate={handleNixNavigate}
+          onVoiceStateChange={setNixListening}
+        />
+      </Suspense>
       </>
       )}
     </div>
@@ -480,6 +490,59 @@ function AppContent() {
 }
 
 export default function App() {
+  if (API_URL_MISCONFIGURED) {
+    // Deliberately not routed through ErrorBoundary — that fallback's
+    // "restarting the app should fix this" is actively wrong here. This is
+    // a build-time misconfiguration (the app was packaged with no
+    // VITE_API_URL), and no amount of restarting or reconnecting fixes it;
+    // only rebuilding with the env var set does.
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center text-center px-6" style={{ backgroundColor: '#FFFFFF' }}>
+        <div className="w-20 h-20 rounded-full flex items-center justify-center mb-5" style={{ backgroundColor: 'rgba(220,38,38,0.08)' }}>
+          <ServerCrash className="w-10 h-10" style={{ color: '#DC2626' }} />
+        </div>
+        <h2 className="text-xl font-semibold text-[#111827] mb-2">Configuration error</h2>
+        <p className="text-sm text-[#6B7280] max-w-xs leading-relaxed">
+          This build has no server address configured. Please contact ColdWatch support — this isn't a connectivity issue on your end, and reinstalling won't fix it.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <ErrorBoundary>
+      <AppGate />
+    </ErrorBoundary>
+  );
+}
+
+function AppGate() {
+  // useAuth.ts reads getToken()/getUserId() synchronously in three
+  // useState(() => ...) initializers the moment AppProvider mounts — that's
+  // what decides whether the app opens straight to the dashboard or to the
+  // login screen. Preferences is async, so AppProvider can't mount until
+  // the in-memory cache tokenStorage.ts reads from has actually been
+  // populated — otherwise every cold start would look logged-out for a
+  // frame (or, on a slow device, longer) even for a user with a perfectly
+  // valid stored session.
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    hydrateTokenCache().then(() => setHydrated(true));
+  }, []);
+
+  if (!hydrated) {
+    // This window is typically only a few milliseconds — Preferences is
+    // local IO, not a network call. Deliberately minimal rather than reusing
+    // the in-app SplashScreen page: that page reads from AppProvider's own
+    // context, which doesn't exist yet at this point.
+    return (
+      <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: '#FFFFFF' }}>
+        <Snowflake className="w-8 h-8 animate-pulse" style={{ color: '#0984E3' }} />
+      </div>
+    );
+  }
+
   return (
     <AppProvider>
       <AppContent />
