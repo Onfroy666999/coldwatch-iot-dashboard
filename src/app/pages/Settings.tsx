@@ -8,7 +8,7 @@ import {
   Monitor, Cpu, Database, Lock, ChevronDown, ChevronUp,
   Sliders, Phone, Mail, Clock, Trash2, AlertTriangle, ShieldCheck,
   Check,
-  Package, Terminal, AlertCircle, RefreshCw, Info, Shield, Scale,
+  Package, Terminal, AlertCircle, RefreshCw, Info, Shield, Scale, Plus,
 } from 'lucide-react';
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
@@ -352,23 +352,49 @@ function ThresholdsSub({ onBack, local, setLocal, save }: { onBack: () => void; 
   );
 }
 
-function DevicesSub({ onBack, deviceConfigs, updateDeviceConfig, addToast, settings }: {
+function DevicesEmptyState({ setActivePage }: { setActivePage: ReturnType<typeof useApp>['setActivePage'] }) {
+  return (
+    <div className="flex flex-col items-center text-center px-6 py-12 rounded-2xl bg-white" style={{ border: '1px dashed #D1D5DB' }}>
+      <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: 'rgba(22,163,74,0.08)' }}>
+        <Cpu className="w-6 h-6" style={{ color: '#16A34A' }} />
+      </div>
+      <p className="text-sm font-semibold text-[#111827] mb-1">No devices yet</p>
+      <p className="text-xs text-[#6B7280] leading-relaxed max-w-xs mb-5">
+        Pair a ColdWatch unit to this account to configure calibration, names, and per-device limits here.
+      </p>
+      <button
+        onClick={() => setActivePage('add-device')}
+        className="flex items-center gap-2 px-5 py-3 rounded-2xl text-white text-sm font-semibold active:scale-95 transition-transform"
+        style={{ backgroundColor: '#16A34A' }}
+      >
+        <Plus className="w-4 h-4" />Add Device
+      </button>
+    </div>
+  );
+}
+
+function DevicesSub({ onBack, deviceConfigs, updateDeviceConfig, addToast, settings, setActivePage }: {
   onBack: () => void;
   deviceConfigs: ReturnType<typeof useApp>['deviceConfigs'];
   updateDeviceConfig: ReturnType<typeof useApp>['updateDeviceConfig'];
   addToast: ReturnType<typeof useApp>['addToast'];
   settings: ReturnType<typeof useApp>['settings'];
+  setActivePage: ReturnType<typeof useApp>['setActivePage'];
 }) {
   return (
     <SubPage title="Device Configuration" icon={<Cpu className="w-5 h-5" />} iconBg="rgba(22,163,74,0.08)" iconColor="#16A34A" onBack={onBack}>
-      <div className="space-y-3">
-        {deviceConfigs.map(config => (
-          <DeviceConfigCard key={config.id} config={config}
-            onUpdate={patch => { updateDeviceConfig(config.id, patch); addToast({ id: `toast-${Date.now()}`, type: 'success', message: `${config.name} settings saved` }); }}
-            globalSettings={{ warningTemperature: settings.warningTemperature, criticalTemperature: settings.criticalTemperature, warningHumidity: settings.warningHumidity, criticalHumidity: settings.criticalHumidity }}
-          />
-        ))}
-      </div>
+      {deviceConfigs.length === 0 ? (
+        <DevicesEmptyState setActivePage={setActivePage} />
+      ) : (
+        <div className="space-y-3">
+          {deviceConfigs.map(config => (
+            <DeviceConfigCard key={config.id} config={config}
+              onUpdate={patch => { updateDeviceConfig(config.id, patch); addToast({ id: `toast-${Date.now()}`, type: 'success', message: `${config.name} settings saved` }); }}
+              globalSettings={{ warningTemperature: settings.warningTemperature, criticalTemperature: settings.criticalTemperature, warningHumidity: settings.warningHumidity, criticalHumidity: settings.criticalHumidity }}
+            />
+          ))}
+        </div>
+      )}
     </SubPage>
   );
 }
@@ -379,9 +405,9 @@ function DataSub({ onBack, local, setLocal, save }: { onBack: () => void; local:
       <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white space-y-6" style={{ border: '1px solid #E4E7EC' }}>
         <div>
           <p className="text-sm font-medium text-[#111827] mb-1">Sampling Interval</p>
-          <p className="text-xs text-[#6B7280] mb-3">How often the ESP32 sends a reading. Faster = more detail, more battery use.</p>
+          <p className="text-xs text-[#6B7280] mb-3">How often the ESP32 sends a reading. Faster = more detail, more network traffic.</p>
           <div className="grid grid-cols-2 gap-2">
-            {[{ value: '3s', label: 'Every 3s', hint: 'High detail' }, { value: '10s', label: 'Every 10s', hint: 'Balanced' }, { value: '30s', label: 'Every 30s', hint: 'Battery saver' }, { value: '1min', label: 'Every 1 min', hint: 'Low power' }].map(opt => (
+            {[{ value: '3s', label: 'Every 3s', hint: 'High detail' }, { value: '10s', label: 'Every 10s', hint: 'Balanced' }, { value: '30s', label: 'Every 30s', hint: 'Lightweight' }, { value: '1min', label: 'Every 1 min', hint: 'Minimal traffic' }].map(opt => (
               <button key={opt.value} onClick={() => setLocal(p => ({ ...p, samplingInterval: opt.value }))}
                 className={`py-3 px-3 rounded-2xl text-left transition-all active:scale-95 border-2 ${local.samplingInterval === opt.value ? 'border-[#16A34A] bg-[#16A34A]/5' : 'border-[#E4E7EC] bg-[#F3F4F6]'}`}>
                 <p className={`text-sm font-semibold ${local.samplingInterval === opt.value ? 'text-[#16A34A]' : 'text-[#111827]'}`}>{opt.label}</p>
@@ -591,7 +617,7 @@ export default function Settings() {
       {activeSub === 'display'       && <DisplaySub       key="display"       onBack={() => setActiveSub(null)} {...sharedProps} />}
       {activeSub === 'notifications' && <NotificationsSub key="notifications" onBack={() => setActiveSub(null)} {...sharedProps} showNotifEmail={showNotifEmail} notifEmail={notifEmail} setNotifEmail={setNotifEmail} notifEmailError={notifEmailError} setNotifEmailError={setNotifEmailError} userPhone={userPhone} setUserPhone={setUserPhone} updateUser={updateUser} isAdvancedUser={isAdvancedUser} updateSettings={updateSettings} />}
       {activeSub === 'thresholds'    && <ThresholdsSub    key="thresholds"    onBack={() => setActiveSub(null)} {...sharedProps} />}
-      {activeSub === 'devices'       && <DevicesSub       key="devices"       onBack={() => setActiveSub(null)} deviceConfigs={deviceConfigs} updateDeviceConfig={updateDeviceConfig} addToast={addToast} settings={settings} />}
+      {activeSub === 'devices'       && <DevicesSub       key="devices"       onBack={() => setActiveSub(null)} deviceConfigs={deviceConfigs} updateDeviceConfig={updateDeviceConfig} addToast={addToast} settings={settings} setActivePage={setActivePage} />}
       {activeSub === 'data'          && <DataSub          key="data"          onBack={() => setActiveSub(null)} {...sharedProps} />}
       {activeSub === 'security'      && <SecuritySub      key="security"      onBack={() => setActiveSub(null)} {...sharedProps} user={user} />}
 

@@ -6,7 +6,7 @@ export default function BottomNav() {
   const { activePage, setActivePage, unreadAlertCount } = useApp();
 
   const navItems = [
-    { id: 'dashboard', icon: LayoutDashboard, label: 'Home'     },
+    { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard'     },
     { id: 'devices',   icon: Cpu,             label: 'Devices'  },
     { id: 'alerts',    icon: Bell,            label: 'Alerts',  badge: unreadAlertCount },
     { id: 'history',   icon: History,         label: 'History'  },

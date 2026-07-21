@@ -104,7 +104,6 @@ export interface Device {
   status: 'online' | 'offline';
   lastSeen: Date;
   firmwareVersion: string;
-  batteryLevel: number;
   tempOffset: number;
   humidOffset: number;
   useCustomThresholds: boolean;
@@ -336,7 +335,6 @@ export function mapDevice(d: any): Device {
     status:              d.status as 'online' | 'offline',
     lastSeen:            d.lastSeenAt ? new Date(d.lastSeenAt) : new Date(),
     firmwareVersion:     '—',
-    batteryLevel:        100,
     tempOffset:          d.tempOffset ?? 0,
     humidOffset:         d.humidOffset ?? 0,
     useCustomThresholds: d.useCustomThresholds ?? false,
