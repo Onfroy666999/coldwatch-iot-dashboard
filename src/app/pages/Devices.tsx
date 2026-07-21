@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Cpu, MapPin, Wifi, WifiOff, Battery, Info, Plus, ChevronRight, ChevronLeft,
+  Cpu, MapPin, Wifi, WifiOff, Info, Plus, ChevronRight, ChevronLeft,
   Signal, Settings2, X, Check, Trash2, AlertTriangle, Camera, Upload,
   Loader2, RefreshCw, CheckCircle2, XCircle, PackageCheck, Clock, Hash,
 } from 'lucide-react';
@@ -28,9 +28,6 @@ function timeAgo(d: Date) {
 function daysSince(d: Date): number {
   return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
 }
-
-const getBatteryColor = (level: number) =>
-  level > 50 ? '#27AE60' : level > 20 ? '#E67E22' : '#C0392B';
 
 // ── Produce image analysis — routes through backend /ai/vision proxy ─────────
 import { aiApi, produceRecordsApi } from '../Lib/api';
@@ -1304,8 +1301,8 @@ if (isLoading) return <DevicesSkeleton />;
             )}
 
             {/* Info rows */}
-            <div className="space-y-2.5 mb-5">
-              <div className="flex items-center justify-between py-2 border-b border-[#E4E7EC]">
+            <div className="divide-y divide-[#E4E7EC] mb-5">
+              <div className="flex items-center justify-between py-2">
                 <div className="flex items-center gap-2 text-xs text-[#6B7280]">
                   {device.status === 'online' ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
                   <span>Connection</span>
@@ -1314,7 +1311,7 @@ if (isLoading) return <DevicesSkeleton />;
                   {device.status === 'online' ? 'Connected' : 'Disconnected'}
                 </span>
               </div>
-              <div className="flex items-center justify-between py-2 border-b border-[#E4E7EC]">
+              <div className="flex items-center justify-between py-2">
                 <div className="flex items-center gap-2 text-xs text-[#6B7280]">
                   <Info className="w-3.5 h-3.5" /><span>Last Seen</span>
                 </div>
@@ -1323,25 +1320,13 @@ if (isLoading) return <DevicesSkeleton />;
                 </span>
               </div>
               {isAdvancedUser && (
-                <div className="flex items-center justify-between py-2 border-b border-[#E4E7EC]">
+                <div className="flex items-center justify-between py-2">
                   <div className="flex items-center gap-2 text-xs text-[#6B7280]">
                     <Signal className="w-3.5 h-3.5" /><span>Firmware</span>
                   </div>
                   <span className="text-xs font-mono text-[#111827]">v{device.firmwareVersion}</span>
                 </div>
               )}
-              <div className="flex items-center justify-between py-2">
-                <div className="flex items-center gap-2 text-xs text-[#6B7280]">
-                  <Battery className="w-3.5 h-3.5" /><span>Battery</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-20 h-1.5 bg-[#F3F4F6] rounded-full overflow-hidden">
-                    <div className="h-full rounded-full transition-all"
-                      style={{ width: `${device.batteryLevel}%`, backgroundColor: getBatteryColor(device.batteryLevel) }} />
-                  </div>
-                  <span className="text-xs font-medium text-[#111827]">{device.batteryLevel}%</span>
-                </div>
-              </div>
             </div>
 
             {/* Actions */}

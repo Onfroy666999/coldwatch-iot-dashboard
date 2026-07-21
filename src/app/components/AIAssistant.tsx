@@ -269,7 +269,6 @@ function buildAppContext(app: ReturnType<typeof useApp>) {
       isSelected: d.id === app.selectedDeviceId,
       produceMode: getProduceSummary(d),
       produceState: d.produceState ?? 'not set',
-      batteryLevel: d.batteryLevel ?? null,
       estimatedShelfLifeHours: d.produceState
         ? Math.max(0, (shelfBaseHours[d.produceState] ?? 96) - (d.transportHours ?? 0))
         : null,
