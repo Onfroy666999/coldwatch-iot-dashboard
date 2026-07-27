@@ -84,6 +84,12 @@ export default function History() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showExportMenu]);
 
+  // Export in progress — drives the disabled/spinner state on both export
+  // buttons. Export itself is synchronous (Blob + createObjectURL), but the
+  // flag still earns its keep: it gives the user visible feedback that the
+  // tap registered, and prevents a double-click from firing two downloads.
+  const [isExporting, setIsExporting] = useState(false);
+
   if (isLoading) return <HistorySkeleton />;
 
   const selectedDevice = devices.find(d => d.id === historyDeviceId);
@@ -114,45 +120,79 @@ export default function History() {
   const avgHumidity = historyData.length > 0
     ? (historyData.reduce((s, r) => s + r.humidity, 0) / historyData.length).toFixed(1) : '—';
 
-  // CSV export — respects user's temperature unit setting 
-  const handleExportCSV = () => {
-    const headers = ['Timestamp', `Temperature (${unitLabel})`, 'Humidity (%)'];
-    const csvContent = [
-      headers.join(','),
-      ...historyData.map(r => [
-        r.timestamp.toISOString(),
-        toDisplay(r.temperature).toFixed(2),
-        r.humidity.toFixed(2),
-      ].join(',')),
-    ].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `coldwatch-${selectedDevice?.name.replace(/\s+/g, '-').toLowerCase() ?? 'device'}-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+  // Turns a device name into a safe filename fragment: collapses whitespace
+  // to a dash (as before), but also strips anything outside
+  // [A-Za-z0-9-_] — e.g. "Cold Room #2 (Yam/Cassava)" used to produce
+  // "cold-room-#2-(yam/cassava).csv", where "/" gets read by some
+  // filesystems and browsers as a path separator. Falls back to 'device'
+  // if that leaves nothing (e.g. a name that's only emoji/symbols).
+  const toFilenameSlug = (name: string | undefined): string => {
+    const slug = (name ?? '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^A-Za-z0-9-_]/g, '')
+      .toLowerCase();
+    return slug || 'device';
   };
 
-  // JSON export
+  // CSV export — respects user's temperature unit setting.
+  // The actual export work is synchronous, so setIsExporting(true) followed
+  // immediately by setIsExporting(false) in the same call would get batched
+  // into a single render and never visibly show a loading state. The
+  // setTimeout(…, 0) yields one tick so "exporting" actually paints first —
+  // matters more as history grows past today's 288-reading cap.
+  const handleExportCSV = () => {
+    setIsExporting(true);
+    setTimeout(() => {
+      try {
+        const headers = ['Timestamp', `Temperature (${unitLabel})`, 'Humidity (%)'];
+        const csvContent = [
+          headers.join(','),
+          ...historyData.map(r => [
+            r.timestamp.toISOString(),
+            toDisplay(r.temperature).toFixed(2),
+            r.humidity.toFixed(2),
+          ].join(',')),
+        ].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `coldwatch-${toFilenameSlug(selectedDevice?.name)}-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } finally {
+        setIsExporting(false);
+      }
+    }, 0);
+  };
+
+  // JSON export — same deferred-work pattern as handleExportCSV, see comment there.
   const handleExportJSON = () => {
-    const data = {
-      device: selectedDevice ? { id: selectedDevice.id, name: selectedDevice.name, location: selectedDevice.location } : null,
-      exportedAt: new Date().toISOString(),
-      unit: unitLabel,
-      readings: historyData.map(r => ({
-        timestamp: r.timestamp.toISOString(),
-        temperature: toDisplay(r.temperature),
-        humidity: parseFloat(r.humidity.toFixed(2)),
-      })),
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `coldwatch-${selectedDevice?.name.replace(/\s+/g, '-').toLowerCase() ?? 'device'}-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+    setIsExporting(true);
+    setTimeout(() => {
+      try {
+        const data = {
+          device: selectedDevice ? { id: selectedDevice.id, name: selectedDevice.name, location: selectedDevice.location } : null,
+          exportedAt: new Date().toISOString(),
+          unit: unitLabel,
+          readings: historyData.map(r => ({
+            timestamp: r.timestamp.toISOString(),
+            temperature: toDisplay(r.temperature),
+            humidity: parseFloat(r.humidity.toFixed(2)),
+          })),
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `coldwatch-${toFilenameSlug(selectedDevice?.name)}-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } finally {
+        setIsExporting(false);
+      }
+    }, 0);
   };
 
   const getStatus = (temp: number) => {
@@ -263,10 +303,11 @@ export default function History() {
             <div className="relative" ref={exportMenuRef}>
               <button
                 onClick={() => setShowExportMenu(v => !v)}
-                className="flex items-center gap-2 px-4 py-2.5 border-2 border-[#E4E7EC] rounded-xl text-sm font-medium text-[#111827] transition-colors active:bg-[#F3F4F6]"
+                disabled={isExporting}
+                className="flex items-center gap-2 px-4 py-2.5 border-2 border-[#E4E7EC] rounded-xl text-sm font-medium text-[#111827] transition-colors active:bg-[#F3F4F6] disabled:opacity-60"
                 style={{ minHeight: 44 }}>
                 <Upload className="w-4 h-4" />
-                Export
+                {isExporting ? 'Exporting…' : 'Export'}
               </button>
               <AnimatePresence>
                 {showExportMenu && (
@@ -305,10 +346,11 @@ export default function History() {
           ) : (
             <button
               onClick={handleExportCSV}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-[#6B7280] transition-colors active:bg-[#F3F4F6]"
+              disabled={isExporting}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-[#6B7280] transition-colors active:bg-[#F3F4F6] disabled:opacity-60"
               style={{ minHeight: 44 }}>
               <Upload className="w-3.5 h-3.5" />
-              Export CSV
+              {isExporting ? 'Exporting…' : 'Export CSV'}
             </button>
           )}
         </div>
