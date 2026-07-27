@@ -41,6 +41,44 @@ const slideVariants = {
   exit:   (dir: number) => ({ opacity: 0, x: dir * -32 }),
 };
 
+// Screen-reader announcer for newly-arrived critical/warning alerts.
+// Sighted users already get a severity badge (color + icon + text label)
+// on the Alerts page, plus a haptic buzz for critical ones — but nothing
+// today tells a screen-reader user an alert just fired if they're not
+// already on the Alerts page. This renders nothing visible; it just pushes
+// text into an aria-live region so it gets announced regardless of which
+// page is active.
+function AlertAnnouncer() {
+  const { alerts } = useApp();
+  const [announcement, setAnnouncement] = useState('');
+  const lastAnnouncedId = useRef<string | null>(null);
+  const isFirstRun = useRef(true);
+
+  useEffect(() => {
+    const latest = alerts.find(
+      a => a.status === 'new' && (a.severity === 'critical' || a.severity === 'warning')
+    );
+    if (isFirstRun.current) {
+      // Don't announce whatever's already in the list on first load — only
+      // alerts that arrive *after* this is mounted are "new" from the
+      // screen reader's perspective. Otherwise every login would announce
+      // stale unacknowledged alerts as if they just happened.
+      isFirstRun.current = false;
+      lastAnnouncedId.current = latest?.id ?? null;
+      return;
+    }
+    if (!latest || latest.id === lastAnnouncedId.current) return;
+    lastAnnouncedId.current = latest.id;
+    setAnnouncement(`${latest.severity === 'critical' ? 'Critical' : 'Warning'} alert: ${latest.message}`);
+  }, [alerts]);
+
+  return (
+    <div aria-live="assertive" role="status" className="sr-only">
+      {announcement}
+    </div>
+  );
+}
+
 
 function AppContent() {
   const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user, isLoading, reconnectWebSockets } = useApp();
@@ -276,6 +314,7 @@ function AppContent() {
       </div>
       {activePage !== 'add-device' && activePage !== 'produce-guide' && <BottomNav />}
       <ToastContainer />
+      <AlertAnnouncer />
 
       {NIX_ENABLED && (
       <>

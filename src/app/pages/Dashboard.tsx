@@ -214,7 +214,10 @@ export default function Dashboard() {
               onClick={() => setSelectedDeviceId(device.id)}
               className={`flex-shrink-0 flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl border transition-all active:scale-[0.97] text-left ${ selectedDeviceId === device.id ? 'border-[#0984E3] bg-[#EFF6FF]' : 'border-[#E4E7EC] bg-[#F9FAFB]' }`}
               style={{ minWidth: 160 }}>
-              <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${ device.status === 'online' ? 'bg-green-500' : 'bg-red-400' }`} />
+              {device.status === 'online'
+                ? <Wifi    className="w-3 h-3 mt-0.5 flex-shrink-0 text-green-500" aria-hidden="true" />
+                : <WifiOff className="w-3 h-3 mt-0.5 flex-shrink-0 text-red-400"   aria-hidden="true" />}
+              <span className="sr-only">{device.status === 'online' ? 'Online' : 'Offline'}</span>
               <div className="min-w-0">
                 <p className={`text-xs font-semibold truncate ${ selectedDeviceId === device.id ? 'text-[#0984E3]' : 'text-[#111827]' }`}>{device.name}</p>
                 <div className="flex items-center gap-1 mt-0.5">
