@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { captureException } from '../Lib/crashReporting';
 
 interface Props {
   children: ReactNode;
@@ -27,10 +28,12 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // Logged for now. Wire this to a crash reporter (e.g. Sentry's Capacitor
-    // SDK) once one is added to the project — right now a crash on a user's
-    // device produces nothing anyone can see after the fact.
+    // Always logged locally. Also reported to Sentry if VITE_SENTRY_DSN is
+    // configured — see Lib/crashReporting.ts. Until then this call is a
+    // no-op, so a crash on a user's device still produces nothing anyone
+    // can see after the fact, same as before.
     console.error('[ErrorBoundary] Uncaught render error:', error, info.componentStack);
+    captureException(error, { componentStack: info.componentStack });
   }
 
   render() {
