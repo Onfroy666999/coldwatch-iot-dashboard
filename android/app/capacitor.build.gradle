@@ -15,6 +15,7 @@ dependencies {
     implementation project(':capacitor-haptics')
     implementation project(':capacitor-community-keep-awake')
     implementation project(':capacitor-preferences')
+    implementation project(':sentry-capacitor')
 
 }
 
