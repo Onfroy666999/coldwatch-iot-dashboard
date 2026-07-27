@@ -399,9 +399,13 @@ export interface AIInsight {
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 // Token is passed as a query parameter — the backend verifies it on the
 // upgrade request before the WebSocket handshake completes.
+//
+// Single multiplexed connection per user, not one per device — the backend's
+// /ws endpoint (see websocket.ts) delivers every device this user owns over
+// this one socket, with each message self-identifying via a `deviceId` field
+// (see useDevices.ts's openWebSocket, which routes on it).
 
 export function connectWebSocket(
-  deviceId:  string,
   onMessage: (data: any) => void,
   onError?:  (error: any) => void,
   onClose?:  () => void
@@ -415,7 +419,7 @@ export function connectWebSocket(
 
     // Convert http(s) base URL to ws(s) and append token as query param
     const wsBase = API_BASE_URL.replace(/^http/, 'ws');
-    const wsUrl  = `${wsBase}/live/${deviceId}?token=${encodeURIComponent(token)}`;
+    const wsUrl  = `${wsBase}/ws?token=${encodeURIComponent(token)}`;
     const ws     = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {

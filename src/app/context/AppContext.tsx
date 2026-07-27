@@ -178,9 +178,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const auth = useAuth({
     autoLogoutMinutes: settings.settings.autoLogoutMinutes,
     onReset: () => {
-      // Close all WebSockets
-      Object.values(devices.wsRefs.current).forEach(ws => ws?.close());
-      devices.wsRefs.current = {};
+      // Close the WebSocket
+      devices.wsRef.current?.close();
+      devices.wsRef.current = null;
       // Reset each hook's own state
       alerts.seedAlerts([]);
       settings.seedSettings(DEFAULT_SETTINGS as unknown as Record<string, unknown>);
