@@ -4,7 +4,7 @@
  */
 
 import { Capacitor } from '@capacitor/core';
-import { getToken, storeToken, storeUserId, clearTokens } from './tokenStorage';
+import { getToken, getRefreshToken, storeToken, storeRefreshToken, storeUserId, clearTokens } from './tokenStorage';
 
 // No /api prefix — backend registers routes at the root level
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
@@ -60,7 +60,63 @@ function makeOfflineError(): ApiError {
   };
 }
 
-async function fetchAPI<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
+// ── Silent token refresh ─────────────────────────────────────────────────────
+// Access tokens are short-lived (~15min — see backend's ACCESS_TOKEN_TTL).
+// Rather than surface a 401 to every screen the moment one expires mid-session,
+// fetchAPI below catches it, exchanges the refresh token for a new access
+// token here, and retries the original request once. Module-level (not
+// per-call) so concurrent requests that all hit a stale token at once share
+// a single /auth/refresh call instead of racing multiple.
+let refreshInFlight: Promise<boolean> | null = null;
+
+export async function refreshAccessToken(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return false;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ refreshToken }),
+      });
+
+      if (!res.ok) {
+        // The refresh token itself is invalid/expired (backend said so
+        // explicitly) — this session is genuinely over, not just offline.
+        clearTokens();
+        return false;
+      }
+
+      const data = await res.json();
+      if (!data?.token || !data?.refreshToken) {
+        clearTokens();
+        return false;
+      }
+
+      storeToken(data.token);
+      storeRefreshToken(data.refreshToken); // rotated — slides the 30-day window
+      return true;
+    } catch {
+      // Network failure (offline / server unreachable), not a rejection —
+      // deliberately don't clearTokens() here. The farmer is mid-field with
+      // no signal, not logged out; the original request below will surface
+      // its own "you're offline" error instead, and the still-intact
+      // refresh token means the next successful connection resumes cleanly.
+      return false;
+    }
+  })();
+
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
+async function fetchAPI<T = any>(endpoint: string, options: RequestInit = {}, _isRetry = false): Promise<T> {
   const url   = `${API_BASE_URL}${endpoint}`;
   const token = getToken();
 
@@ -94,6 +150,17 @@ async function fetchAPI<T = any>(endpoint: string, options: RequestInit = {}): P
   }
 
   if (!response.ok) {
+    // Transparent refresh-and-retry, exactly once. Skipped for /auth/*
+    // endpoints themselves — retrying a failed login/signup/refresh call
+    // through this same path would either loop or make no sense (e.g. a
+    // wrong-password 401 on /auth/login isn't a stale-token situation).
+    const isAuthEndpoint = endpoint.startsWith('/auth/');
+    if (response.status === 401 && !_isRetry && !isAuthEndpoint && getRefreshToken()) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        return fetchAPI<T>(endpoint, options, true);
+      }
+    }
     throw parseError(response, data);
   }
 
@@ -109,14 +176,17 @@ export const authApi = {
     phone?:    string;
     password:  string;
     role?:     'farmer' | 'warehouse_manager' | 'transporter' | 'other';
-  }): Promise<{ user: any; token: string }> => {
+  }): Promise<{ user: any; token: string; refreshToken: string }> => {
     const response = await fetchAPI('/auth/signup', {
       method: 'POST',
       body:   JSON.stringify(payload),
     });
     if (response.token) {
-      storeToken(response.token, 7 * 24 * 60 * 60); // 7 days
+      storeToken(response.token);
       storeUserId(response.user.id);
+    }
+    if (response.refreshToken) {
+      storeRefreshToken(response.refreshToken);
     }
     return response;
   },
@@ -124,14 +194,17 @@ export const authApi = {
   login: async (payload: {
     identifier: string;
     password:   string;
-  }): Promise<{ user: any; token: string }> => {
+  }): Promise<{ user: any; token: string; refreshToken: string }> => {
     const response = await fetchAPI('/auth/login', {
       method: 'POST',
       body:   JSON.stringify(payload),
     });
     if (response.token) {
-      storeToken(response.token, 7 * 24 * 60 * 60);
+      storeToken(response.token);
       storeUserId(response.user.id);
+    }
+    if (response.refreshToken) {
+      storeRefreshToken(response.refreshToken);
     }
     return response;
   },

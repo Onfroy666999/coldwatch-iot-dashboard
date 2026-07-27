@@ -34,7 +34,7 @@ import type {
   Device, DeviceSimState, SensorReading, DeviceReading,
   ProduceMode, ProduceState, ToastMessage,
 } from './types';
-import { connectWebSocket } from '../Lib/api';
+import { connectWebSocket, refreshAccessToken } from '../Lib/api';
 
 // isRetryableError now lives in ActionQueue.ts (imported below) so every
 // hook that enqueues offline actions shares the same classification.
@@ -241,9 +241,17 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
         // already use. onClose below already handles reconnecting.
       },
       () => {
-        // On close: attempt reconnect after 5s, only if the user is still authenticated
+        // On close: attempt reconnect after 5s, only if the user is still
+        // authenticated. If the access token happens to have expired while
+        // the socket was open (its TTL is only ~15min), try a refresh
+        // first rather than silently giving up — otherwise the WS could
+        // stay dead for however long it takes some unrelated HTTP request
+        // to happen to trigger fetchAPI's own refresh path.
         wsRef.current = null;
-        setTimeout(() => { if (getToken()) openWebSocket(); }, 5000);
+        setTimeout(async () => {
+          if (getToken()) { openWebSocket(); return; }
+          if (await refreshAccessToken()) openWebSocket();
+        }, 5000);
       }
     );
 

@@ -24,7 +24,7 @@ import {
   useCallback, type ReactNode,
 } from 'react';
 import { bootstrapApi, API_MISCONFIGURED } from '../Lib/api';
-import { getToken, clearTokens } from '../Lib/tokenStorage';
+import { hasSession, clearTokens } from '../Lib/tokenStorage';
 import { initPushNotifications } from '../Lib/pushNotifications';
 import { mapAlert, avatarFromName, DEFAULT_SETTINGS } from './types';
 import { saveBootstrapCache, loadBootstrapCache } from './offlineCache';
@@ -169,7 +169,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // isAuthenticated bridge: lets useAlerts poll only when the user is
   // signed in, without useAlerts needing to import the auth hook directly.
-  const [isAuthenticated, setIsAuthenticated] = useState(() => !!getToken());
+  const [isAuthenticated, setIsAuthenticated] = useState(() => hasSession());
 
   const alerts   = useAlerts({ isAuthenticated });
   const settings = useSettings();

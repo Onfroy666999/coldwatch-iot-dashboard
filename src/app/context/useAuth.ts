@@ -17,7 +17,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { authApi, usersApi, settingsApi } from '../Lib/api';
-import { getToken, clearTokens, getUserId } from '../Lib/tokenStorage';
+import { hasSession, clearTokens, getUserId } from '../Lib/tokenStorage';
 import { enqueueAction, clearQueue, isRetryableError } from '../Lib/ActionQueue';
 import { clearBootstrapCache, clearLastReadingCache } from './offlineCache';
 import { avatarFromName } from './types';
@@ -63,9 +63,9 @@ export interface UseAuthReturn {
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useAuth({ onReset, autoLogoutMinutes }: UseAuthOptions): UseAuthReturn {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => !!getToken());
-  const [isLoading,       setIsLoading]       = useState(() => !!getToken());
-  const [activePage,      setActivePage]      = useState(() => getToken() ? 'dashboard' : 'login');
+  const [isAuthenticated, setIsAuthenticated] = useState(() => hasSession());
+  const [isLoading,       setIsLoading]       = useState(() => hasSession());
+  const [activePage,      setActivePage]      = useState(() => hasSession() ? 'dashboard' : 'login');
   const [user, setUser] = useState<User>({
     id: getUserId() ?? '',
     name: '',
