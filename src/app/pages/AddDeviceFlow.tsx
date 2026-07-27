@@ -304,6 +304,14 @@ export default function AddDeviceFlow() {
   const [pickerCategory, setPickerCategory] = useState<CategoryId | null>(null);
   const [selectedCrops,  setSelectedCrops]  = useState<CropId[]>([]);
   const [skipProduce,    setSkipProduce]    = useState(false);
+  // True when the user took the Quick Setup shortcut (single crop, defaults
+  // applied, tips/condition/facility skipped) rather than the full wizard.
+  // Only affects the progress bar and totalSteps below — deriveTargetsForCrops
+  // (the actual saved warning/critical thresholds) depends only on cropIds,
+  // never on produceState/facilitySize/transportHours, so the defaults this
+  // path leaves in place don't affect device configuration, only the
+  // display-only shelf-life estimate shown on Review.
+  const [quickSetup,     setQuickSetup]     = useState(false);
 
   // ── Condition ──────────────────────────────────────────────────────────────
   const [produceState,   setProduceState]   = useState<ProduceState>('fresh');
@@ -349,6 +357,15 @@ export default function AddDeviceFlow() {
 
   const handleProduceContinue = () => {
     goTo(selectedCrops.length >= 2 ? 'compat' : 'tips');
+  };
+
+  // "I store yams, just give me defaults" — for a single crop, skip tips/
+  // condition/facility entirely and go straight to Review with whatever
+  // produceState/facilitySize/transportHours are already defaulted to.
+  // Still fully editable from Review's "Edit" links afterward.
+  const handleQuickSetup = () => {
+    setQuickSetup(true);
+    goTo('review');
   };
 
   const handleSkip = () => {
@@ -406,7 +423,7 @@ export default function AddDeviceFlow() {
     }
   };
 
-  const totalSteps = skipProduce ? 3 : (selectedCrops.length >= 2 ? 7 : 6);
+  const totalSteps = skipProduce ? 3 : quickSetup ? 3 : (selectedCrops.length >= 2 ? 7 : 6);
   const progressPct = Math.min(100, Math.round((stepStack.length / totalSteps) * 100));
 
   const inputBase = "w-full px-4 py-3 rounded-xl border border-[#E4E7EC] bg-[#F3F4F6] text-[#111827] outline-none focus:border-[#0984E3] focus:ring-2 focus:ring-[#0984E3]/20 transition-all text-sm";
@@ -983,14 +1000,14 @@ export default function AddDeviceFlow() {
                     {PRODUCE_STATES.find(s => s.id === produceState)?.emoji} {PRODUCE_STATES.find(s => s.id === produceState)?.label}
                   </p>
                 </div>
-                <button onClick={() => setStepStack(['device', 'produce', 'condition'])} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
+                <button onClick={() => { setQuickSetup(false); setStepStack(['device', 'produce', 'condition']); }} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
               </div>
 
               {/* Facility */}
               <div className="rounded-2xl p-4 bg-white space-y-1.5" style={{ border: '1px solid #E4E7EC' }}>
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Storage facility</p>
-                  <button onClick={() => setStepStack(['device', 'produce', 'condition', 'facility'])} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
+                  <button onClick={() => { setQuickSetup(false); setStepStack(['device', 'produce', 'condition', 'facility']); }} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-[#6B7280]">Size</span>
@@ -1061,11 +1078,20 @@ export default function AddDeviceFlow() {
           </button>
         )}
         {step === 'produce' && (
-          <button onClick={handleProduceContinue} disabled={selectedCrops.length === 0}
-            className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98] disabled:opacity-40"
-            style={{ backgroundColor: '#0984E3' }}>
-            Continue{selectedCrops.length > 0 ? ` (${selectedCrops.length})` : ''}
-          </button>
+          <>
+            {selectedCrops.length === 1 && (
+              <button onClick={handleQuickSetup}
+                className="h-12 px-4 rounded-2xl text-sm font-bold active:scale-[0.98] whitespace-nowrap"
+                style={{ backgroundColor: '#EFF6FF', color: '#0984E3' }}>
+                Quick Setup
+              </button>
+            )}
+            <button onClick={handleProduceContinue} disabled={selectedCrops.length === 0}
+              className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98] disabled:opacity-40"
+              style={{ backgroundColor: '#0984E3' }}>
+              Continue{selectedCrops.length > 0 ? ` (${selectedCrops.length})` : ''}
+            </button>
+          </>
         )}
         {step === 'compat' && (
           <button onClick={() => goTo('tips')} className="flex-1 h-12 rounded-2xl text-white text-sm font-bold active:scale-[0.98]" style={{ backgroundColor: '#0984E3' }}>
