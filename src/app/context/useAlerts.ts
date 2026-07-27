@@ -12,7 +12,8 @@
 // this hook. The dependency is one-directional: useDevices knows about
 // useAlerts, but useAlerts knows nothing about useDevices.
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Haptics, NotificationType } from '@capacitor/haptics';
 import { alertsApi } from '../Lib/api';
 import { enqueueAction, isRetryableError } from '../Lib/ActionQueue';
 import { mapAlert } from './types';
@@ -52,8 +53,27 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
   // Called by useDevices when a { type: 'alert', data: ... } WebSocket message
   // arrives. Deduplicates by id so rapid reconnects don't duplicate entries.
 
+  // Tracks every alert id we've already seen (from bootstrap seeding or a
+  // prior WS arrival) purely so the haptic feedback below fires exactly
+  // once per alert. Deliberately not derived from `alerts` state itself —
+  // the actual state update happens via setAlerts' functional form, which
+  // React may invoke more than once (e.g. StrictMode) and must stay a pure
+  // function with no side effects; this ref is what lets us fire the
+  // haptic outside of that, in the addAlert call itself.
+  const seenAlertIds = useRef<Set<string>>(new Set());
+
   const addAlert = useCallback((raw: any) => {
     const mapped = mapAlert(raw);
+    if (seenAlertIds.current.has(mapped.id)) return;
+    seenAlertIds.current.add(mapped.id);
+
+    if (mapped.severity === 'critical') {
+      // Fire-and-forget: on web this is a graceful no-op, and a failure
+      // here (e.g. no native bridge) shouldn't block the alert itself
+      // from being added to the list.
+      Haptics.notification({ type: NotificationType.Error }).catch(() => {});
+    }
+
     setAlerts(prev => {
       if (prev.some(a => a.id === mapped.id)) return prev;
       return [mapped, ...prev];
@@ -128,6 +148,7 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
   // Intentionally not exposed as raw setAlerts — callers should not be able
   // to set arbitrary state, only seed from a known-good mapped array.
   const seedAlerts = useCallback((mapped: Alert[]) => {
+    for (const a of mapped) seenAlertIds.current.add(a.id);
     setAlerts(mapped);
   }, []);
 
