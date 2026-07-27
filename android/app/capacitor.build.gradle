@@ -12,6 +12,8 @@ dependencies {
     implementation project(':capacitor-app')
     implementation project(':capacitor-camera')
     implementation project(':capacitor-push-notifications')
+    implementation project(':capacitor-haptics')
+    implementation project(':capacitor-community-keep-awake')
     implementation project(':capacitor-preferences')
 
 }
