@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Thermometer, Droplets, Activity, AlertTriangle, TrendingUp, TrendingDown, Snowflake, ChevronRight, MapPin, Wifi, WifiOff, Lightbulb } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { insightsApi, type AIInsight } from '../Lib/api';
@@ -20,6 +21,20 @@ const SEVERITY_STYLES: Record<string, { bar: string; badge: string; label: strin
 export default function Dashboard() {
   const isLoading = usePageLoading();
   const { currentTemperature, currentHumidity, systemStatus, alerts, sensorHistory, settings, user, setActivePage, devices, selectedDeviceId, setSelectedDeviceId, isOnline, lastReadingAt } = useApp();
+
+  // Keep the screen awake while this page is mounted — a dimmed/locked screen
+  // is exactly the condition that kills the WebSocket in the field (see
+  // App.tsx's resume-reconnect handling, which exists to recover from this).
+  // Released automatically on unmount, i.e. as soon as the user navigates
+  // away from the dashboard — not held for the whole app session.
+  useEffect(() => {
+    KeepAwake.keepAwake().catch(() => {
+      // Not fatal — e.g. unsupported browser (no Screen Wake Lock API) on web.
+    });
+    return () => {
+      KeepAwake.allowSleep().catch(() => {});
+    };
+  }, []);
 
   const [insights, setInsights] = useState<AIInsight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
