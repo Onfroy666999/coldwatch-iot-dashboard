@@ -6,7 +6,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",
@@ -79,6 +80,8 @@
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.3.1",
+    "fake-indexeddb": "^6.2.5",
+    "vitest": "^4.1.10",
     "@tailwindcss/vite": "4.1.12",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
