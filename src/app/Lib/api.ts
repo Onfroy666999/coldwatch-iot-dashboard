@@ -9,18 +9,23 @@ import { getToken, storeToken, storeUserId, clearTokens } from './tokenStorage';
 // No /api prefix — backend registers routes at the root level
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
 
-/**
- * True when this build is misconfigured — running as a native Android app
- * with no VITE_API_URL baked in at build time, so every request silently
- * targets http://localhost:3000, which doesn't exist on a real device.
- * Without this check, that failure is indistinguishable from a real
- * connectivity problem: makeOfflineError() below reports it as "You are
- * offline," which sends a user with a perfectly good internet connection
- * down completely the wrong troubleshooting path. App.tsx checks this
- * before rendering anything else and shows an explicit configuration-error
- * screen instead.
- */
-export const API_URL_MISCONFIGURED = Capacitor.isNativePlatform() && !import.meta.env.VITE_API_URL;
+// A native build shipped without VITE_API_URL set falls back to
+// 'http://localhost:3000' — on a real Android device that's the phone's own
+// loopback interface, not a dev machine, so every request fails immediately
+// and looks exactly like "no internet" to the user with no way to tell the
+// two apart. Surface this loudly instead: logged here for adb logcat /
+// Play Console, and exposed as a flag so AppContext can show an unmissable
+// toast the moment the app mounts rather than the user just assuming their
+// connection is bad. Not thrown at module scope — an exception during
+// import happens before React (and therefore ErrorBoundary) exists yet, so
+// it would white-screen instead of ever showing that ErrorBoundary fallback.
+export const API_MISCONFIGURED = Capacitor.isNativePlatform() && !import.meta.env.VITE_API_URL;
+if (API_MISCONFIGURED) {
+  console.error(
+    '[api] Native build shipped without VITE_API_URL — falling back to ' +
+    'http://localhost:3000, which will not reach the real backend from a device.'
+  );
+}
 
 export interface ApiError {
   status:    number;
@@ -396,6 +401,7 @@ export interface AIInsight {
 // upgrade request before the WebSocket handshake completes.
 
 export function connectWebSocket(
+  deviceId:  string,
   onMessage: (data: any) => void,
   onError?:  (error: any) => void,
   onClose?:  () => void
@@ -407,11 +413,9 @@ export function connectWebSocket(
       return null;
     }
 
-    // Single multiplexed connection — streams every device this user owns,
-    // each message tagged with its deviceId, rather than one socket per
-    // device. See useDevices.ts's openWebSocket for the routing side of this.
+    // Convert http(s) base URL to ws(s) and append token as query param
     const wsBase = API_BASE_URL.replace(/^http/, 'ws');
-    const wsUrl  = `${wsBase}/ws?token=${encodeURIComponent(token)}`;
+    const wsUrl  = `${wsBase}/live/${deviceId}?token=${encodeURIComponent(token)}`;
     const ws     = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {

@@ -23,7 +23,7 @@ import {
   createContext, useContext, useState, useEffect,
   useCallback, type ReactNode,
 } from 'react';
-import { bootstrapApi } from '../Lib/api';
+import { bootstrapApi, API_MISCONFIGURED } from '../Lib/api';
 import { getToken, clearTokens } from '../Lib/tokenStorage';
 import { initPushNotifications } from '../Lib/pushNotifications';
 import { mapAlert, avatarFromName, DEFAULT_SETTINGS } from './types';
@@ -178,9 +178,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const auth = useAuth({
     autoLogoutMinutes: settings.settings.autoLogoutMinutes,
     onReset: () => {
-      // Close the shared WebSocket
-      devices.wsRef.current?.close();
-      devices.wsRef.current = null;
+      // Close all WebSockets
+      Object.values(devices.wsRefs.current).forEach(ws => ws?.close());
+      devices.wsRefs.current = {};
       // Reset each hook's own state
       alerts.seedAlerts([]);
       settings.seedSettings(DEFAULT_SETTINGS as unknown as Record<string, unknown>);
@@ -284,6 +284,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [auth.completeSurvey, settings.updateSettings]); // eslint-disable-line
 
   // ── Push notifications ────────────────────────────────────────────────────
+
+  // A native build shipped without VITE_API_URL is misconfigured — see the
+  // comment in api.ts. Every request will fail, indistinguishable from being
+  // offline, so make sure this is impossible to miss rather than silent.
+  useEffect(() => {
+    if (!API_MISCONFIGURED) return;
+    addToast({
+      id:       'api-misconfigured',
+      type:     'error',
+      message:  'This build is missing its server configuration and cannot connect. Please contact support.',
+      duration: Infinity,
+    });
+  }, []); // eslint-disable-line
 
   useEffect(() => {
     if (!auth.isAuthenticated) return;

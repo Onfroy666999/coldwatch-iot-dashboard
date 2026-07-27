@@ -533,7 +533,8 @@ function RemoveProduceSheet({
 
 // ── Configure Sheet ───────────────────────────────────────────────────────────
 // Tabbed bottom sheet letting users update all device settings after creation:
-// Identity (name/location), Produce setup, Alert thresholds, Sensor offsets + auto-resolve speed
+// Identity (name/location), Produce setup, Alert thresholds + auto-resolve timer,
+// Sensor offsets + auto-resolve speed override (advanced/testing only)
 
 const CONFIG_TABS = [
   { id: 'identity',   label: 'Identity'   },
@@ -544,6 +545,15 @@ const CONFIG_TABS = [
 type ConfigTab = typeof CONFIG_TABS[number]['id'];
 
 const CONFIGURE_STATES  = PRODUCE_STATES;
+
+// Auto-resolve timer — the delay before the autonomous feature engages the
+// Peltier for an unattended alert. Farmer-facing, so only these three presets
+// are offered (the free-form minutes field in Advanced is for testing only).
+const AUTO_RESOLVE_TIMER_OPTIONS = [
+  { minutes: 30,  label: '30 min' },
+  { minutes: 60,  label: '1 hour' },
+  { minutes: 120, label: '2 hours' },
+] as const;
 
 function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => void }) {
   const { updateDevice, updateProduceSetup, addToast, isAdvancedUser } = useApp();
@@ -573,7 +583,9 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
   const [tempOffset,  setTempOffset]  = useState(String(device.tempOffset  ?? 0));
   const [humidOffset, setHumidOffset] = useState(String(device.humidOffset ?? 0));
 
-  // Auto-resolve speed override (testing) — empty string means "use default"
+  // Auto-resolve timer — same field backs both the farmer-facing 30/60/120
+  // preset picker (Thresholds tab) and the free-form testing override
+  // (Advanced tab, advanced users only). Empty string means "use default".
   const [autoResolveMinutes, setAutoResolveMinutes] = useState(
     device.autoResolveMinutes != null ? String(device.autoResolveMinutes) : ''
   );
@@ -640,15 +652,20 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
         humidAlertHigh:      humidHigh,
       });
 
-      // Offsets + auto-resolve speed override (advanced users only)
+      // Offsets (advanced users only)
       if (isAdvancedUser) {
-        const trimmedSpeed = autoResolveMinutes.trim();
         updateDevice(device.id, {
           tempOffset:  parseFloat(tempOffset)  || 0,
           humidOffset: parseFloat(humidOffset) || 0,
-          autoResolveMinutes: trimmedSpeed === '' ? null : Math.min(1440, Math.max(1, parseInt(trimmedSpeed, 10) || 60)),
         });
       }
+
+      // Auto-resolve timer — available to all users (Thresholds tab preset,
+      // or the Advanced tab's free-form override for advanced users)
+      const trimmedSpeed = autoResolveMinutes.trim();
+      updateDevice(device.id, {
+        autoResolveMinutes: trimmedSpeed === '' ? null : Math.min(1440, Math.max(1, parseInt(trimmedSpeed, 10) || 60)),
+      });
 
       addToast({ id: `cfg-${Date.now()}`, type: 'success', message: `${unitName.trim()} updated` });
       setSaving(false);
@@ -1044,6 +1061,33 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                     </p>
                   </div>
                 )}
+
+                {/* Auto-resolve timer */}
+                <div className="pt-2 border-t border-[#E4E7EC]">
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                    ⏱️ Auto-Resolve Timer
+                  </p>
+                  <p className="text-[10px] text-[#6B7280] mb-2 leading-relaxed">
+                    How long an alert can go unattended before ColdWatch automatically engages the Peltier to fix it for you.
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {AUTO_RESOLVE_TIMER_OPTIONS.map(opt => {
+                      const selected = (Number(autoResolveMinutes) || 60) === opt.minutes;
+                      return (
+                        <button key={opt.minutes} onClick={() => setAutoResolveMinutes(String(opt.minutes))}
+                          className="py-3 rounded-xl text-center transition-all active:scale-[0.97]"
+                          style={{
+                            border:          `1.5px solid ${selected ? '#0984E380' : '#E4E7EC'}`,
+                            backgroundColor: selected ? '#EBF4FF' : '#FFFFFF',
+                          }}>
+                          <p className="text-xs font-semibold" style={{ color: selected ? '#0984E3' : '#111827' }}>
+                            {opt.label}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </motion.div>
             )}
 

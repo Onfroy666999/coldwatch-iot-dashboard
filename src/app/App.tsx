@@ -19,11 +19,10 @@ import Privacy from './pages/Privacy';
 import TermsOfService from './pages/TermsOfService';
 import ProduceGuide from './pages/ProduceGuide';
 import { Analytics } from '@vercel/analytics/react';
-import { WifiOff, Snowflake, ServerCrash } from 'lucide-react';
+import { WifiOff, Snowflake } from 'lucide-react';
 import SyncBanner from './components/SyncBanner';
 import ErrorBoundary from './components/ErrorBoundary';
-import { hydrateTokenCache } from './Lib/tokenStorage';
-import { API_URL_MISCONFIGURED } from './Lib/api';
+import { ready as tokenStorageReady } from './Lib/tokenStorage';
 import type { NixHandle } from './components/AIAssistant';
 // Lazy-loaded: NIX_ENABLED is false today, so this ~98KB component (Groq
 // client, speech recognition, TTS) should never end up in the main bundle.
@@ -79,21 +78,18 @@ function AppContent() {
   const prevPageRef = useRef(activePage);
   const [direction, setDirection] = useState(0);
 
-  // reconnectWebSockets is still wrapped in a ref here defensively, even
-  // though openWebSocket now only depends on [addAlert] (not
-  // selectedDeviceId — there's one shared multiplexed socket per user now,
-  // not one per device, so device selection no longer affects its identity).
-  // Keeping the ref means the listener-registration effect below still only
-  // depends on isAuthenticated, not on anything from useDevices that could
-  // change identity for unrelated reasons in the future.
+  // reconnectWebSockets' identity changes on every device selection change
+  // (it's built on openWebSocket, which depends on selectedDeviceId) — kept
+  // in a ref so the listener-registration effect below only depends on
+  // isAuthenticated, not on something that churns during normal use.
   const reconnectWebSocketsRef = useRef(reconnectWebSockets);
   useEffect(() => { reconnectWebSocketsRef.current = reconnectWebSockets; }, [reconnectWebSockets]);
 
-  // Reconnect the shared WebSocket whenever the app returns to the
+  // Reconnect any dead device WebSockets whenever the app returns to the
   // foreground. This matters specifically because a backgrounded WebView
   // can be fully suspended by the OS, which silently kills the socket at
   // the transport level without ever firing the JS 'close' event — so the
-  // reconnect-on-close logic in useDevices.ts never triggers.
+  // per-socket reconnect-on-close logic in useDevices.ts never triggers.
   // reconnectWebSockets() sidesteps that by actively checking readyState
   // the moment we're back, rather than waiting for an event that may never
   // arrive. Without this, the Dashboard's live tile can silently freeze on
@@ -493,63 +489,31 @@ function AppContent() {
 }
 
 export default function App() {
-  if (API_URL_MISCONFIGURED) {
-    // Deliberately not routed through ErrorBoundary — that fallback's
-    // "restarting the app should fix this" is actively wrong here. This is
-    // a build-time misconfiguration (the app was packaged with no
-    // VITE_API_URL), and no amount of restarting or reconnecting fixes it;
-    // only rebuilding with the env var set does.
-    return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center text-center px-6" style={{ backgroundColor: '#FFFFFF' }}>
-        <div className="w-20 h-20 rounded-full flex items-center justify-center mb-5" style={{ backgroundColor: 'rgba(220,38,38,0.08)' }}>
-          <ServerCrash className="w-10 h-10" style={{ color: '#DC2626' }} />
-        </div>
-        <h2 className="text-xl font-semibold text-[#111827] mb-2">Configuration error</h2>
-        <p className="text-sm text-[#6B7280] max-w-xs leading-relaxed">
-          This build has no server address configured. Please contact ColdWatch support — this isn't a connectivity issue on your end, and reinstalling won't fix it.
-        </p>
-      </div>
-    );
-  }
+  // Gates mounting AppProvider until tokenStorage has hydrated its in-memory
+  // cache from Preferences. useAuth's useState(() => !!getToken()) initializers
+  // run synchronously on AppProvider's first render — without this gate they'd
+  // race the async Preferences read and could show the login screen for a
+  // moment (or permanently, on a slow bridge) even with a valid saved session.
+  const [tokenHydrated, setTokenHydrated] = useState(false);
+
+  useEffect(() => {
+    tokenStorageReady.then(() => setTokenHydrated(true));
+  }, []);
 
   return (
     <ErrorBoundary>
-      <AppGate />
+      {tokenHydrated ? (
+        <AppProvider>
+          <AppContent />
+          <Analytics />
+        </AppProvider>
+      ) : (
+        // Matches capacitor.config.ts's splash backgroundColor so there's no
+        // color flash between the native splash and this gate. Hydration is
+        // a same-process async call and resolves near-instantly in practice —
+        // this exists to guarantee correctness rather than assume timing.
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: '#FFFFFF' }} />
+      )}
     </ErrorBoundary>
-  );
-}
-
-function AppGate() {
-  // useAuth.ts reads getToken()/getUserId() synchronously in three
-  // useState(() => ...) initializers the moment AppProvider mounts — that's
-  // what decides whether the app opens straight to the dashboard or to the
-  // login screen. Preferences is async, so AppProvider can't mount until
-  // the in-memory cache tokenStorage.ts reads from has actually been
-  // populated — otherwise every cold start would look logged-out for a
-  // frame (or, on a slow device, longer) even for a user with a perfectly
-  // valid stored session.
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    hydrateTokenCache().then(() => setHydrated(true));
-  }, []);
-
-  if (!hydrated) {
-    // This window is typically only a few milliseconds — Preferences is
-    // local IO, not a network call. Deliberately minimal rather than reusing
-    // the in-app SplashScreen page: that page reads from AppProvider's own
-    // context, which doesn't exist yet at this point.
-    return (
-      <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: '#FFFFFF' }}>
-        <Snowflake className="w-8 h-8 animate-pulse" style={{ color: '#0984E3' }} />
-      </div>
-    );
-  }
-
-  return (
-    <AppProvider>
-      <AppContent />
-      <Analytics />
-    </AppProvider>
   );
 }
