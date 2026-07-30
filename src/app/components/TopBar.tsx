@@ -25,8 +25,11 @@ export default function TopBar() {
     if (unreadAlertCount > 0) setBellAnimKey(k => k + 1);
   }, [unreadAlertCount]);
 
-  const title  = pageTitles[activePage] || 'Dashboard';
-  const isLive = deviceStatus === 'online';
+  const title = pageTitles[activePage] || 'Dashboard';
+  const badge =
+    deviceStatus === 'online'  ? { label: 'Device Live',    color: '#16A34A', bg: 'rgba(22,163,74,0.08)', border: 'rgba(22,163,74,0.2)', pulse: true }  :
+    deviceStatus === 'offline' ? { label: 'Device Offline', color: '#DC2626', bg: 'rgba(220,38,38,0.08)', border: 'rgba(220,38,38,0.2)', pulse: false } :
+                                  { label: 'No Devices',    color: '#6B7280', bg: 'rgba(107,114,128,0.08)', border: 'rgba(107,114,128,0.2)', pulse: false };
 
   return (
     <>
@@ -41,11 +44,11 @@ export default function TopBar() {
 
         <div className="flex items-center gap-1.5 md:gap-3">
           <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-            style={{ backgroundColor: isLive ? 'rgba(22,163,74,0.08)' : 'rgba(220,38,38,0.08)', border: `1px solid ${isLive ? 'rgba(22,163,74,0.2)' : 'rgba(220,38,38,0.2)'}` }}>
+            style={{ backgroundColor: badge.bg, border: `1px solid ${badge.border}` }}>
             <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-              style={{ backgroundColor: isLive ? '#16A34A' : '#DC2626', animation: isLive ? 'pulse 2s infinite' : 'none' }} />
-            <span className="text-xs font-semibold" style={{ color: isLive ? '#16A34A' : '#DC2626' }}>
-              {isLive ? 'Device Live' : 'Device Offline'}
+              style={{ backgroundColor: badge.color, animation: badge.pulse ? 'pulse 2s infinite' : 'none' }} />
+            <span className="text-xs font-semibold" style={{ color: badge.color }}>
+              {badge.label}
             </span>
           </div>
 

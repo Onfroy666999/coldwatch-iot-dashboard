@@ -58,7 +58,7 @@ interface AppContextType {
   // ── Sim / selected device (flattened for consumer convenience) ──────────────
   currentTemperature: number;
   currentHumidity:    number;
-  deviceStatus:       'online' | 'offline';
+  deviceStatus:       'online' | 'offline' | 'none';
   systemStatus:       'cooling' | 'idle' | 'override';
   targetTemperature:  number;
   targetHumidity:     number;
@@ -324,7 +324,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ── Derived values ────────────────────────────────────────────────────────
 
   const selectedDevice = devices.devices.find(d => d.id === devices.selectedDeviceId);
-  const deviceStatus   = selectedDevice?.status ?? 'offline';
+  const deviceStatus: 'online' | 'offline' | 'none' =
+    devices.devices.length === 0 ? 'none' : (selectedDevice?.status ?? 'offline');
 
   // ── Context value ─────────────────────────────────────────────────────────
 

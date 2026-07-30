@@ -9,7 +9,10 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function Sidebar() {
   const { user, logout, activePage, setActivePage, unreadAlertCount, deviceStatus } = useApp();
-  const isLive = deviceStatus === 'online';
+  const statusColor =
+    deviceStatus === 'online'  ? '#16A34A' :
+    deviceStatus === 'offline' ? '#DC2626' :
+                                  '#9CA3AF'; // no devices — neutral, not an alarm state
 
   const navItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -73,7 +76,7 @@ export function Sidebar() {
             <p className="text-xs font-semibold truncate" style={{ color: '#111827' }}>{user.name}</p>
             <p className="text-[10px] truncate" style={{ color: '#9CA3AF' }}>{ROLE_LABELS[user.role || ''] || 'User'}</p>
           </div>
-          <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: isLive ? '#16A34A' : '#DC2626' }} />
+          <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor }} />
         </div>
         <button onClick={logout}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-xl transition-all active:bg-red-50 active:scale-[0.98]"
