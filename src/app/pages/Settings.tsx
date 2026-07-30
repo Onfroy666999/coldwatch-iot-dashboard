@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import type { DeviceConfig } from '../context/AppContext';
 import { usePageLoading, SettingsSkeleton } from '../components/Skeleton';
+import BatteryOptimization from '../Lib/batteryOptimization';
 import {
   Bell, Save, Thermometer, ChevronRight, ChevronLeft,
   Monitor, Cpu, Database, Lock, ChevronDown, ChevronUp,
@@ -504,6 +506,32 @@ export default function Settings() {
   useEffect(() => { setUserPhone(user.phone || ''); }, [user.phone]);
   const isLoading = usePageLoading();
 
+  // null = not yet checked (or not native — the banner below only shows once
+  // this becomes explicitly false). Stock Android only — see
+  // Lib/batteryOptimization.ts for why OEM battery managers aren't covered.
+  const [batteryIgnoring, setBatteryIgnoring] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    BatteryOptimization.isIgnoringBatteryOptimizations()
+      .then(({ ignoring }) => setBatteryIgnoring(ignoring))
+      .catch(() => {
+        // Not fatal — just leave the banner hidden rather than show it based
+        // on an unknown state.
+      });
+  }, []);
+
+  const handleRequestBatteryExemption = async () => {
+    try {
+      const { ignoring } = await BatteryOptimization.requestIgnoreBatteryOptimizations();
+      setBatteryIgnoring(ignoring);
+      if (ignoring) {
+        addToast({ id: `battery-${Date.now()}`, type: 'success', message: 'Background running allowed — alerts will keep working while the app is closed' });
+      }
+    } catch (err) {
+      console.error('[Settings] Battery optimization request failed:', err);
+    }
+  };
+
   if (isLoading) return <SettingsSkeleton isAdvancedUser={isAdvancedUser} />;
 
   const isTransporter  = user.role === 'transporter';
@@ -556,6 +584,18 @@ export default function Settings() {
               <p className="text-xs text-[#0984E3] font-medium">
                 As a Warehouse Manager, you have full access to advanced configuration, device calibration, and global threshold controls.
               </p>
+            </div>
+          )}
+
+          {batteryIgnoring === false && (
+            <div className="flex items-center gap-3 px-4 py-3 rounded-2xl" style={{ backgroundColor: 'rgba(217,119,6,0.06)', border: '1px solid rgba(217,119,6,0.15)' }}>
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" style={{ color: '#D97706' }} />
+              <p className="text-xs text-[#D97706] font-medium flex-1">
+                Your phone may stop temperature alerts while ColdWatch is in the background. Allow it to run in the background for reliable alerts.
+              </p>
+              <button onClick={handleRequestBatteryExemption} className="text-xs font-semibold text-[#D97706] underline underline-offset-2 flex-shrink-0">
+                Allow
+              </button>
             </div>
           )}
 
