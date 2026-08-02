@@ -4,7 +4,6 @@ import { Thermometer, Droplets, Activity, AlertTriangle, TrendingUp, TrendingDow
 import { useApp } from '../context/AppContext';
 import { insightsApi, type AIInsight } from '../Lib/api';
 import ControlPanel from '../components/ControlPanel';
-import { usePageLoading, DashboardSkeleton } from '../components/Skeleton.tsx';
 
 const ROLE_PREFIX: Record<string, string> = {
   farmer:            'Farmer',
@@ -19,7 +18,6 @@ const SEVERITY_STYLES: Record<string, { bar: string; badge: string; label: strin
 };
 
 export default function Dashboard() {
-  const isLoading = usePageLoading();
   const { currentTemperature, currentHumidity, systemStatus, alerts, sensorHistory, settings, user, setActivePage, devices, selectedDeviceId, setSelectedDeviceId, isOnline, lastReadingAt } = useApp();
 
   // Keep the screen awake while this page is mounted — a dimmed/locked screen
@@ -77,8 +75,6 @@ export default function Dashboard() {
   const humidTrend = sensorHistory.length >= 2
     ? (sensorHistory[sensorHistory.length - 1].humidity >= sensorHistory[sensorHistory.length - 2].humidity ? 'up' : 'down')
     : 'up';
-
-  if (isLoading) return <DashboardSkeleton />;
 
   // Empty state — all devices deleted
   if (devices.length === 0) {

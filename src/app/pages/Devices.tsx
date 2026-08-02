@@ -8,7 +8,6 @@ import {
 import { useApp } from '../context/AppContext';
 import type { Device, ProduceState } from '../context/AppContext';
 import { deriveLegacyProduceModeFromCrops } from '../context/types';
-import { usePageLoading, DevicesSkeleton } from '../components/Skeleton';
 import {
   CATEGORIES, CATEGORY_EMOJI, getCropsByCategory, getCrop, deriveTargetsForCrops,
   getPairCompatibility, getStorageScore, type CropId, type CategoryId,
@@ -1190,8 +1189,6 @@ export default function Devices() {
 const [configuringDevice,  setConfiguringDevice]  = useState<Device | null>(null);
 const [removingDevice,     setRemovingDevice]     = useState<Device | null>(null);
 
-const isLoading = usePageLoading();
-if (isLoading) return <DevicesSkeleton />;
   const handleViewDashboard = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
     setActivePage('dashboard');

@@ -1,17 +1,12 @@
-import { useState, useEffect } from 'react';
 
-// usePageLoading 
-// Returns true for `ms` milliseconds after mount, then false.
-// This gives skeletons a guaranteed window to appear even with local data,
-// so the pattern is already wired up when real network latency arrives.
-export function usePageLoading(ms = 700) {
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(() => setLoading(false), ms);
-    return () => clearTimeout(t);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return loading;
-}
+// usePageLoading REMOVED — it was a fixed 700ms timer shown on every page
+// mount regardless of whether data was actually loading, adding perceived
+// slowness on every navigation even on fast devices. App.tsx's
+// appReady={!isLoading} on the SplashScreen already gates the entire page
+// tree on the real bootstrap fetch, so by the time any page below mounts,
+// its context data is already loaded — there was nothing left for this to
+// legitimately wait on. Pages with their own genuine per-fetch loading
+// (e.g. History's fetchingHistory) use that real state directly instead.
 
 // Shimmer keyframe injected once 
 const SHIMMER_STYLE = `

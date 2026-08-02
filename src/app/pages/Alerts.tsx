@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
-import { usePageLoading, AlertsSkeleton } from '../components/Skeleton.tsx';
 import {
   AlertCircle, AlertTriangle, Info, ChevronDown, ChevronUp,
   CheckCircle2, Filter, Zap, Clock, Droplets,
@@ -319,9 +318,6 @@ export default function Alerts() {
   const [severityFilter, setSeverityFilter] = useState('all');
   const [statusFilter,   setStatusFilter]   = useState('all');
   const [expandedAlert,  setExpandedAlert]  = useState<string | null>(null);
-  const isLoading = usePageLoading();
-
-  if (isLoading) return <AlertsSkeleton />;
 
   // Split into sections
   const needsAction   = alerts.filter(a => a.status === 'new');

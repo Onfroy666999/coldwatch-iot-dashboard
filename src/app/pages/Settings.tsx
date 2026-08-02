@@ -3,7 +3,6 @@ import { Capacitor } from '@capacitor/core';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import type { DeviceConfig } from '../context/AppContext';
-import { usePageLoading, SettingsSkeleton } from '../components/Skeleton';
 import BatteryOptimization from '../Lib/batteryOptimization';
 import {
   Bell, Save, Thermometer, ChevronRight, ChevronLeft,
@@ -504,7 +503,6 @@ export default function Settings() {
   // sourcing it from `settings` here previously always showed blank.
   const [userPhone, setUserPhone] = useState(user.phone || '');
   useEffect(() => { setUserPhone(user.phone || ''); }, [user.phone]);
-  const isLoading = usePageLoading();
 
   // null = not yet checked (or not native — the banner below only shows once
   // this becomes explicitly false). Stock Android only — see
@@ -531,8 +529,6 @@ export default function Settings() {
       console.error('[Settings] Battery optimization request failed:', err);
     }
   };
-
-  if (isLoading) return <SettingsSkeleton isAdvancedUser={isAdvancedUser} />;
 
   const isTransporter  = user.role === 'transporter';
   const showNotifEmail = isAdvancedUser || isTransporter;

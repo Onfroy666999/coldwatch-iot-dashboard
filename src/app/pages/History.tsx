@@ -7,7 +7,6 @@ import {
   ResponsiveContainer, ReferenceLine, AreaChart, Area
 } from 'recharts';
 import { Upload, BarChart3, Table, Clock, MapPin, Wifi, WifiOff, FileText, FileJson } from 'lucide-react';
-import { usePageLoading, HistorySkeleton } from '../components/Skeleton.tsx';
 import { readingsApi } from '../Lib/api';
 import type { SensorReading } from '../context/AppContext';
 
@@ -19,7 +18,6 @@ export default function History() {
   // Local device selection — independent from global selectedDeviceId so switching
   // device in History doesn't affect Dashboard/ControlPanel and vice versa.
   const [historyDeviceId, setHistoryDeviceId] = useState(selectedDeviceId);
-  const isLoading = usePageLoading();
 
   // ── Real readings fetched from backend ───────────────────────────────────
   const [historyData,    setHistoryData]    = useState<SensorReading[]>([]);
@@ -89,8 +87,6 @@ export default function History() {
   // flag still earns its keep: it gives the user visible feedback that the
   // tap registered, and prevents a double-click from firing two downloads.
   const [isExporting, setIsExporting] = useState(false);
-
-  if (isLoading) return <HistorySkeleton />;
 
   const selectedDevice = devices.find(d => d.id === historyDeviceId);
 
