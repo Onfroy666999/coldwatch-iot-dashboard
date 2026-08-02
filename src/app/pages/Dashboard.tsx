@@ -17,6 +17,42 @@ const SEVERITY_STYLES: Record<string, { bar: string; badge: string; label: strin
   info:     { bar: '#0984E3', badge: 'bg-blue-500/10 text-blue-500',     label: 'Info'     },
 };
 
+// Isolated so its 1-second setInterval tick only re-renders this small piece
+// of the page instead of the entire Dashboard (charts, alerts list, control
+// panel, etc.) every second. Resets its own counter whenever a fresh reading
+// arrives (currentTemperature changing), same as it did inline before.
+function LivePulse({ currentTemperature }: { currentTemperature: number }) {
+  const [secondsAgo, setSecondsAgo] = useState(0);
+  const lastTickRef = useRef(Date.now());
+
+  useEffect(() => {
+    lastTickRef.current = Date.now();
+    setSecondsAgo(0);
+  }, [currentTemperature]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSecondsAgo(Math.floor((Date.now() - lastTickRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-1.5 mt-3">
+      <span
+        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${secondsAgo <= 4 ? 'animate-pulse' : ''}`}
+        style={{
+          backgroundColor: secondsAgo <= 4 ? '#A7F3D0' : '#FDE68A',
+          boxShadow: secondsAgo <= 4 ? '0 0 6px rgba(167,243,208,0.8)' : 'none',
+        }}
+      />
+      <span className="text-xs text-blue-100/80">
+        {secondsAgo <= 4 ? 'Live data' : `Updated ${secondsAgo}s ago`}
+      </span>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { currentTemperature, currentHumidity, systemStatus, alerts, sensorHistory, settings, user, setActivePage, devices, selectedDeviceId, setSelectedDeviceId, isOnline, lastReadingAt } = useApp();
 
@@ -48,22 +84,6 @@ export default function Dashboard() {
       .finally(() => { if (!cancelled) setInsightsLoading(false); });
     return () => { cancelled = true; };
   }, [selectedDeviceId]);
-
-  // Live "last updated" pulse 
-  const [secondsAgo, setSecondsAgo] = useState(0);
-  const lastTickRef = useRef(Date.now());
-
-  useEffect(() => {
-    lastTickRef.current = Date.now();
-    setSecondsAgo(0);
-  }, [currentTemperature]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setSecondsAgo(Math.floor((Date.now() - lastTickRef.current) / 1000));
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
 
   // Derive hour directly — changes at most once per session, no state needed
   const hour = new Date().getHours();
@@ -156,18 +176,7 @@ export default function Dashboard() {
           </p>
           {/* Live data pulse — only shown when device is actually online */}
           {selectedDevice?.status === 'online' && (
-            <div className="flex items-center gap-1.5 mt-3">
-              <span
-                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${secondsAgo <= 4 ? 'animate-pulse' : ''}`}
-                style={{
-                  backgroundColor: secondsAgo <= 4 ? '#A7F3D0' : '#FDE68A',
-                  boxShadow: secondsAgo <= 4 ? '0 0 6px rgba(167,243,208,0.8)' : 'none',
-                }}
-              />
-              <span className="text-xs text-blue-100/80">
-                {secondsAgo <= 4 ? 'Live data' : `Updated ${secondsAgo}s ago`}
-              </span>
-            </div>
+            <LivePulse currentTemperature={currentTemperature} />
           )}
         </div>
       </div>
