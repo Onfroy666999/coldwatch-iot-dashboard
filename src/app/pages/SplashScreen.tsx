@@ -60,7 +60,7 @@ export default function SplashScreen({ onDone, appReady = false }: SplashScreenP
               ? { duration: 0.35, ease: [0.55, 0, 1, 0.45] }
               : { duration: 0.45, ease: [0.34, 1.56, 0.64, 1] }
           }
-          className="flex flex-col items-center"
+        
         >
           <img
             src="/cdw.png"
@@ -74,10 +74,7 @@ export default function SplashScreen({ onDone, appReady = false }: SplashScreenP
             }}
             draggable={false}
           />
-          <div className="text-center mt-3">
-            <p className="font-bold text-lg tracking-tight" style={{ color: '#1F3864' }}>ColdWatch</p>
-            <p className="text-xs font-medium mt-0.5" style={{ color: '#6B7280' }}>Your cold chain monitor</p>
-          </div>
+          
         </motion.div>
       </motion.div>
     </AnimatePresence>

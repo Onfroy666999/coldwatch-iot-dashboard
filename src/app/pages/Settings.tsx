@@ -530,6 +530,23 @@ export default function Settings() {
     }
   };
 
+  // Separate from the stock exemption above — many phone manufacturers
+  // (Tecno/Infinix included) run their own battery manager that can still
+  // kill background apps even after the stock exemption is granted. We
+  // can't detect whether that's actually happening on this device, so this
+  // is offered as an always-available, best-effort option rather than
+  // something conditionally shown.
+  const handleOpenManufacturerBatterySettings = async () => {
+    try {
+      const { fallback } = await BatteryOptimization.openManufacturerBatterySettings();
+      if (fallback) {
+        addToast({ id: `battery-mfr-${Date.now()}`, type: 'info', message: "Opened your phone's app settings — look for a battery or background-activity option" });
+      }
+    } catch (err) {
+      console.error('[Settings] Opening manufacturer battery settings failed:', err);
+    }
+  };
+
   const isTransporter  = user.role === 'transporter';
   const showNotifEmail = isAdvancedUser || isTransporter;
 
@@ -593,6 +610,13 @@ export default function Settings() {
                 Allow
               </button>
             </div>
+          )}
+
+          {Capacitor.isNativePlatform() && (
+            <button onClick={handleOpenManufacturerBatterySettings}
+              className="text-xs text-[#6B7280] underline underline-offset-2 px-1 -mt-2 block">
+              Some phones have their own battery manager that can still stop alerts — tap to check yours
+            </button>
           )}
 
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden" style={{ border: '1px solid #E4E7EC' }}>

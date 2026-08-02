@@ -4,12 +4,14 @@ import { registerPlugin } from '@capacitor/core';
  * Bridges the custom native BatteryOptimizationPlugin (see
  * android/app/src/main/java/com/coldwatch/app/BatteryOptimizationPlugin.java)
  * — not an npm package, since there's no first-party Capacitor plugin for
- * ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS.
+ * ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS or OEM battery-manager screens.
  *
- * Covers the STOCK Android battery-optimization exemption only. OEM battery
- * managers (Tecno/Infinix "Phone Manager" and similar) have their own,
- * separate settings screens this does not reach — see the native plugin's
- * doc comment for more on that scope boundary.
+ * isIgnoringBatteryOptimizations/requestIgnoreBatteryOptimizations cover
+ * only the stock Android exemption dialog. openManufacturerBatterySettings
+ * separately attempts an OEM-specific battery-manager screen — see its own
+ * doc comment for an important confidence caveat: it's well-tested for
+ * Xiaomi/Huawei/Oppo/Vivo/Samsung, but a best-effort guess for Tecno/Infinix
+ * specifically, since those are far less publicly documented.
  */
 export interface BatteryOptimizationPlugin {
   /** Whether the app is already exempt from battery optimization. */
@@ -23,6 +25,17 @@ export interface BatteryOptimizationPlugin {
    * than the user's choice.
    */
   requestIgnoreBatteryOptimizations(): Promise<{ ignoring: boolean }>;
+  /**
+   * Attempts to open the current device manufacturer's own battery-manager
+   * settings screen (many OEM skins — Xiaomi, Huawei, Tecno/Infinix, etc. —
+   * kill background apps via their own separate battery manager regardless
+   * of the stock exemption above). Falls back to the app's general "App
+   * Info" settings screen if no manufacturer-specific screen could be
+   * opened, which always exists — this never resolves to a dead end, but
+   * `fallback: true` in the result means the manufacturer-specific attempt
+   * didn't work and the user landed on the generic screen instead.
+   */
+  openManufacturerBatterySettings(): Promise<{ opened: boolean; fallback: boolean }>;
 }
 
 const BatteryOptimization = registerPlugin<BatteryOptimizationPlugin>('BatteryOptimization');
