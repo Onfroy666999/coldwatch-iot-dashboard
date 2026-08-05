@@ -318,6 +318,12 @@ export default function Alerts() {
   const [severityFilter, setSeverityFilter] = useState('all');
   const [statusFilter,   setStatusFilter]   = useState('all');
   const [expandedAlert,  setExpandedAlert]  = useState<string | null>(null);
+  // Past Alerts (acknowledged/resolved) is the one section that grows
+  // unbounded — the backend fetches all of them with no limit, and unlike
+  // "Needs Action"/"Auto-Resolved" it never shrinks back down on its own.
+  // Reveal it in batches instead of rendering everything at once.
+  const PAST_ALERTS_PAGE_SIZE = 20;
+  const [pastAlertsShown, setPastAlertsShown] = useState(PAST_ALERTS_PAGE_SIZE);
 
   // Split into sections
   const needsAction   = alerts.filter(a => a.status === 'new');
@@ -516,7 +522,16 @@ export default function Alerts() {
                 <h2 className="text-sm font-semibold text-[#6B7280]">Past Alerts</h2>
                 <span className="ml-auto text-xs text-[#6B7280]">{pastAlerts.length}</span>
               </div>
-              <div className="space-y-3">{pastAlerts.map(renderCard)}</div>
+              <div className="space-y-3">{pastAlerts.slice(0, pastAlertsShown).map(renderCard)}</div>
+              {pastAlerts.length > pastAlertsShown && (
+                <button
+                  onClick={() => setPastAlertsShown(n => n + PAST_ALERTS_PAGE_SIZE)}
+                  className="w-full mt-3 py-2.5 rounded-xl text-xs font-semibold text-[#0984E3] active:scale-[0.98] transition-all"
+                  style={{ backgroundColor: '#EFF6FF' }}
+                >
+                  Show {Math.min(PAST_ALERTS_PAGE_SIZE, pastAlerts.length - pastAlertsShown)} more ({pastAlerts.length - pastAlertsShown} remaining)
+                </button>
+              )}
             </section>
           )}
 
