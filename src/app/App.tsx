@@ -22,7 +22,9 @@ import { Analytics } from '@vercel/analytics/react';
 import { WifiOff, Snowflake } from 'lucide-react';
 import SyncBanner from './components/SyncBanner';
 import ErrorBoundary from './components/ErrorBoundary';
+import UpdateRequired from './components/UpdateRequired';
 import { ready as tokenStorageReady } from './Lib/tokenStorage';
+import { checkVersion } from './Lib/versionCheck';
 import type { NixHandle } from './components/AIAssistant';
 // Lazy-loaded: NIX_ENABLED is false today, so this ~98KB component (Groq
 // client, speech recognition, TTS) should never end up in the main bundle.
@@ -534,14 +536,29 @@ export default function App() {
   // race the async Preferences read and could show the login screen for a
   // moment (or permanently, on a slow bridge) even with a valid saved session.
   const [tokenHydrated, setTokenHydrated] = useState(false);
+  // Checked in parallel with token hydration (not blocked behind login) so a
+  // badly outdated APK is caught even before the user could attempt to sign
+  // in. null = still checking; only becomes true on a confirmed version
+  // comparison — checkVersion() fails open on any error, so a network
+  // hiccup here never blocks the app.
+  const [updateRequired, setUpdateRequired] = useState(false);
+  const [versionChecked, setVersionChecked] = useState(false);
 
   useEffect(() => {
     tokenStorageReady.then(() => setTokenHydrated(true));
   }, []);
 
+  useEffect(() => {
+    checkVersion()
+      .then(result => setUpdateRequired(result.updateRequired))
+      .finally(() => setVersionChecked(true));
+  }, []);
+
   return (
     <ErrorBoundary>
-      {tokenHydrated ? (
+      {updateRequired ? (
+        <UpdateRequired />
+      ) : tokenHydrated && versionChecked ? (
         <AppProvider>
           <AppContent />
           <Analytics />

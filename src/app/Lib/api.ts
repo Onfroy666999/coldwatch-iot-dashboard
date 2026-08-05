@@ -7,7 +7,7 @@ import { Capacitor } from '@capacitor/core';
 import { getToken, getRefreshToken, storeToken, storeRefreshToken, storeUserId, clearTokens } from './tokenStorage';
 
 // No /api prefix — backend registers routes at the root level
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
+export const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000';
 
 // A native build shipped without VITE_API_URL set falls back to
 // 'http://localhost:3000' — on a real Android device that's the phone's own
