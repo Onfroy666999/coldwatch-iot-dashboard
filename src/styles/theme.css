@@ -225,9 +225,13 @@
   }
 }
 
-/* ── Compact Mode ── */
+/* ── Compact Mode ──
+   Relative to --font-size (not a hardcoded value) so it composes with the
+   text-size preference in textSize.ts instead of silently overriding it —
+   e.g. large text + compact mode should still be larger than medium text
+   + compact mode, not both collapse to the same flat number. */
 [data-compact="true"] {
-  font-size: 14px;
+  font-size: calc(var(--font-size) - 2px);
 }
 
 [data-compact="true"] .compact-p { padding: 0.625rem !important; }

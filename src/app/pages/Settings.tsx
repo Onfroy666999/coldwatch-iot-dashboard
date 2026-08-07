@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import type { DeviceConfig } from '../context/AppContext';
 import BatteryOptimization from '../Lib/batteryOptimization';
+import { loadAndApplyTextSize, setTextSize, type TextSize } from '../Lib/textSize';
 import {
   Bell, Save, Thermometer, ChevronRight, ChevronLeft,
   Monitor, Cpu, Database, Lock, ChevronDown, ChevronUp,
@@ -202,8 +203,38 @@ function DeviceConfigCard({ config, onUpdate, globalSettings }: {
 type AppSettings = ReturnType<typeof useApp>['settings'];
 
 function DisplaySub({ onBack, local, setLocal, save }: { onBack: () => void; local: AppSettings; setLocal: React.Dispatch<React.SetStateAction<AppSettings>>; save: (l: string, p: any) => void }) {
+  // Text size applies immediately on tap (setTextSize both persists and
+  // updates the CSS variable right away) rather than being staged behind
+  // the Save Preferences button below — the whole point is letting the
+  // user see the effect instantly and decide if they like it. Kept as its
+  // own local state, independent of the local/save draft flow used for
+  // tempUnit, and stored device-locally (not synced) — see textSize.ts.
+  const [textSize, setTextSizeState] = useState<TextSize>('medium');
+  useEffect(() => { loadAndApplyTextSize().then(setTextSizeState); }, []);
+
+  const handleTextSizeChange = (size: TextSize) => {
+    setTextSizeState(size);
+    setTextSize(size);
+  };
+
   return (
     <SubPage title="Display Preferences" icon={<Monitor className="w-5 h-5" />} iconBg="rgba(9,132,227,0.08)" iconColor="#0984E3" onBack={onBack}>
+      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white mb-4" style={{ border: '1px solid #E4E7EC' }}>
+        <p className="text-sm font-medium text-[#111827] mb-1">Text Size</p>
+        <p className="text-xs text-[#6B7280] mb-4">Applies across the whole app, right away</p>
+        <div className="flex gap-2">
+          {([
+            { key: 'small' as const,  label: 'Small'  },
+            { key: 'medium' as const, label: 'Medium' },
+            { key: 'large' as const,  label: 'Large'  },
+          ]).map(opt => (
+            <button key={opt.key} onClick={() => handleTextSizeChange(opt.key)}
+              className={`flex-1 py-3 rounded-2xl text-sm font-semibold transition-all active:scale-95 border-2 ${textSize === opt.key ? 'border-[#0984E3] bg-[#0984E3] text-white' : 'border-[#E4E7EC] bg-[#F3F4F6] text-[#6B7280]'}`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white" style={{ border: '1px solid #E4E7EC' }}>
         <p className="text-sm font-medium text-[#111827] mb-1">Temperature Unit</p>
         <p className="text-xs text-[#6B7280] mb-4">All readings will display in your chosen unit</p>
@@ -530,23 +561,6 @@ export default function Settings() {
     }
   };
 
-  // Separate from the stock exemption above — many phone manufacturers
-  // (Tecno/Infinix included) run their own battery manager that can still
-  // kill background apps even after the stock exemption is granted. We
-  // can't detect whether that's actually happening on this device, so this
-  // is offered as an always-available, best-effort option rather than
-  // something conditionally shown.
-  const handleOpenManufacturerBatterySettings = async () => {
-    try {
-      const { fallback } = await BatteryOptimization.openManufacturerBatterySettings();
-      if (fallback) {
-        addToast({ id: `battery-mfr-${Date.now()}`, type: 'info', message: "Opened your phone's app settings — look for a battery or background-activity option" });
-      }
-    } catch (err) {
-      console.error('[Settings] Opening manufacturer battery settings failed:', err);
-    }
-  };
-
   const isTransporter  = user.role === 'transporter';
   const showNotifEmail = isAdvancedUser || isTransporter;
 
@@ -566,7 +580,7 @@ export default function Settings() {
     managerOnly?: boolean;
     allUsers?: boolean;
   }[] = [
-    { key: 'display',       icon: <Monitor className="w-5 h-5" />,      iconBg: 'rgba(9,132,227,0.08)',   iconColor: '#0984E3', label: 'Display Preferences',  subtitle: 'Temperature unit'                       },
+    { key: 'display',       icon: <Monitor className="w-5 h-5" />,      iconBg: 'rgba(9,132,227,0.08)',   iconColor: '#0984E3', label: 'Display Preferences',  subtitle: 'Text size, temperature unit'            },
     { key: 'notifications', icon: <Bell className="w-5 h-5" />,         iconBg: 'rgba(9,132,227,0.08)',   iconColor: '#0984E3', label: 'Notifications',         subtitle: 'Alerts, SMS, email, escalation'         },
     { key: 'thresholds',    icon: <Thermometer className="w-5 h-5" />,  iconBg: 'rgba(217,119,6,0.08)',  iconColor: '#D97706', label: 'Alert Thresholds',      subtitle: 'Global warning and critical limits',    managerOnly: true },
     { key: 'devices',       icon: <Cpu className="w-5 h-5" />,          iconBg: 'rgba(22,163,74,0.08)',  iconColor: '#16A34A', label: 'Device Configuration',  subtitle: 'Calibration, names, per-device limits', managerOnly: true },
@@ -610,13 +624,6 @@ export default function Settings() {
                 Allow
               </button>
             </div>
-          )}
-
-          {Capacitor.isNativePlatform() && (
-            <button onClick={handleOpenManufacturerBatterySettings}
-              className="text-xs text-[#6B7280] underline underline-offset-2 px-1 -mt-2 block">
-              Some phones have their own battery manager that can still stop alerts — tap to check yours
-            </button>
           )}
 
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden" style={{ border: '1px solid #E4E7EC' }}>
