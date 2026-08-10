@@ -72,14 +72,14 @@ export interface UseDevicesReturn {
   addDevice: (
     name: string,
     location: string,
-    produceInfo?: { cropIds: CropId[]; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
+    produceInfo?: { cropIds: CropId[]; produceState: ProduceState; transportHours: number },
     deviceCode?: string,
     unitName?: string,
   ) => Promise<Device>;
   updateDevice: (id: string, patch: Partial<Device>) => void;
   updateProduceSetup: (
     deviceId: string,
-    produceInfo: { cropIds: CropId[]; produceState: ProduceState; facilitySize?: Device['facilitySize']; transportHours?: number }
+    produceInfo: { cropIds: CropId[]; produceState: ProduceState; transportHours?: number }
   ) => void;
   deleteDevice: (id: string) => void;
   /** Seed device state from bootstrap — not for arbitrary mutation. */
@@ -403,7 +403,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
 
   const updateProduceSetup = useCallback((
     deviceId: string,
-    produceInfo: { cropIds: CropId[]; produceState: ProduceState; facilitySize?: Device['facilitySize']; transportHours?: number }
+    produceInfo: { cropIds: CropId[]; produceState: ProduceState; transportHours?: number }
   ) => {
     const thresholds = deriveTargetsForCrops(produceInfo.cropIds);
     const derivedProduceMode = deriveLegacyProduceMode(produceInfo.cropIds);
@@ -413,7 +413,6 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       cropIds: produceInfo.cropIds,
       produceMode: derivedProduceMode,
       produceState: produceInfo.produceState,
-      facilitySize: produceInfo.facilitySize,
       transportHours: produceInfo.transportHours,
       ...thresholds,
       produceSetupComplete: true, useCustomThresholds: true,
@@ -422,7 +421,6 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     const backendPatch = {
       crops:                produceInfo.cropIds,
       produceState:         produceInfo.produceState,
-      facilitySize:         produceInfo.facilitySize,
       transportHours:       produceInfo.transportHours,
       warningTemperature:   thresholds.warningTemperature,
       criticalTemperature:  thresholds.criticalTemperature,
@@ -449,7 +447,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   const addDevice = useCallback((
     name: string,
     location: string,
-    produceInfo?: { cropIds: CropId[]; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
+    produceInfo?: { cropIds: CropId[]; produceState: ProduceState; transportHours: number },
     deviceCode?: string,
     unitName?: string,
   ): Promise<Device> => {
@@ -474,7 +472,6 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       humidAlertHigh:      thresholds?.humidAlertHigh,
       crops:               produceInfo?.cropIds,
       produceState:        produceInfo?.produceState,
-      facilitySize:        produceInfo?.facilitySize,
       transportHours:      produceInfo?.transportHours,
       hasActuator:         true, // every ColdWatch unit ships with a Peltier module
     })
@@ -520,7 +517,6 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
               name, location, deviceCode, unitName,
               crops:               produceInfo?.cropIds,
               produceState:        produceInfo?.produceState,
-              facilitySize:        produceInfo?.facilitySize,
               transportHours:      produceInfo?.transportHours,
               useCustomThresholds: !!thresholds,
               warningTemperature:  thresholds?.warningTemperature  ?? DEFAULT_SETTINGS.warningTemperature,

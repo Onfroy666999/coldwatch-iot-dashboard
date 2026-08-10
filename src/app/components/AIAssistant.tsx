@@ -216,7 +216,6 @@ function buildAppContext(app: ReturnType<typeof useApp>) {
       status: selectedDevice.status,
       produceMode: getProduceSummary(selectedDevice),
       produceState: selectedDevice.produceState ?? 'not set',
-      facilitySize: selectedDevice.facilitySize ?? 'not set',
       transportHours: selectedDevice.transportHours ?? 'not set',
       produceSetupComplete: selectedDevice.produceSetupComplete ?? false,
     } : null,

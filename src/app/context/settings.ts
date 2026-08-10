@@ -10,7 +10,7 @@
 // Rather than importing useAuth here, AppProvider reads settings.autoLogoutMinutes
 // and passes it into useAuth({ autoLogoutMinutes }) — same pattern as before.
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { settingsApi } from '../Lib/api';
 import { enqueueAction, isRetryableError } from '../Lib/ActionQueue';
 import { DEFAULT_SETTINGS, mapSettings } from './types';
@@ -37,6 +37,16 @@ export function useSettings(): UseSettingsReturn {
   // read settings.compactMode everywhere, matching the existing context API.
 
   const compactMode = settings.compactMode;
+
+  // Apply to the DOM whenever compactMode changes — covers both the toggle
+  // (below) and the initial server-seeded value from seedSettings, since
+  // both flow through this same `settings.compactMode` read. Mirrors the
+  // [data-compact="true"] selector already defined in theme.css; setting
+  // this on <html> means every descendant .compact-p/.compact-gap/
+  // .compact-card element picks it up with no per-page wiring.
+  useEffect(() => {
+    document.documentElement.dataset.compact = String(compactMode);
+  }, [compactMode]);
 
   const setCompactMode = useCallback((v: boolean) => {
     setSettings(prev => ({ ...prev, compactMode: v }));

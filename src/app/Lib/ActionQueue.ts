@@ -17,7 +17,6 @@ export type ColdWatchAction =
       crops?:              string[];
       produceMode?:        string;
       produceState?:       string;
-      facilitySize?:       string;
       transportHours?:     number;
       useCustomThresholds: boolean;
       warningTemperature:  number;

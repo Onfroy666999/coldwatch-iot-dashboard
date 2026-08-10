@@ -123,7 +123,6 @@ export interface Device {
    * Kept only so existing devices keep displaying correctly in the interim. */
   produceMode?: ProduceMode;
   produceState?: ProduceState;
-  facilitySize?: 'small' | 'medium' | 'large';
   transportHours?: number;
   produceSetupComplete?: boolean;
   deviceCode?: string;
@@ -346,7 +345,6 @@ export function mapDevice(d: any): Device {
     cropIds,
     produceMode:         derivedProduceMode,
     produceState:        d.produceState as ProduceState | undefined,
-    facilitySize:        d.facilitySize as Device['facilitySize'],
     transportHours:      d.transportHours,
     produceSetupComplete: d.produceSetupComplete ?? false,
     deviceCode:          d.deviceCode,

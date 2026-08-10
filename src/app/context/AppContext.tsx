@@ -80,7 +80,7 @@ interface AppContextType {
   deviceHistories:     Record<string, SensorReading[]>;
   addDevice: (
     name: string, location: string,
-    produceInfo?: { cropIds: import('../data/produce').CropId[]; produceState: ProduceState; facilitySize: 'small' | 'medium' | 'large'; transportHours: number },
+    produceInfo?: { cropIds: import('../data/produce').CropId[]; produceState: ProduceState; transportHours: number },
     deviceCode?: string, unitName?: string,
   ) => Promise<Device>;
   updateDevice:       (id: string, patch: Partial<Device>) => void;

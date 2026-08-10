@@ -37,7 +37,6 @@ async function executeAction(action: ColdWatchAction): Promise<void> {
         unitName:            action.payload.unitName,
         crops:               action.payload.crops,
         produceState:        action.payload.produceState,
-        facilitySize:        action.payload.facilitySize as any,
         transportHours:      action.payload.transportHours,
         useCustomThresholds: action.payload.useCustomThresholds,
         warningTemperature:  action.payload.warningTemperature,

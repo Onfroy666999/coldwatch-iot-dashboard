@@ -80,14 +80,6 @@ const REMOVAL_CONDITIONS = [
 
 type RemovalConditionId = typeof REMOVAL_CONDITIONS[number]['id'];
 
-const FACILITY_SIZES = [
-  { id: 'small',  label: 'Small',  desc: 'Under 10 m²  ·  Personal or farm-scale',   color: '#0984E3' },
-  { id: 'medium', label: 'Medium', desc: '10–50 m²  ·  Cooperative or small trader', color: '#0984E3' },
-  { id: 'large',  label: 'Large',  desc: 'Over 50 m²  ·  Warehouse or distributor',  color: '#0984E3' },
-] as const;
-
-type FacilitySizeId   = typeof FACILITY_SIZES[number]['id'];
-
 // ── Step indicator ────────────────────────────────────────────────────────────
 
 function WizardPills({ step, labels }: { step: number; labels: string[] }) {
@@ -567,7 +559,6 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
   const [selectedCrops, setSelectedCrops] = useState<CropId[]>(device.cropIds ?? []);
   const [pickerCategory, setPickerCategory] = useState<CategoryId | null>(null);
   const [produceState, setProduceState] = useState<ProduceState>(device.produceState || 'fresh');
-  const [facilitySize, setFacilitySize] = useState<FacilitySizeId>((device.facilitySize as FacilitySizeId) || 'small');
   const [transportHours, setTransportHours] = useState(device.transportHours ?? 2);
 
   // Thresholds
@@ -594,7 +585,6 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
     setSelectedCrops(device.cropIds ?? []);
     setPickerCategory(null);
     setProduceState(device.produceState || 'fresh');
-    setFacilitySize((device.facilitySize as FacilitySizeId) || 'small');
     setTransportHours(device.transportHours ?? 2);
     setUseCustom(device.useCustomThresholds ?? false);
     setWarnTemp(String(device.warningTemperature  ?? 10));
@@ -637,7 +627,6 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
       updateProduceSetup(device.id, {
         cropIds: selectedCrops,
         produceState,
-        facilitySize,
         transportHours,
       });
 
@@ -908,29 +897,6 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                           <p className="text-[10px] text-[#6B7280]">{ps.desc}</p>
                         </div>
                         {produceState === ps.id && <Check className="w-4 h-4 flex-shrink-0" style={{ color: ps.color }} />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">Facility Size</p>
-                  <div className="space-y-2">
-                    {FACILITY_SIZES.map(fs => (
-                      <button key={fs.id} onClick={() => setFacilitySize(fs.id)}
-                        className="w-full flex items-center gap-3 p-3 rounded-xl text-left active:scale-[0.98]"
-                        style={{
-                          border:          `1.5px solid ${facilitySize === fs.id ? '#0984E380' : '#E4E7EC'}`,
-                          backgroundColor: facilitySize === fs.id ? '#EBF4FF' : '#FFFFFF',
-                        }}>
-                        <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-                          style={{ borderColor: facilitySize === fs.id ? '#0984E3' : '#C8CDD8', backgroundColor: facilitySize === fs.id ? '#0984E3' : 'transparent' }}>
-                          {facilitySize === fs.id && <Check className="w-2.5 h-2.5 text-white" />}
-                        </div>
-                        <div>
-                          <p className="text-xs font-semibold" style={{ color: facilitySize === fs.id ? '#0984E3' : '#111827' }}>{fs.label}</p>
-                          <p className="text-[10px] text-[#6B7280]">{fs.desc}</p>
-                        </div>
                       </button>
                     ))}
                   </div>
@@ -1266,9 +1232,9 @@ const [removingDevice,     setRemovingDevice]     = useState<Device | null>(null
       </div>
 
       {/* Devices Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 compact-gap">
         {devices.map(device => (
-          <motion.div layout key={device.id} className="bg-white rounded-2xl p-5 shadow-sm border border-[#E4E7EC]">
+          <motion.div layout key={device.id} className="bg-white rounded-2xl p-5 shadow-sm border border-[#E4E7EC] compact-card">
 
             {/* Card Header */}
             <div className="flex items-start justify-between mb-4">

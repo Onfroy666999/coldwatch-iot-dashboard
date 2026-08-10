@@ -412,7 +412,7 @@ export default function History() {
             {reversedHistory.map((reading, index) => {
               const status = getStatus(reading.temperature);
               return (
-                <div key={index} className="bg-white rounded-2xl px-4 py-3.5 shadow-sm border border-[#E4E7EC]">
+                <div key={index} className="bg-white rounded-2xl px-4 py-3.5 shadow-sm border border-[#E4E7EC] compact-p">
                   <p className="text-xs text-[#6B7280] font-mono mb-2.5">
                     {reading.timestamp.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}
                     {' · '}
@@ -453,10 +453,10 @@ export default function History() {
                     const status = getStatus(reading.temperature);
                     return (
                       <tr key={index} className="border-t border-[#E4E7EC] hover:bg-[#F3F4F6]/50 transition-colors">
-                        <td className="px-5 py-3 text-sm font-mono text-[#6B7280]">{reading.timestamp.toLocaleString('en-GB')}</td>
-                        <td className="px-5 py-3 text-sm font-semibold" style={{ color: '#0984E3' }}>{toDisplay(reading.temperature).toFixed(2)}</td>
-                        <td className="px-5 py-3 text-sm font-semibold" style={{ color: '#16A085' }}>{reading.humidity.toFixed(2)}</td>
-                        <td className="px-5 py-3">
+                        <td className="px-5 py-3 text-sm font-mono text-[#6B7280] compact-p">{reading.timestamp.toLocaleString('en-GB')}</td>
+                        <td className="px-5 py-3 text-sm font-semibold compact-p" style={{ color: '#0984E3' }}>{toDisplay(reading.temperature).toFixed(2)}</td>
+                        <td className="px-5 py-3 text-sm font-semibold compact-p" style={{ color: '#16A085' }}>{reading.humidity.toFixed(2)}</td>
+                        <td className="px-5 py-3 compact-p">
                           <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${statusStyles[status]}`}>{status}</span>
                         </td>
                       </tr>

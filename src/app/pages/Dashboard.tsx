@@ -235,8 +235,8 @@ export default function Dashboard() {
         </div>
       </div>
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5">
-        <div className={`bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC] transition-all ${shouldPulseRed ? 'animate-pulse-red' : shouldPulseOrange ? 'animate-pulse-orange' : ''}`}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 compact-gap">
+        <div className={`bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC] transition-all compact-card ${shouldPulseRed ? 'animate-pulse-red' : shouldPulseOrange ? 'animate-pulse-orange' : ''}`}>
           <div className="flex items-start justify-between mb-3">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${tempColor}15` }}>
               <Thermometer className="w-5 h-5" style={{ color: tempColor }} />
@@ -252,7 +252,7 @@ export default function Dashboard() {
             <span className="text-xs text-[#6B7280]">{dispCrit}{unitLabel}</span>          </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC]">
+        <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC] compact-card">
           <div className="flex items-start justify-between mb-3">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${humidColor}15` }}>
               <Droplets className="w-5 h-5" style={{ color: humidColor }} />
@@ -269,7 +269,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC]">
+        <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC] compact-card">
           <div className="flex items-start justify-between mb-3">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${systemColor}18` }}>
               <Activity className="w-5 h-5" style={{ color: systemColor }} />
@@ -280,7 +280,7 @@ export default function Dashboard() {
           <p className="text-sm text-[#6B7280] mt-1">Peltier Module</p>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC]">
+        <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC] compact-card">
           <div className="flex items-start justify-between mb-3">
             <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ backgroundColor: activeAlerts.length > 0 ? 'rgba(192,57,43,0.1)' : 'rgba(39,174,96,0.1)' }}>
               <AlertTriangle className="w-5 h-5" style={{ color: activeAlerts.length > 0 ? '#C0392B' : '#27AE60' }} />

@@ -145,7 +145,7 @@ function AlertCard({
       style={alert.status === 'new' ? { borderLeftColor: style.bg } : {}}
     >
       <button
-        className="w-full p-4 md:p-5 text-left active:bg-[#F3F4F6]/50 transition-colors"
+        className="w-full p-4 md:p-5 text-left active:bg-[#F3F4F6]/50 transition-colors compact-card"
         onClick={onToggle}
       >
         <div className="flex items-start gap-4">

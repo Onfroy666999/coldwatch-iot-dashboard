@@ -23,13 +23,6 @@ const PRODUCE_STATES: { id: ProduceState; label: string; desc: string; color: st
   { id: 'almost-damaged', label: 'Almost Damaged', desc: 'Needs urgent cooling to slow spoilage', color: '#C0392B', tint: '#FDEDEC', emoji: '🔴' },
 ];
 
-const FACILITY_SIZES = [
-  { id: 'small',  label: 'Small',  desc: 'Under 10 m²  ·  Personal or farm-scale',   color: '#0984E3' },
-  { id: 'medium', label: 'Medium', desc: '10–50 m²  ·  Cooperative or small trader', color: '#0984E3' },
-  { id: 'large',  label: 'Large',  desc: 'Over 50 m²  ·  Warehouse or distributor',  color: '#0984E3' },
-] as const;
-type FacilitySizeId = typeof FACILITY_SIZES[number]['id'];
-
 // Fallback glyph shown until a real photo exists at /produce-images/{imageId}.jpg
 // — matches the naming convention from the Gemini image-gen prompt doc, so
 // dropping generated files into public/produce-images/ just starts working
@@ -276,7 +269,7 @@ const STEP_TITLES: Record<FlowStep, string> = {
   compat: 'Mixed storage check',
   tips: 'Preservation tips',
   condition: 'Current condition',
-  facility: 'Storage facility',
+  facility: 'Transport time',
   review: 'Review & confirm',
   'skip-ready': 'Ready to save',
   done: 'Device added',
@@ -305,10 +298,10 @@ export default function AddDeviceFlow() {
   const [selectedCrops,  setSelectedCrops]  = useState<CropId[]>([]);
   const [skipProduce,    setSkipProduce]    = useState(false);
   // True when the user took the Quick Setup shortcut (single crop, defaults
-  // applied, tips/condition/facility skipped) rather than the full wizard.
+  // applied, tips/condition skipped) rather than the full wizard.
   // Only affects the progress bar and totalSteps below — deriveTargetsForCrops
   // (the actual saved warning/critical thresholds) depends only on cropIds,
-  // never on produceState/facilitySize/transportHours, so the defaults this
+  // never on produceState/transportHours, so the defaults this
   // path leaves in place don't affect device configuration, only the
   // display-only shelf-life estimate shown on Review.
   const [quickSetup,     setQuickSetup]     = useState(false);
@@ -322,7 +315,6 @@ export default function AddDeviceFlow() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Facility ───────────────────────────────────────────────────────────────
-  const [facilitySize,   setFacilitySize]   = useState<FacilitySizeId>('small');
   const [transportHours, setTransportHours] = useState(2);
 
   const [saving, setSaving] = useState(false);
@@ -361,7 +353,7 @@ export default function AddDeviceFlow() {
 
   // "I store yams, just give me defaults" — for a single crop, skip tips/
   // condition/facility entirely and go straight to Review with whatever
-  // produceState/facilitySize/transportHours are already defaulted to.
+  // produceState/transportHours are already defaulted to.
   // Still fully editable from Review's "Edit" links afterward.
   const handleQuickSetup = () => {
     setQuickSetup(true);
@@ -412,7 +404,7 @@ export default function AddDeviceFlow() {
         await addDevice(unitName.trim(), location.trim(), undefined, deviceCode.trim().toUpperCase(), unitName.trim());
       } else {
         await addDevice(unitName.trim(), location.trim(), {
-          cropIds: selectedCrops, produceState, facilitySize, transportHours,
+          cropIds: selectedCrops, produceState, transportHours,
         }, deviceCode.trim().toUpperCase(), unitName.trim());
       }
       goTo('done');
@@ -885,30 +877,10 @@ export default function AddDeviceFlow() {
             </motion.div>
           )}
 
-          {/* ── Facility ───────────────────────────────────────────────────── */}
+          {/* ── Transport time ─────────────────────────────────────────────── */}
           {step === 'facility' && (
             <motion.div key="facility" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
               transition={{ duration: 0.22 }} className="space-y-5">
-              <div>
-                <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-2">Storage Facility Size</p>
-                <div className="space-y-2">
-                  {FACILITY_SIZES.map(fs => (
-                    <button key={fs.id} onClick={() => setFacilitySize(fs.id)}
-                      className="w-full flex items-center gap-3 p-3.5 rounded-xl text-left transition-all active:scale-[0.98]"
-                      style={{ border: `1.5px solid ${facilitySize === fs.id ? '#0984E380' : '#E4E7EC'}`, backgroundColor: facilitySize === fs.id ? '#EBF4FF' : '#FFFFFF' }}>
-                      <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-                        style={{ borderColor: facilitySize === fs.id ? '#0984E3' : '#C8CDD8', backgroundColor: facilitySize === fs.id ? '#0984E3' : 'transparent' }}>
-                        {facilitySize === fs.id && <Check className="w-2.5 h-2.5 text-white" />}
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold" style={{ color: facilitySize === fs.id ? '#0984E3' : '#111827' }}>{fs.label}</p>
-                        <p className="text-[10px] text-[#6B7280]">{fs.desc}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Transport Time</p>
@@ -1003,15 +975,11 @@ export default function AddDeviceFlow() {
                 <button onClick={() => { setQuickSetup(false); setStepStack(['device', 'produce', 'condition']); }} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
               </div>
 
-              {/* Facility */}
+              {/* Transport */}
               <div className="rounded-2xl p-4 bg-white space-y-1.5" style={{ border: '1px solid #E4E7EC' }}>
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Storage facility</p>
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Transport</p>
                   <button onClick={() => { setQuickSetup(false); setStepStack(['device', 'produce', 'condition', 'facility']); }} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#6B7280]">Size</span>
-                  <span className="font-semibold text-[#111827]">{FACILITY_SIZES.find(f => f.id === facilitySize)?.label}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-[#6B7280]">Transport time</span>

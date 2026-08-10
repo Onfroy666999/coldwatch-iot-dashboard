@@ -267,7 +267,6 @@ export const devicesApi = {
     humidAlertHigh?:       boolean;
     produceMode?:          string;
     produceState?:         string;
-    facilitySize?:         string;
     transportHours?:       number;
     crops?:                string[];
     hasActuator?:          boolean;

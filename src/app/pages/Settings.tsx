@@ -202,7 +202,7 @@ function DeviceConfigCard({ config, onUpdate, globalSettings }: {
 
 type AppSettings = ReturnType<typeof useApp>['settings'];
 
-function DisplaySub({ onBack, local, setLocal, save }: { onBack: () => void; local: AppSettings; setLocal: React.Dispatch<React.SetStateAction<AppSettings>>; save: (l: string, p: any) => void }) {
+function DisplaySub({ onBack, local, setLocal, save, compactMode, setCompactMode }: { onBack: () => void; local: AppSettings; setLocal: React.Dispatch<React.SetStateAction<AppSettings>>; save: (l: string, p: any) => void; compactMode: boolean; setCompactMode: (v: boolean) => void }) {
   // Text size applies immediately on tap (setTextSize both persists and
   // updates the CSS variable right away) rather than being staged behind
   // the Save Preferences button below — the whole point is letting the
@@ -234,6 +234,15 @@ function DisplaySub({ onBack, local, setLocal, save }: { onBack: () => void; loc
             </button>
           ))}
         </div>
+      </div>
+      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white mb-4" style={{ border: '1px solid #E4E7EC' }}>
+        <ToggleRow
+          label="Compact Mode"
+          description="Tighter spacing and smaller cards to fit more on screen"
+          value={compactMode}
+          onChange={() => setCompactMode(!compactMode)}
+          border={false}
+        />
       </div>
       <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white" style={{ border: '1px solid #E4E7EC' }}>
         <p className="text-sm font-medium text-[#111827] mb-1">Temperature Unit</p>
@@ -522,7 +531,7 @@ type SubKey = 'display' | 'notifications' | 'thresholds' | 'devices' | 'data' | 
 type MenuRowKey = SubKey | 'privacy' | 'terms';
 
 export default function Settings() {
-  const { settings, updateSettings, updateDeviceConfig, deviceConfigs, user, addToast, deleteAccount, isAdvancedUser, updateUser, setActivePage } = useApp();
+  const { settings, updateSettings, updateDeviceConfig, deviceConfigs, user, addToast, deleteAccount, isAdvancedUser, updateUser, setActivePage, compactMode, setCompactMode } = useApp();
   const [activeSub,         setActiveSub]         = useState<SubKey | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [local,             setLocal]             = useState(settings);
@@ -580,7 +589,7 @@ export default function Settings() {
     managerOnly?: boolean;
     allUsers?: boolean;
   }[] = [
-    { key: 'display',       icon: <Monitor className="w-5 h-5" />,      iconBg: 'rgba(9,132,227,0.08)',   iconColor: '#0984E3', label: 'Display Preferences',  subtitle: 'Text size, temperature unit'            },
+    { key: 'display',       icon: <Monitor className="w-5 h-5" />,      iconBg: 'rgba(9,132,227,0.08)',   iconColor: '#0984E3', label: 'Display Preferences',  subtitle: 'Text size, compact mode, temperature unit' },
     { key: 'notifications', icon: <Bell className="w-5 h-5" />,         iconBg: 'rgba(9,132,227,0.08)',   iconColor: '#0984E3', label: 'Notifications',         subtitle: 'Alerts, SMS, email, escalation'         },
     { key: 'thresholds',    icon: <Thermometer className="w-5 h-5" />,  iconBg: 'rgba(217,119,6,0.08)',  iconColor: '#D97706', label: 'Alert Thresholds',      subtitle: 'Global warning and critical limits',    managerOnly: true },
     { key: 'devices',       icon: <Cpu className="w-5 h-5" />,          iconBg: 'rgba(22,163,74,0.08)',  iconColor: '#16A34A', label: 'Device Configuration',  subtitle: 'Calibration, names, per-device limits', managerOnly: true },
@@ -681,7 +690,7 @@ export default function Settings() {
       )}
 
       {/* ── Sub-pages ── */}
-      {activeSub === 'display'       && <DisplaySub       key="display"       onBack={() => setActiveSub(null)} {...sharedProps} />}
+      {activeSub === 'display'       && <DisplaySub       key="display"       onBack={() => setActiveSub(null)} {...sharedProps} compactMode={compactMode} setCompactMode={setCompactMode} />}
       {activeSub === 'notifications' && <NotificationsSub key="notifications" onBack={() => setActiveSub(null)} {...sharedProps} showNotifEmail={showNotifEmail} notifEmail={notifEmail} setNotifEmail={setNotifEmail} notifEmailError={notifEmailError} setNotifEmailError={setNotifEmailError} userPhone={userPhone} setUserPhone={setUserPhone} updateUser={updateUser} isAdvancedUser={isAdvancedUser} updateSettings={updateSettings} />}
       {activeSub === 'thresholds'    && <ThresholdsSub    key="thresholds"    onBack={() => setActiveSub(null)} {...sharedProps} />}
       {activeSub === 'devices'       && <DevicesSub       key="devices"       onBack={() => setActiveSub(null)} deviceConfigs={deviceConfigs} updateDeviceConfig={updateDeviceConfig} addToast={addToast} settings={settings} setActivePage={setActivePage} />}
