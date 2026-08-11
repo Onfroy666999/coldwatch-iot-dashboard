@@ -45,6 +45,7 @@ async function executeAction(action: ColdWatchAction): Promise<void> {
         criticalHumidity:    action.payload.criticalHumidity,
         humidAlertHigh:      action.payload.humidAlertHigh,
         hasActuator:         true, // every ColdWatch unit ships with a Peltier module
+        autoResolveMinutes:  action.payload.autoResolveMinutes,
       });
       break;
 

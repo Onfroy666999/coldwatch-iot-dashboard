@@ -450,6 +450,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     produceInfo?: { cropIds: CropId[]; produceState: ProduceState; transportHours: number },
     deviceCode?: string,
     unitName?: string,
+    autoResolveMinutes?: number | null,
   ): Promise<Device> => {
     const thresholds = produceInfo ? deriveTargetsForCrops(produceInfo.cropIds) : null;
 
@@ -474,6 +475,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
       produceState:        produceInfo?.produceState,
       transportHours:      produceInfo?.transportHours,
       hasActuator:         true, // every ColdWatch unit ships with a Peltier module
+      autoResolveMinutes:  autoResolveMinutes ?? undefined,
     })
       .then(({ device }) => {
         const mapped = mapDevice(device);
@@ -524,6 +526,7 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
               warningHumidity:     thresholds?.warningHumidity     ?? DEFAULT_SETTINGS.warningHumidity,
               criticalHumidity:    thresholds?.criticalHumidity    ?? DEFAULT_SETTINGS.criticalHumidity,
               humidAlertHigh:      thresholds?.humidAlertHigh,
+              autoResolveMinutes:  autoResolveMinutes ?? undefined,
             },
           });
         }

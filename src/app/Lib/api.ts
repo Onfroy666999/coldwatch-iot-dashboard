@@ -270,6 +270,7 @@ export const devicesApi = {
     transportHours?:       number;
     crops?:                string[];
     hasActuator?:          boolean;
+    autoResolveMinutes?:   number | null;
   }): Promise<{ device: any; apiKey: string }> =>
     fetchAPI('/devices', { method: 'POST', body: JSON.stringify(payload) }),
 

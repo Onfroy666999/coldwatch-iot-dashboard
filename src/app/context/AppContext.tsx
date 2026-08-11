@@ -83,6 +83,7 @@ interface AppContextType {
     name: string, location: string,
     produceInfo?: { cropIds: import('../data/produce').CropId[]; produceState: ProduceState; transportHours: number },
     deviceCode?: string, unitName?: string,
+    autoResolveMinutes?: number | null,
   ) => Promise<Device>;
   updateDevice:       (id: string, patch: Partial<Device>) => void;
   updateDeviceConfig: (id: string, patch: Partial<Device>) => void; // alias

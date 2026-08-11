@@ -24,6 +24,7 @@ export type ColdWatchAction =
       warningHumidity:     number;
       criticalHumidity:    number;
       humidAlertHigh?:     boolean;
+      autoResolveMinutes?: number;
     }}
   | { type: 'DELETE_DEVICE';      payload: { id: string } }
   | { type: 'UPDATE_DEVICE';      payload: { id: string; patch: Record<string, unknown> } }

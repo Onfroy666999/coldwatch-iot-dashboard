@@ -317,6 +317,12 @@ export default function AddDeviceFlow() {
   // ── Facility ───────────────────────────────────────────────────────────────
   const [transportHours, setTransportHours] = useState(2);
 
+  // ── Auto-resolve timer ───────────────────────────────────────────────────────
+  // Minute-level, not the old 30min/1hr/2hr presets — produce can spoil well
+  // inside a 30min window, so this needs finer control. Default mirrors the
+  // backend's production default (60min) when left untouched.
+  const [autoResolveMinutes, setAutoResolveMinutes] = useState('60');
+
   const [saving, setSaving] = useState(false);
   const [viewingImage, setViewingImage] = useState<LightboxImage | null>(null);
 
@@ -400,12 +406,13 @@ export default function AddDeviceFlow() {
   const handleFinalSubmit = async () => {
     setSaving(true);
     try {
+      const resolvedAutoResolveMinutes = Math.min(1440, Math.max(1, Number(autoResolveMinutes) || 60));
       if (skipProduce) {
-        await addDevice(unitName.trim(), location.trim(), undefined, deviceCode.trim().toUpperCase(), unitName.trim());
+        await addDevice(unitName.trim(), location.trim(), undefined, deviceCode.trim().toUpperCase(), unitName.trim(), resolvedAutoResolveMinutes);
       } else {
         await addDevice(unitName.trim(), location.trim(), {
           cropIds: selectedCrops, produceState, transportHours,
-        }, deviceCode.trim().toUpperCase(), unitName.trim());
+        }, deviceCode.trim().toUpperCase(), unitName.trim(), resolvedAutoResolveMinutes);
       }
       goTo('done');
     } catch {
@@ -495,6 +502,43 @@ export default function AddDeviceFlow() {
                 <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Location</label>
                 <input value={location} onChange={e => setLocation(e.target.value)}
                   placeholder="e.g. Kumasi Central Market" className={inputBase} style={{ fontSize: 16, height: 52 }} />
+              </div>
+
+              <div className="pt-2 border-t border-[#E4E7EC]">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide flex items-center gap-1.5">
+                    ⏱️ Auto-Resolve Timer
+                  </p>
+                  <span className="text-sm font-bold text-[#0984E3]">{Number(autoResolveMinutes) || 60}min</span>
+                </div>
+                <p className="text-[10px] text-[#6B7280] mb-2 leading-relaxed">
+                  How long an alert can go unattended before ColdWatch automatically engages the Peltier to fix it for you. Set this in minutes — perishables can be destroyed well inside an hour.
+                </p>
+                <input type="range" min={1} max={120} step={1}
+                  value={Math.min(120, Number(autoResolveMinutes) || 60)}
+                  onChange={e => setAutoResolveMinutes(e.target.value)} className="w-full accent-[#0984E3]" />
+                <div className="flex justify-between text-[9px] text-[#9CA3AF] mt-1 mb-3">
+                  <span>1min</span><span>30min</span><span>60min</span><span>90min</span><span>120min</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setAutoResolveMinutes(String(Math.max(1, (Number(autoResolveMinutes) || 60) - 1)))}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold text-[#374151] active:scale-95"
+                    style={{ border: '1.5px solid #E4E7EC', backgroundColor: '#FFFFFF' }}>−</button>
+                  <input type="number" inputMode="numeric" min={1} max={1440}
+                    value={autoResolveMinutes} onChange={e => setAutoResolveMinutes(e.target.value)}
+                    placeholder="60" className={inputBase + ' text-center'} style={{ height: 44 }} />
+                  <button type="button" onClick={() => setAutoResolveMinutes(String(Math.min(1440, (Number(autoResolveMinutes) || 60) + 1)))}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold text-[#374151] active:scale-95"
+                    style={{ border: '1.5px solid #E4E7EC', backgroundColor: '#FFFFFF' }}>+</button>
+                </div>
+                {(() => {
+                  const mins = Number(autoResolveMinutes) || 60;
+                  return (
+                    <p className="text-[10px] text-[#0984E3] mt-2">
+                      This device will escalate after {mins}min, auto-engage after {mins * 2}min, and confirm {mins * 0.5}min after that.
+                    </p>
+                  );
+                })()}
               </div>
 
               {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
@@ -926,6 +970,10 @@ export default function AddDeviceFlow() {
                 <div className="flex justify-between text-sm">
                   <span className="text-[#6B7280]">Location</span>
                   <span className="font-semibold text-[#111827]">{location}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#6B7280]">Auto-resolve timer</span>
+                  <span className="font-semibold text-[#111827]">{Number(autoResolveMinutes) || 60}min</span>
                 </div>
               </div>
 
