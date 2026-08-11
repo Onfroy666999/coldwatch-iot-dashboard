@@ -6,9 +6,15 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, AreaChart, Area
 } from 'recharts';
-import { Upload, BarChart3, Table, Clock, MapPin, Wifi, WifiOff, FileText, FileJson } from 'lucide-react';
+import { Upload, BarChart3, Table, Clock, MapPin, Wifi, WifiOff, FileText, FileJson, ChevronDown } from 'lucide-react';
 import { readingsApi } from '../Lib/api';
 import type { SensorReading } from '../context/AppContext';
+
+// One page of readings — matches the backend's own comfortable default
+// (24h at 5-min intervals). "Load older" fetches another page further back
+// via the `to` param rather than raising this, so a long history never
+// arrives as one unbounded fetch.
+const HISTORY_PAGE_SIZE = 288;
 
 export default function History() {
   const { settings, devices, selectedDeviceId, isAdvancedUser } = useApp();
@@ -23,13 +29,20 @@ export default function History() {
   const [historyData,    setHistoryData]    = useState<SensorReading[]>([]);
   const [fetchingHistory, setFetchingHistory] = useState(false);
   const [historyFromCache, setHistoryFromCache] = useState(false);
+  // Was previously a hard `limit: 288` with no way to see anything further
+  // back. hasMoreHistory tracks whether the oldest page we fetched came back
+  // full (implying there's likely more before it) so the "Load older" button
+  // only shows when there's a real reason to believe it'll find something.
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
+  const [loadingOlder,   setLoadingOlder]   = useState(false);
 
   useEffect(() => {
     if (!historyDeviceId) return;
     let cancelled = false;
     setFetchingHistory(true);
     setHistoryFromCache(false);
-    readingsApi.list(historyDeviceId, { limit: 288 }) // up to 24h at 5-min intervals
+    setHasMoreHistory(true);
+    readingsApi.list(historyDeviceId, { limit: HISTORY_PAGE_SIZE })
       .then(res => {
         if (cancelled) return;
         const mapped: SensorReading[] = (res.readings ?? []).map((r: any) => ({
@@ -39,6 +52,7 @@ export default function History() {
         }));
         const sorted = mapped.reverse();
         setHistoryData(sorted);
+        setHasMoreHistory((res.readings ?? []).length === HISTORY_PAGE_SIZE);
         // Cache for offline use
         try {
           localStorage.setItem(
@@ -59,6 +73,7 @@ export default function History() {
             })) as SensorReading[];
             setHistoryData(cached);
             setHistoryFromCache(true);
+            setHasMoreHistory(false); // cached snapshot — no backend to page against
           } else {
             setHistoryData([]);
           }
@@ -69,6 +84,36 @@ export default function History() {
       .finally(() => { if (!cancelled) setFetchingHistory(false); });
     return () => { cancelled = true; };
   }, [historyDeviceId]);
+
+  // Fetches the next page further back in time, using the oldest reading
+  // currently loaded as the cursor. historyData is chronological (oldest
+  // first, see the `.reverse()` above), so that's simply element 0.
+  // `to` is exclusive-by-one-ms rather than the oldest timestamp itself so
+  // the boundary reading doesn't come back twice.
+  const handleLoadOlder = () => {
+    if (!historyDeviceId || historyData.length === 0 || loadingOlder) return;
+    const oldest = historyData[0].timestamp;
+    setLoadingOlder(true);
+    readingsApi.list(historyDeviceId, {
+      limit: HISTORY_PAGE_SIZE,
+      to:    new Date(oldest.getTime() - 1).toISOString(),
+    })
+      .then(res => {
+        const mapped: SensorReading[] = (res.readings ?? []).map((r: any) => ({
+          timestamp:   new Date(r.recordedAt),
+          temperature: r.temperature,
+          humidity:    r.humidity,
+        }));
+        const olderSorted = mapped.reverse();
+        setHistoryData(prev => [...olderSorted, ...prev]);
+        setHasMoreHistory((res.readings ?? []).length === HISTORY_PAGE_SIZE);
+      })
+      .catch(() => {
+        // Transient failure — leave hasMoreHistory as-is so the button
+        // stays put and the user can just tap it again.
+      })
+      .finally(() => setLoadingOlder(false));
+  };
 
   // Close export menu on outside click
   useEffect(() => {
@@ -467,6 +512,21 @@ export default function History() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Load older — was a hard 288-reading ceiling with no way past it */}
+      {hasMoreHistory && !historyFromCache && (
+        <button
+          onClick={handleLoadOlder}
+          disabled={loadingOlder}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-medium text-[#0984E3] bg-white border border-[#E4E7EC] shadow-sm transition-colors active:bg-[#F3F4F6] disabled:opacity-60"
+          style={{ minHeight: 44 }}
+        >
+          {loadingOlder
+            ? <div className="w-4 h-4 rounded-full border-2 border-[#0984E3] border-t-transparent animate-spin" />
+            : <ChevronDown className="w-4 h-4" />}
+          {loadingOlder ? 'Loading older readings…' : 'Load older readings'}
+        </button>
       )}
 
       <div className="h-4" />
