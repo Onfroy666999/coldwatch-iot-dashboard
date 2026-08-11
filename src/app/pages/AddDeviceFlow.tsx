@@ -533,9 +533,13 @@ export default function AddDeviceFlow() {
                 </div>
                 {(() => {
                   const mins = Number(autoResolveMinutes) || 60;
+                  const confirmMins = mins * 0.5;
+                  const confirmLabel = confirmMins < 1
+                    ? `${Math.round(confirmMins * 60)}sec`
+                    : `${Number.isInteger(confirmMins) ? confirmMins : confirmMins.toFixed(1)}min`;
                   return (
                     <p className="text-[10px] text-[#0984E3] mt-2">
-                      This device will escalate after {mins}min, auto-engage after {mins * 2}min, and confirm {mins * 0.5}min after that.
+                      This device will escalate after {mins}min, auto-engage after {mins * 2}min, and confirm {confirmLabel} after that.
                     </p>
                   );
                 })()}

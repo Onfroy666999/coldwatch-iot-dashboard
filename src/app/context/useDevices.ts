@@ -75,6 +75,7 @@ export interface UseDevicesReturn {
     produceInfo?: { cropIds: CropId[]; produceState: ProduceState; transportHours: number },
     deviceCode?: string,
     unitName?: string,
+    autoResolveMinutes?: number | null,
   ) => Promise<Device>;
   updateDevice: (id: string, patch: Partial<Device>) => void;
   updateProduceSetup: (

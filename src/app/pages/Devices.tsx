@@ -548,6 +548,15 @@ const CONFIGURE_STATES  = PRODUCE_STATES;
 const AUTO_RESOLVE_SLIDER_MIN = 1;
 const AUTO_RESOLVE_SLIDER_MAX = 120;
 
+// The confirm stage runs 0.5x the configured minutes after auto-engage, so
+// low settings (e.g. 1min → 0.5min, 3min → 1.5min) render as an odd
+// fractional minute. Show seconds under a minute and drop trailing .0s above it.
+function formatConfirmDelay(mins: number): string {
+  const confirmMins = mins * 0.5;
+  if (confirmMins < 1) return `${Math.round(confirmMins * 60)}sec`;
+  return `${Number.isInteger(confirmMins) ? confirmMins : confirmMins.toFixed(1)}min`;
+}
+
 function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => void }) {
   const { updateDevice, updateProduceSetup, addToast, isAdvancedUser } = useApp();
   const [activeTab, setActiveTab] = useState<ConfigTab>('identity');
@@ -1061,7 +1070,7 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                     const mins = Number(autoResolveMinutes) || 60;
                     return (
                       <p className="text-[10px] text-[#0984E3] mt-2">
-                        This device will escalate after {mins}min, auto-engage after {mins * 2}min, and confirm {mins * 0.5}min after that.
+                        This device will escalate after {mins}min, auto-engage after {mins * 2}min, and confirm {formatConfirmDelay(mins)} after that.
                       </p>
                     );
                   })()}
@@ -1122,7 +1131,7 @@ function ConfigureSheet({ device, onClose }: { device: Device; onClose: () => vo
                   {autoResolveMinutes.trim() !== '' && (
                     <p className="text-[10px] text-[#0984E3] mt-1">
                       This device will escalate after {autoResolveMinutes}min, auto-engage after {Number(autoResolveMinutes) * 2}min,
-                      and confirm {Number(autoResolveMinutes) * 0.5}min after that.
+                      and confirm {formatConfirmDelay(Number(autoResolveMinutes))} after that.
                     </p>
                   )}
                 </div>
