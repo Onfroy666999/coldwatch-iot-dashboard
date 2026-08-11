@@ -82,7 +82,7 @@ function AlertAnnouncer() {
 
 
 function AppContent() {
-  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, addToast, isOnline, user, isLoading, reconnectWebSockets } = useApp();
+  const { isAuthenticated, activePage, setActivePage, unreadAlertCount, criticalAnnouncement, addToast, isOnline, user, isLoading, reconnectWebSockets } = useApp();
   const [showSplash, setShowSplash] = useState(true);
 
   // Onboarding flow — only show if not previously completed
@@ -271,6 +271,19 @@ function AppContent() {
 
   return (
     <div className="fixed inset-0 flex flex-col" style={{ backgroundColor: '#F8FAFC', color: '#111827' }}>
+      {/* Screen-reader announcer for critical alerts. assertive + atomic so
+          the whole message is read immediately, interrupting anything else
+          being announced — appropriate here since a critical temperature/
+          humidity alert is time-sensitive. Visually hidden (not display:none,
+          which some screen readers ignore for live regions). */}
+      <div
+        aria-live="assertive"
+        aria-atomic="true"
+        role="alert"
+        className="sr-only"
+      >
+        {criticalAnnouncement}
+      </div>
       {/* Offline banner */}
       <AnimatePresence>
         {!isOnline && (

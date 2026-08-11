@@ -70,6 +70,7 @@ interface AppContextType {
   // ── Alerts ──────────────────────────────────────────────────────────────────
   alerts:              Alert[];
   unreadAlertCount:    number;
+  criticalAnnouncement: string;
   acknowledgeAlert:    (id: string) => void;
   resolveAlert:        (id: string) => void;
   acknowledgeAllAlerts: () => void;
@@ -347,6 +348,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Alerts
       alerts:               alerts.alerts,
       unreadAlertCount:     alerts.unreadAlertCount,
+      criticalAnnouncement: alerts.criticalAnnouncement,
       acknowledgeAlert:     alerts.acknowledgeAlert,
       resolveAlert:         alerts.resolveAlert,
       acknowledgeAllAlerts: alerts.acknowledgeAllAlerts,

@@ -28,6 +28,8 @@ export interface UseAlertsOptions {
 export interface UseAlertsReturn {
   alerts: Alert[];
   unreadAlertCount: number;
+  /** Latest critical-alert message for the aria-live announcer — see App.tsx. */
+  criticalAnnouncement: string;
   /** Seed the alert list from the bootstrap/API response — not for arbitrary mutation. */
   seedAlerts: (alerts: Alert[]) => void;
   /** Called by useDevices when an alert arrives over WebSocket. */
@@ -41,6 +43,13 @@ export interface UseAlertsReturn {
 
 export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsReturn {
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  // Screen-reader announcement for critical alerts — read by the aria-live
+  // region in App.tsx. A trailing zero-width space is toggled on/off each
+  // time so that two critical alerts with identical text back-to-back still
+  // register as a DOM content change (aria-live only fires on actual
+  // changes), without the toggle itself being audible to the screen reader.
+  const [criticalAnnouncement, setCriticalAnnouncement] = useState('');
+  const announcementSeq = useRef(0);
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -62,6 +71,15 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
   // haptic outside of that, in the addAlert call itself.
   const seenAlertIds = useRef<Set<string>>(new Set());
 
+  // Shared by both arrival paths (WebSocket via addAlert, and the periodic
+  // refresh below when the socket is disconnected) so a critical alert gets
+  // announced to screen readers no matter how it arrives.
+  const announceCritical = useCallback((message: string) => {
+    announcementSeq.current += 1;
+    const zwsp = announcementSeq.current % 2 === 0 ? '\u200B' : '';
+    setCriticalAnnouncement(`Critical alert: ${message}${zwsp}`);
+  }, []);
+
   const addAlert = useCallback((raw: any) => {
     const mapped = mapAlert(raw);
     if (seenAlertIds.current.has(mapped.id)) return;
@@ -72,6 +90,7 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
       // here (e.g. no native bridge) shouldn't block the alert itself
       // from being added to the list.
       Haptics.notification({ type: NotificationType.Error }).catch(() => {});
+      announceCritical(mapped.message);
     }
 
     setAlerts(prev => {
@@ -131,6 +150,20 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
         const res = await alertsApi.list({ limit: 100 });
         const fetched = (res.alerts ?? []).map(mapAlert);
         const fetchedIds = new Set(fetched.map(a => a.id));
+        // Catch critical alerts this tick is seeing for the first time — the
+        // WebSocket path already announces on arrival via addAlert, but if
+        // the socket was disconnected when this alert fired, this is the
+        // only place it'll ever get announced. Batched into one announcement
+        // rather than one setCriticalAnnouncement call per alert, since React
+        // would otherwise batch those calls and only the last message would
+        // actually reach the live region.
+        const newCritical = fetched.filter(a => a.severity === 'critical' && !seenAlertIds.current.has(a.id));
+        if (newCritical.length === 1) {
+          announceCritical(newCritical[0].message);
+        } else if (newCritical.length > 1) {
+          announceCritical(`${newCritical.length} new critical alerts — ${newCritical.map(a => a.message).join('; ')}`);
+        }
+        for (const a of fetched) seenAlertIds.current.add(a.id);
         // Merge: keep any alerts that arrived via WebSocket since the last
         // tick and aren't in the API response yet (race window: alert just
         // fired, not yet persisted when this fetch ran).
@@ -141,7 +174,7 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
       } catch { /* offline — silently ignore, WebSocket or next tick will catch up */ }
     }, 30_000);
     return () => clearInterval(interval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, announceCritical]);
 
   // ── Seed ─────────────────────────────────────────────────────────────────
   // Used by AppProvider bootstrap to set the initial alert list from the API.
@@ -155,6 +188,7 @@ export function useAlerts({ isAuthenticated }: UseAlertsOptions): UseAlertsRetur
   return {
     alerts,
     unreadAlertCount,
+    criticalAnnouncement,
     seedAlerts,
     addAlert,
     acknowledgeAlert,

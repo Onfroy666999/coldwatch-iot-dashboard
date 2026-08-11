@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
-import { Thermometer, Droplets, Activity, AlertTriangle, TrendingUp, TrendingDown, Snowflake, ChevronRight, MapPin, Wifi, WifiOff, Lightbulb } from 'lucide-react';
+import { Thermometer, Droplets, Activity, AlertTriangle, AlertCircle, CheckCircle2, TrendingUp, TrendingDown, Snowflake, ChevronRight, MapPin, Wifi, WifiOff, Lightbulb } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { insightsApi, type AIInsight } from '../Lib/api';
 import ControlPanel from '../components/ControlPanel';
@@ -15,6 +15,16 @@ const SEVERITY_STYLES: Record<string, { bar: string; badge: string; label: strin
   critical: { bar: '#C0392B', badge: 'bg-red-500/10 text-red-500',      label: 'Critical' },
   warning:  { bar: '#E67E22', badge: 'bg-orange-500/10 text-orange-500', label: 'Warning'  },
   info:     { bar: '#0984E3', badge: 'bg-blue-500/10 text-blue-500',     label: 'Info'     },
+};
+
+// Non-color status cues for the Temperature/Humidity cards — a colorblind
+// user seeing the same-shaped thermometer icon tinted red vs. blue gets no
+// information from color alone, so pair each severity with a distinct icon
+// shape and a text label rather than relying on the number's color.
+const METRIC_STATUS: Record<'normal' | 'warning' | 'critical', { icon: React.ReactNode; label: string; cls: string }> = {
+  normal:   { icon: <CheckCircle2 className="w-3 h-3" />, label: 'Normal',   cls: 'bg-[#F3F4F6] text-[#6B7280]' },
+  warning:  { icon: <AlertTriangle className="w-3 h-3" />, label: 'Warning',  cls: 'bg-orange-500/10 text-orange-500' },
+  critical: { icon: <AlertCircle className="w-3 h-3" />,   label: 'Critical', cls: 'bg-red-500/10 text-red-500' },
 };
 
 // Isolated so its 1-second setInterval tick only re-renders this small piece
@@ -142,6 +152,8 @@ export default function Dashboard() {
 
   const tempColor  = currentTemperature >= critTemp  ? '#C0392B' : currentTemperature >= warnTemp  ? '#E67E22' : '#0984E3';
   const humidColor = currentHumidity    >= critHumid ? '#C0392B' : currentHumidity    >= warnHumid ? '#E67E22' : '#16A085';
+  const tempSeverity:  keyof typeof METRIC_STATUS = currentTemperature >= critTemp  ? 'critical' : currentTemperature >= warnTemp  ? 'warning' : 'normal';
+  const humidSeverity: keyof typeof METRIC_STATUS = currentHumidity    >= critHumid ? 'critical' : currentHumidity    >= warnHumid ? 'warning' : 'normal';
 
   const shouldPulseRed    = currentTemperature >= critTemp;
   const shouldPulseOrange = currentTemperature >= warnTemp && !shouldPulseRed;
@@ -250,6 +262,9 @@ export default function Dashboard() {
               <div className="h-full rounded-full transition-all duration-500" style={{ width: `${critTemp > 0 ? Math.min(100, (currentTemperature / critTemp) * 100) : 0}%`, backgroundColor: tempColor }} />
             </div>
             <span className="text-xs text-[#6B7280]">{dispCrit}{unitLabel}</span>          </div>
+          <p className={`text-[11px] mt-2 px-2 py-0.5 rounded-md inline-flex items-center gap-1 font-medium ${METRIC_STATUS[tempSeverity].cls}`}>
+            {METRIC_STATUS[tempSeverity].icon}{METRIC_STATUS[tempSeverity].label}
+          </p>
         </div>
 
         <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC] compact-card">
@@ -267,6 +282,9 @@ export default function Dashboard() {
             </div>
             <span className="text-xs text-[#6B7280]">100%</span>
           </div>
+          <p className={`text-[11px] mt-2 px-2 py-0.5 rounded-md inline-flex items-center gap-1 font-medium ${METRIC_STATUS[humidSeverity].cls}`}>
+            {METRIC_STATUS[humidSeverity].icon}{METRIC_STATUS[humidSeverity].label}
+          </p>
         </div>
 
         <div className="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-[#E4E7EC] compact-card">
