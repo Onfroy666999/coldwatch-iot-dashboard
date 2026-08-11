@@ -219,7 +219,7 @@ function DisplaySub({ onBack, local, setLocal, save, compactMode, setCompactMode
 
   return (
     <SubPage title="Display Preferences" icon={<Monitor className="w-5 h-5" />} iconBg="rgba(9,132,227,0.08)" iconColor="#0984E3" onBack={onBack}>
-      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white mb-4" style={{ border: '1px solid #E4E7EC' }}>
+      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white compact-card mb-4" style={{ border: '1px solid #E4E7EC' }}>
         <p className="text-sm font-medium text-[#111827] mb-1">Text Size</p>
         <p className="text-xs text-[#6B7280] mb-4">Applies across the whole app, right away</p>
         <div className="flex gap-2">
@@ -235,7 +235,7 @@ function DisplaySub({ onBack, local, setLocal, save, compactMode, setCompactMode
           ))}
         </div>
       </div>
-      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white mb-4" style={{ border: '1px solid #E4E7EC' }}>
+      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white compact-card mb-4" style={{ border: '1px solid #E4E7EC' }}>
         <ToggleRow
           label="Compact Mode"
           description="Tighter spacing and smaller cards to fit more on screen"
@@ -244,7 +244,7 @@ function DisplaySub({ onBack, local, setLocal, save, compactMode, setCompactMode
           border={false}
         />
       </div>
-      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white" style={{ border: '1px solid #E4E7EC' }}>
+      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white compact-card" style={{ border: '1px solid #E4E7EC' }}>
         <p className="text-sm font-medium text-[#111827] mb-1">Temperature Unit</p>
         <p className="text-xs text-[#6B7280] mb-4">All readings will display in your chosen unit</p>
         <div className="flex gap-2 mb-6">
@@ -271,7 +271,7 @@ function NotificationsSub({ onBack, local, setLocal, save, showNotifEmail, notif
 }) {
   return (
     <SubPage title="Notifications" icon={<Bell className="w-5 h-5" />} iconBg="rgba(9,132,227,0.08)" iconColor="#0984E3" onBack={onBack}>
-      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white" style={{ border: '1px solid #E4E7EC' }}>
+      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white compact-card" style={{ border: '1px solid #E4E7EC' }}>
         <div className="space-y-1">
           <ToggleRow label="In-App Notifications" description="Show alert banners inside the dashboard" value={local.inAppNotifications} onChange={() => setLocal(p => ({ ...p, inAppNotifications: !p.inAppNotifications }))} />
 
@@ -353,7 +353,7 @@ function NotificationsSub({ onBack, local, setLocal, save, showNotifEmail, notif
 function ThresholdsSub({ onBack, local, setLocal, save }: { onBack: () => void; local: AppSettings; setLocal: React.Dispatch<React.SetStateAction<AppSettings>>; save: (l: string, p: any) => void }) {
   return (
     <SubPage title="Alert Thresholds" icon={<Thermometer className="w-5 h-5" />} iconBg="rgba(217,119,6,0.08)" iconColor="#D97706" onBack={onBack}>
-      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white" style={{ border: '1px solid #E4E7EC' }}>
+      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white compact-card" style={{ border: '1px solid #E4E7EC' }}>
         <p className="text-xs text-[#6B7280] mb-4 leading-relaxed">Default limits applied to all devices unless overridden per device.</p>
         <div className="grid grid-cols-2 gap-3 mb-5">
           {[
@@ -443,7 +443,7 @@ function DevicesSub({ onBack, deviceConfigs, updateDeviceConfig, addToast, setti
 function DataSub({ onBack, local, setLocal, save }: { onBack: () => void; local: AppSettings; setLocal: React.Dispatch<React.SetStateAction<AppSettings>>; save: (l: string, p: any) => void }) {
   return (
     <SubPage title="Data & History" icon={<Database className="w-5 h-5" />} iconBg="rgba(22,163,74,0.08)" iconColor="#16A34A" onBack={onBack}>
-      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white space-y-6" style={{ border: '1px solid #E4E7EC' }}>
+      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white compact-card space-y-6" style={{ border: '1px solid #E4E7EC' }}>
         <div>
           <p className="text-sm font-medium text-[#111827] mb-1">Sampling Interval</p>
           <p className="text-xs text-[#6B7280] mb-3">How often the ESP32 sends a reading. Faster = more detail, more network traffic.</p>
@@ -486,7 +486,7 @@ function SecuritySub({ onBack, local, setLocal, save, user }: {
 
   return (
     <SubPage title="Security" icon={<Lock className="w-5 h-5" />} iconBg="rgba(220,38,38,0.06)" iconColor="#DC2626" onBack={onBack}>
-      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white space-y-5" style={{ border: '1px solid #E4E7EC' }}>
+      <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white compact-card space-y-5" style={{ border: '1px solid #E4E7EC' }}>
         <div>
           <p className="text-sm font-medium text-[#111827] mb-1">Auto-Logout Timer</p>
           <p className="text-xs text-[#6B7280] mb-3">Sign out automatically after inactivity — important on shared warehouse devices</p>
@@ -644,7 +644,7 @@ export default function Settings() {
                   setActiveSub(row.key as SubKey);
                 }
               }}
-                className={`w-full flex items-center gap-4 px-4 py-4 active:bg-[#F3F4F6] transition-colors text-left ${i < visibleRows.length - 1 ? 'border-b border-[#E4E7EC]' : ''}`}
+                className={`w-full flex items-center gap-4 px-4 py-4 active:bg-[#F3F4F6] transition-colors text-left compact-p ${i < visibleRows.length - 1 ? 'border-b border-[#E4E7EC]' : ''}`}
                 style={{ minHeight: 72 }}
               >
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: row.iconBg }}>
@@ -660,7 +660,7 @@ export default function Settings() {
           </div>
 
           {/* Danger Zone — inline, no submenu */}
-          <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white" style={{ border: '2px solid #FEE2E2' }}>
+          <div className="rounded-2xl p-4 md:p-6 shadow-sm bg-white compact-card" style={{ border: '2px solid #FEE2E2' }}>
             <div className="flex items-center gap-3 mb-3">
               <Trash2 className="w-5 h-5 text-red-500" />
               <h3 className="text-red-600 font-semibold">Danger Zone</h3>

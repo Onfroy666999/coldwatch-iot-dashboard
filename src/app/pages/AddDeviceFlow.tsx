@@ -499,7 +499,7 @@ export default function AddDeviceFlow() {
 
               {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
 
-              <div className="rounded-2xl p-4" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
+              <div className="rounded-2xl p-4 compact-card" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
                 <p className="text-xs font-semibold text-[#1D4ED8] mb-1">What happens next?</p>
                 <p className="text-xs text-[#1E40AF] leading-relaxed">
                   Next you'll pick exactly what you're storing — photos, mixing suggestions, and preservation tips included.
@@ -588,7 +588,7 @@ export default function AddDeviceFlow() {
               transition={{ duration: 0.22 }} className="space-y-4">
 
               {/* Overall score */}
-              <div className="rounded-2xl p-4 flex items-center gap-4"
+              <div className="rounded-2xl p-4 compact-card flex items-center gap-4"
                 style={{ backgroundColor: TIER_COLOR[overallTier] + '15', border: `1px solid ${TIER_COLOR[overallTier]}50` }}>
                 <div className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0"
                   style={{ backgroundColor: TIER_COLOR[overallTier] }}>
@@ -701,7 +701,7 @@ export default function AddDeviceFlow() {
                 )}
               </div>
 
-              <div className="rounded-2xl p-4" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
+              <div className="rounded-2xl p-4 compact-card" style={{ backgroundColor: '#EBF4FF', border: '1px solid #BFDBFE' }}>
                 <p className="text-xs text-[#1E40AF] leading-relaxed">
                   This is guidance, not a rule — you can still add this device with the crops you've picked. Our
                   suggestion, if any pair is flagged "store separately," is a second device for those crops.
@@ -894,7 +894,7 @@ export default function AddDeviceFlow() {
                 </div>
               </div>
 
-              <div className="rounded-2xl p-4" style={{ backgroundColor: shelfLife.color + '12', border: `1px solid ${shelfLife.color}30` }}>
+              <div className="rounded-2xl p-4 compact-card" style={{ backgroundColor: shelfLife.color + '12', border: `1px solid ${shelfLife.color}30` }}>
                 <p className="text-xs font-semibold mb-0.5" style={{ color: shelfLife.color }}>Estimated shelf life with ColdWatch</p>
                 <p className="text-2xl font-bold" style={{ color: shelfLife.color }}>{shelfLife.label}</p>
                 <p className="text-[10px] text-[#6B7280] mt-1">Based on produce type, condition, and transport time. ColdWatch will actively work to extend this.</p>
@@ -910,7 +910,7 @@ export default function AddDeviceFlow() {
               <p className="text-xs text-[#6B7280]">Check everything below, then save to create the device.</p>
 
               {/* Device identity */}
-              <div className="rounded-2xl p-4 bg-white space-y-2" style={{ border: '1px solid #E4E7EC' }}>
+              <div className="rounded-2xl p-4 compact-card bg-white space-y-2" style={{ border: '1px solid #E4E7EC' }}>
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Device</p>
                   <button onClick={() => setStepStack(['device'])} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
@@ -930,7 +930,7 @@ export default function AddDeviceFlow() {
               </div>
 
               {/* Produce */}
-              <div className="rounded-2xl p-4 bg-white space-y-2.5" style={{ border: '1px solid #E4E7EC' }}>
+              <div className="rounded-2xl p-4 compact-card bg-white space-y-2.5" style={{ border: '1px solid #E4E7EC' }}>
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">
                     Produce ({selectedCrops.length})
@@ -965,7 +965,7 @@ export default function AddDeviceFlow() {
               </div>
 
               {/* Condition */}
-              <div className="rounded-2xl p-4 bg-white flex items-center justify-between" style={{ border: '1px solid #E4E7EC' }}>
+              <div className="rounded-2xl p-4 compact-card bg-white flex items-center justify-between" style={{ border: '1px solid #E4E7EC' }}>
                 <div>
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide mb-1">Condition</p>
                   <p className="text-sm font-semibold text-[#111827]">
@@ -976,7 +976,7 @@ export default function AddDeviceFlow() {
               </div>
 
               {/* Transport */}
-              <div className="rounded-2xl p-4 bg-white space-y-1.5" style={{ border: '1px solid #E4E7EC' }}>
+              <div className="rounded-2xl p-4 compact-card bg-white space-y-1.5" style={{ border: '1px solid #E4E7EC' }}>
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Transport</p>
                   <button onClick={() => { setQuickSetup(false); setStepStack(['device', 'produce', 'condition', 'facility']); }} className="text-[11px] font-semibold text-[#0984E3]">Edit</button>
@@ -988,7 +988,7 @@ export default function AddDeviceFlow() {
               </div>
 
               {/* Shelf life estimate */}
-              <div className="rounded-2xl p-4" style={{ backgroundColor: shelfLife.color + '12', border: `1px solid ${shelfLife.color}30` }}>
+              <div className="rounded-2xl p-4 compact-card" style={{ backgroundColor: shelfLife.color + '12', border: `1px solid ${shelfLife.color}30` }}>
                 <p className="text-xs font-semibold mb-0.5" style={{ color: shelfLife.color }}>Estimated shelf life with ColdWatch</p>
                 <p className="text-2xl font-bold" style={{ color: shelfLife.color }}>{shelfLife.label}</p>
               </div>
@@ -999,7 +999,7 @@ export default function AddDeviceFlow() {
           {step === 'skip-ready' && (
             <motion.div key="skip-ready" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
               transition={{ duration: 0.22 }}>
-              <div className="rounded-2xl p-5" style={{ backgroundColor: '#F8FAFC', border: '1px solid #E4E7EC' }}>
+              <div className="rounded-2xl p-5 compact-card" style={{ backgroundColor: '#F8FAFC', border: '1px solid #E4E7EC' }}>
                 <p className="font-semibold text-[#111827] mb-1">Ready to save</p>
                 <p className="text-sm text-[#6B7280]">
                   You skipped produce setup. You can complete it later from the device card. Tap below to save the device.
@@ -1023,13 +1023,13 @@ export default function AddDeviceFlow() {
               </div>
 
               {!skipProduce && (
-                <div className="rounded-2xl p-4" style={{ backgroundColor: shelfLife.color + '10', border: `1px solid ${shelfLife.color}25` }}>
+                <div className="rounded-2xl p-4 compact-card" style={{ backgroundColor: shelfLife.color + '10', border: `1px solid ${shelfLife.color}25` }}>
                   <p className="text-xs font-semibold text-[#374151] mb-0.5">Estimated shelf life with ColdWatch active</p>
                   <p className="text-xl font-bold" style={{ color: shelfLife.color }}>{shelfLife.label}</p>
                 </div>
               )}
 
-              <div className="rounded-2xl p-4" style={{ backgroundColor: '#FFF8F0', border: '1px solid #F5CBA7' }}>
+              <div className="rounded-2xl p-4 compact-card" style={{ backgroundColor: '#FFF8F0', border: '1px solid #F5CBA7' }}>
                 <p className="text-xs font-semibold text-[#C0501A] mb-1">No hardware yet?</p>
                 <p className="text-xs text-[#7A3010] leading-relaxed">That's fine — the device is registered and the simulation is running.</p>
               </div>

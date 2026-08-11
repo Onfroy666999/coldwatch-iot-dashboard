@@ -29,7 +29,7 @@ function StatCard({
   targetUnit: string;
 }) {
   return (
-    <div className="flex-1 rounded-2xl p-4" style={{ backgroundColor: '#F8FAFC', border: '1px solid #E4E7EC' }}>
+    <div className="flex-1 rounded-2xl p-4 compact-card" style={{ backgroundColor: '#F8FAFC', border: '1px solid #E4E7EC' }}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5">
           <span style={{ color: statusColor }}>{icon}</span>
@@ -261,7 +261,7 @@ export default function ControlPanel() {
     >
 
       {/* ── Header ── */}
-      <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+      <div className="px-5 pt-5 pb-3 flex items-center justify-between compact-p">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${accentTemp}18` }}>
             <Thermometer className="w-4 h-4" style={{ color: accentTemp }} />

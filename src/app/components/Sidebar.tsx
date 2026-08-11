@@ -26,7 +26,7 @@ export function Sidebar() {
     <aside className="hidden md:flex w-56 h-screen fixed left-0 top-0 flex-col z-50"
       style={{ backgroundColor: '#FFFFFF', borderRight: '1px solid #E4E7EC' }}>
 
-      <div className="flex items-center gap-3 px-5 py-5" style={{ borderBottom: '1px solid #F3F4F6' }}>
+      <div className="flex items-center gap-3 px-5 py-5 compact-p" style={{ borderBottom: '1px solid #F3F4F6' }}>
         <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
           style={{ backgroundColor: '#0984E3', boxShadow: '0 2px 8px rgba(9,132,227,0.3)' }}>
           <Snowflake className="w-5 h-5 text-white" />
@@ -37,7 +37,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto compact-p">
         {navItems.map(item => {
           const isActive = activePage === item.id;
           return (
@@ -65,7 +65,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-3 pb-4 pt-3" style={{ borderTop: '1px solid #F3F4F6' }}>
-        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-2" style={{ backgroundColor: '#F9FAFB' }}>
+        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-2 compact-p" style={{ backgroundColor: '#F9FAFB' }}>
           <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 overflow-hidden"
             style={{ backgroundColor: '#0984E3' }}>
             {user.profilePicture
