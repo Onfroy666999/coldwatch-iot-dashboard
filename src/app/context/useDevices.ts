@@ -25,7 +25,7 @@ import { devicesApi } from '../Lib/api';
 import { enqueueAction, isRetryableError } from '../Lib/ActionQueue';
 import { getToken } from '../Lib/tokenStorage';
 import {
-  PRODUCE_THRESHOLDS, DEFAULT_SETTINGS, getStateAdjustedTargets,
+  PRODUCE_THRESHOLDS, DEFAULT_SETTINGS, getStateAdjustedTargets, getStateAdjustedTargetsForCrops,
   mapDevice, buildInitialSimState, deriveLegacyProduceModeFromCrops,
 } from './types';
 import { deriveTargetsForCrops, getCategoryOfCrop, type CropId } from '../data/produce';
@@ -407,6 +407,13 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     produceInfo: { cropIds: CropId[]; produceState: ProduceState; transportHours?: number }
   ) => {
     const thresholds = deriveTargetsForCrops(produceInfo.cropIds);
+    // Sim-facing target only — state shifts the setpoint ColdWatch actively
+    // works toward (see STATE_ADJUSTMENTS), it does not move the alert
+    // warning/critical boundary, which stays tied to the crop's own
+    // tolerance regardless of current condition. Only targetTemperature/
+    // targetHumidity differ between the two; everything else in `thresholds`
+    // (warning/critical bounds, chillingFloor, etc.) is shared.
+    const simTargets = getStateAdjustedTargetsForCrops(produceInfo.cropIds, produceInfo.produceState);
     const derivedProduceMode = deriveLegacyProduceMode(produceInfo.cropIds);
 
     setDevices(prev => prev.map(d => d.id === deviceId ? {
@@ -438,9 +445,9 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
     });
 
     if (simRef.current[deviceId]) {
-      simRef.current[deviceId] = { ...simRef.current[deviceId], ...thresholds };
+      simRef.current[deviceId] = { ...simRef.current[deviceId], ...thresholds, ...simTargets };
     }
-    if (deviceId === selectedDeviceId) setSelectedSim(prev => ({ ...prev, ...thresholds }));
+    if (deviceId === selectedDeviceId) setSelectedSim(prev => ({ ...prev, ...thresholds, ...simTargets }));
   }, [selectedDeviceId]);
 
   // ── addDevice ─────────────────────────────────────────────────────────────

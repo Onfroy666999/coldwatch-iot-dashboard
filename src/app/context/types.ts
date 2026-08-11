@@ -377,13 +377,19 @@ export function mapSettings(s: any): Settings {
 
 /** Build an initial simulation state for a device. */
 export function buildInitialSimState(device: Device): DeviceSimState {
-  const cropTargets = device.cropIds?.length ? deriveTargetsForCrops(device.cropIds) : null;
+  // produceState defaults to 'fresh' when absent, which is a documented
+  // no-op offset (see STATE_ADJUSTMENTS) — so calling the state-adjusted
+  // variant unconditionally is safe and avoids a redundant branch.
+  const state = device.produceState ?? 'fresh';
+  const cropTargets = device.cropIds?.length
+    ? getStateAdjustedTargetsForCrops(device.cropIds, state)
+    : null;
   const targetTemp  = cropTargets
     ? cropTargets.targetTemperature
-    : device.produceMode ? PRODUCE_THRESHOLDS[device.produceMode].targetTemperature : 8;
+    : device.produceMode ? getStateAdjustedTargets(device.produceMode, state).targetTemperature : 8;
   const targetHumid = cropTargets
     ? cropTargets.targetHumidity
-    : device.produceMode ? PRODUCE_THRESHOLDS[device.produceMode].targetHumidity : 85;
+    : device.produceMode ? getStateAdjustedTargets(device.produceMode, state).targetHumidity : 85;
   const now = new Date();
   const sensorHistory: SensorReading[] = Array.from({ length: 60 }, (_, i) => ({
     timestamp:   new Date(now.getTime() - (60 - i) * 60000),
