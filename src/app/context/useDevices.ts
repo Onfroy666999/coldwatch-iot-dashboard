@@ -262,11 +262,27 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   // ── reconnectWebSockets ───────────────────────────────────────────────────
   // Called by App.tsx when the app returns to foreground.
   // Must be declared AFTER openWebSocket.
-
+  //
+  // A WebSocket's readyState can still read as OPEN even though the
+  // underlying connection is actually dead — this is the normal case right
+  // after a mobile app backgrounds/resumes or the phone's radio drops and
+  // regains signal, since no `close` event fires on this side when that
+  // happens. Gating reconnection on readyState === CLOSED trusted that
+  // stale signal, so the app kept listening on a dead socket and missed
+  // the backend's device_status broadcasts — showing stale (often wrongly
+  // "online") device state until the socket eventually died on its own or
+  // the app was force-closed and reopened. So on every resume,
+  // unconditionally drop whatever connection we have and open a fresh one
+  // rather than trusting readyState to tell us it's actually still good.
   const reconnectWebSockets = useCallback(() => {
-    if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
-      openWebSocket();
+    const existing = wsRef.current;
+    if (existing) {
+      existing.onclose = null; // avoid double-firing openWebSocket's own 5s-later reconnect path
+      existing.onerror = null;
+      existing.close();
+      wsRef.current = null;
     }
+    openWebSocket();
   }, [openWebSocket]);
 
   // ── mutateSim ─────────────────────────────────────────────────────────────
