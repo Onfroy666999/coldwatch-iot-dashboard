@@ -44,10 +44,21 @@ export default function PullToRefresh({ onRefresh, children }: PullToRefreshProp
     setPullDistance(Math.min(resisted, MAX_PULL));
   }, [refreshing]);
 
-  const handlePanEnd = useCallback(() => {
+  // Takes the same (event, info) signature onPan gets — PanInfo.offset.y is
+  // framer-motion's own live-tracked gesture value, always accurate at the
+  // instant the gesture ends. The previous version read `pullDistance` from
+  // React state instead, which is only ever as fresh as the last completed
+  // re-render — state updates from the rapid-fire onPan events during the
+  // drag are batched/async, so by the time panend fires, pullDistance could
+  // still reflect an earlier, smaller point in the drag even though the
+  // user's finger was well past the threshold. That made the threshold
+  // check racy: most real pulls read as under-threshold, so `refreshing`
+  // (and therefore the visible spinner) rarely got set, and onRefresh()
+  // rarely actually fired from the gesture itself.
+  const handlePanEnd = useCallback((_event: PointerEvent | MouseEvent | TouchEvent, info: PanInfo) => {
     if (!draggingRef.current) return;
     draggingRef.current = false;
-    if (pullDistance >= PULL_THRESHOLD) {
+    if (info.offset.y >= PULL_THRESHOLD) {
       setRefreshing(true);
       setPullDistance(PULL_THRESHOLD); // hold the indicator in place while the refresh runs
       onRefresh()
@@ -65,7 +76,7 @@ export default function PullToRefresh({ onRefresh, children }: PullToRefreshProp
     } else {
       setPullDistance(0);
     }
-  }, [pullDistance, onRefresh]);
+  }, [onRefresh]);
 
   const progress = Math.min(pullDistance / PULL_THRESHOLD, 1);
 

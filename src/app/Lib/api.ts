@@ -251,6 +251,14 @@ export const devicesApi = {
   get: async (id: string): Promise<{ device: any }> =>
     fetchAPI(`/devices/${id}`),
 
+  // Preview only — does not reserve the code. POST create() below still
+  // re-checks atomically, since a code could get claimed by someone else
+  // in the gap between this call and actual submission.
+  checkCode: async (deviceCode: string): Promise<
+    { available: true } | { available: false; reason: 'not_found' | 'claimed'; message: string }
+  > =>
+    fetchAPI(`/devices/check-code/${encodeURIComponent(deviceCode)}`),
+
   create: async (payload: {
     name:                  string;
     location:              string;

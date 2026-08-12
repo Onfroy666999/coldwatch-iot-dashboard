@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronLeft, ChevronDown, X, XCircle, Check, Hash, Camera, Upload, Loader2, CheckCircle2,
@@ -11,7 +11,7 @@ import {
   COMPATIBILITY_EXAMPLES, getCrop, getCategoryOfCrop, getCompatibleCrops, getConflicts,
   type CropId, type CategoryId, type PairCompatibility, type PairTier,
 } from '../data/produce';
-import { aiApi } from '../Lib/api';
+import { aiApi, devicesApi } from '../Lib/api';
 
 // ── Local constants — small/stable enough to keep self-contained here rather
 // than threading exports through Devices.tsx ─────────────────────────────────
@@ -289,6 +289,13 @@ export default function AddDeviceFlow() {
   const [deviceCode, setDeviceCode] = useState('');
   const [codeSuffix, setCodeSuffix] = useState('');
   const [codeError,  setCodeError]  = useState('');
+  // Was only ever validated against this account's own devices, then again
+  // for real at final submit on the very last step of the wizard — a farmer
+  // could click through 5+ steps before finding out the code was already
+  // claimed by someone else. This checks the backend registry directly as
+  // they finish typing.
+  const [checkingCode, setCheckingCode] = useState(false);
+  const [codeAvailable, setCodeAvailable] = useState(false);
   const [unitName,   setUnitName]   = useState('');
   const [location,   setLocation]   = useState('');
   const [error,      setError]      = useState('');
@@ -339,10 +346,47 @@ export default function AddDeviceFlow() {
     return '';
   };
 
+  // Live registry check — was previously only checked at final submit, on
+  // the last step of the wizard. Debounced so it fires once typing settles,
+  // not on every keystroke, and skipped entirely for codes the sync check
+  // above already rejects locally (incomplete, or already one of this
+  // account's own devices) since those never reach the backend anyway.
+  useEffect(() => {
+    setCodeAvailable(false);
+    const trimmed = `CW-${codeSuffix}`;
+    if (codeSuffix.length !== 6 || existingCodes.includes(trimmed)) return;
+
+    let cancelled = false;
+    setCheckingCode(true);
+    const timer = setTimeout(() => {
+      devicesApi.checkCode(trimmed)
+        .then(res => {
+          if (cancelled) return;
+          if (res.available) {
+            setCodeError('');
+            setCodeAvailable(true);
+          } else {
+            setCodeError(res.message);
+          }
+        })
+        .catch(() => {
+          // A network hiccup checking availability isn't itself a
+          // rejection — stay quiet here and let the real create-time
+          // check at final submit be the actual gate, same as before
+          // this live check existed.
+        })
+        .finally(() => { if (!cancelled) setCheckingCode(false); });
+    }, 500);
+
+    return () => { cancelled = true; clearTimeout(timer); setCheckingCode(false); };
+  }, [codeSuffix]);
+
   const handleDeviceNext = () => {
     setError('');
     const cErr = validateCode(deviceCode);
     if (cErr) { setCodeError(cErr); return; }
+    if (checkingCode) { setCodeError('Still checking this Device ID — one moment.'); return; }
+    if (codeError) return; // the live registry check already set a specific message
     if (!unitName.trim()) { setError('Storage Unit Name is required.'); return; }
     if (!location.trim()) { setError('Location is required.'); return; }
     setDeviceCode(deviceCode.trim().toUpperCase());
@@ -415,8 +459,22 @@ export default function AddDeviceFlow() {
         }, deviceCode.trim().toUpperCase(), unitName.trim(), resolvedAutoResolveMinutes);
       }
       goTo('done');
-    } catch {
-      // addDevice already showed an error toast — stay put so they can retry
+    } catch (err: any) {
+      // addDevice already showed a toast with the backend's actual message
+      // (see ApiError.message in api.ts) — but leaving the farmer on the
+      // last step of a 6-7 step wizard with only a toast meant they had no
+      // way to tell which field was wrong or how to get back to it. The
+      // device code is the only field POST / can still reject this late —
+      // everything else was already validated locally before they got
+      // here — so jump straight back to it and show the same message
+      // inline, right where they'd need to fix it.
+      if (err?.error === 'Device not found' || err?.error === 'Device already registered') {
+        setCodeError(err.message);
+        setCodeAvailable(false);
+        setStepStack(['device']);
+      }
+      // Any other failure: addDevice's toast already said what happened —
+      // stay on the current step so they can retry without losing progress.
     } finally {
       setSaving(false);
     }
@@ -464,7 +522,7 @@ export default function AddDeviceFlow() {
                 <label className="text-xs font-semibold text-[#374151] uppercase tracking-wide flex items-center gap-1.5">
                   <Hash className="w-3.5 h-3.5" /> Device ID
                 </label>
-                <div className="flex items-stretch gap-0">
+                <div className="flex items-stretch gap-0 relative">
                   <div className="flex items-center px-3 font-mono font-bold text-[#111827] bg-[#F3F4F6] border border-r-0 border-[#D1D5DB] rounded-l-xl select-none"
                     style={{ fontSize: 16, height: 52, letterSpacing: 1 }}>
                     CW-
@@ -476,19 +534,38 @@ export default function AddDeviceFlow() {
                       setCodeSuffix(raw);
                       setDeviceCode(`CW-${raw}`);
                       setCodeError('');
+                      setCodeAvailable(false);
                     }}
                     maxLength={6} autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-                    className={inputBase + ' font-mono rounded-l-none flex-1'}
+                    className={inputBase + ' font-mono rounded-l-none flex-1 pr-10'}
                     style={{ fontSize: 16, height: 52, letterSpacing: 2 }}
                   />
+                  {/* Live registry-check status — only ever shown once the code is a
+                      complete 6 characters, since that's the earliest point there's
+                      anything to check. */}
+                  {codeSuffix.length === 6 && (
+                    <div className="absolute right-3 top-0 flex items-center" style={{ height: 52 }}>
+                      {checkingCode
+                        ? <Loader2 className="w-4 h-4 animate-spin text-[#6B7280]" />
+                        : codeAvailable
+                          ? <CheckCircle2 className="w-4 h-4 text-[#1A7A3F]" />
+                          : codeError
+                            ? <XCircle className="w-4 h-4 text-red-500" />
+                            : null}
+                    </div>
+                  )}
                 </div>
                 {codeError
                   ? <p className="text-xs text-red-500 font-medium">{codeError}</p>
-                  : <p className="text-[10px] text-[#6B7280]">
-                      {codeSuffix.length > 0 && codeSuffix.length < 6
-                        ? `${6 - codeSuffix.length} more character${6 - codeSuffix.length === 1 ? '' : 's'} needed`
-                        : 'Enter the 6-character code printed on your device. Only A–F and 0–9 are accepted.'}
-                    </p>}
+                  : checkingCode
+                    ? <p className="text-[10px] text-[#6B7280]">Checking this Device ID…</p>
+                    : codeAvailable
+                      ? <p className="text-[10px] text-[#1A7A3F] font-medium">This Device ID is available.</p>
+                      : <p className="text-[10px] text-[#6B7280]">
+                          {codeSuffix.length > 0 && codeSuffix.length < 6
+                            ? `${6 - codeSuffix.length} more character${6 - codeSuffix.length === 1 ? '' : 's'} needed`
+                            : 'Enter the 6-character code printed on your device. Only A–F and 0–9 are accepted.'}
+                        </p>}
               </div>
 
               <div className="space-y-1">
