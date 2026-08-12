@@ -22,9 +22,7 @@ import { Analytics } from '@vercel/analytics/react';
 import { WifiOff, Snowflake } from 'lucide-react';
 import SyncBanner from './components/SyncBanner';
 import ErrorBoundary from './components/ErrorBoundary';
-import UpdateRequired from './components/UpdateRequired';
 import { ready as tokenStorageReady } from './Lib/tokenStorage';
-import { checkVersion } from './Lib/versionCheck';
 import { loadAndApplyTextSize } from './Lib/textSize';
 import type { NixHandle } from './components/AIAssistant';
 // Lazy-loaded: NIX_ENABLED is false today, so this ~98KB component (Groq
@@ -130,12 +128,16 @@ function AppContent() {
   // foreground. This matters specifically because a backgrounded WebView
   // can be fully suspended by the OS, which silently kills the socket at
   // the transport level without ever firing the JS 'close' event — so the
-  // per-socket reconnect-on-close logic in useDevices.ts never triggers.
-  // reconnectWebSockets() sidesteps that by actively checking readyState
-  // the moment we're back, rather than waiting for an event that may never
-  // arrive. Without this, the Dashboard's live tile can silently freeze on
-  // stale data indefinitely while History (a fresh fetch every time) stays
-  // correct — which is exactly what was happening before this was wired up.
+  // per-socket reconnect-on-close logic in useDevices.ts never triggers,
+  // and the socket is left reading OPEN even though it's dead (a "zombie"
+  // connection). reconnectWebSockets() sidesteps that by unconditionally
+  // force-closing whatever connection exists and opening a fresh one the
+  // moment we're back, rather than trusting readyState (which can't tell a
+  // zombie connection from a healthy one) or waiting for a close event that
+  // may never arrive. Without this, the Dashboard's live tile can silently
+  // freeze on stale data indefinitely while History (a fresh fetch every
+  // time) stays correct — which is exactly what was happening before this
+  // was wired up.
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -555,18 +557,6 @@ export default function App() {
     tokenStorageReady.then(() => setTokenHydrated(true));
   }, []);
 
-  // checkVersion() was built (Lib/versionCheck.ts + this UpdateRequired
-  // screen) but never actually called anywhere, so an installed app below
-  // the backend's minSupportedVersion just kept running against a possibly
-  // breaking API indefinitely. No-ops (resolves updateRequired: false)
-  // instantly on web — only native builds actually hit the /version
-  // endpoint — so this adds no meaningful delay there.
-  const [updateRequired, setUpdateRequired] = useState(false);
-
-  useEffect(() => {
-    checkVersion().then(({ updateRequired }) => setUpdateRequired(updateRequired));
-  }, []);
-
   // Text size is a display preference, not an auth concern — unlike the
   // gate above, there's no correctness issue with it applying a frame or
   // two after first paint, so this doesn't block rendering.
@@ -576,9 +566,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      {updateRequired ? (
-        <UpdateRequired />
-      ) : tokenHydrated ? (
+      {tokenHydrated ? (
         <AppProvider>
           <AppContent />
           <Analytics />

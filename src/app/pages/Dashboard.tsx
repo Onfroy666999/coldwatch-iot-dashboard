@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Thermometer, Droplets, Activity, AlertTriangle, AlertCircle, CheckCircle2, TrendingUp, TrendingDown, Snowflake, ChevronRight, MapPin, Wifi, WifiOff, Lightbulb } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { insightsApi, type AIInsight } from '../Lib/api';
 import ControlPanel from '../components/ControlPanel';
+import PullToRefresh from '../components/PullToRefresh';
 
 const ROLE_PREFIX: Record<string, string> = {
   farmer:            'Farmer',
@@ -64,7 +65,7 @@ function LivePulse({ currentTemperature }: { currentTemperature: number }) {
 }
 
 export default function Dashboard() {
-  const { currentTemperature, currentHumidity, systemStatus, alerts, sensorHistory, settings, user, setActivePage, devices, selectedDeviceId, setSelectedDeviceId, isOnline, lastReadingAt } = useApp();
+  const { currentTemperature, currentHumidity, systemStatus, alerts, sensorHistory, settings, user, setActivePage, devices, selectedDeviceId, setSelectedDeviceId, isOnline, lastReadingAt, refreshDevices, reconnectWebSockets } = useApp();
 
   // Keep the screen awake while this page is mounted — a dimmed/locked screen
   // is exactly the condition that kills the WebSocket in the field (see
@@ -94,6 +95,16 @@ export default function Dashboard() {
       .finally(() => { if (!cancelled) setInsightsLoading(false); });
     return () => { cancelled = true; };
   }, [selectedDeviceId]);
+
+  // ── Pull-to-refresh ──────────────────────────────────────────────────────
+  // Readings can look stale/stuck when the shared WebSocket has silently died
+  // (a "zombie connection" — see useDevices.ts) without the client noticing.
+  // A manual pull forces a fresh connection rather than waiting on it, and
+  // re-fetches the device list in case anything changed server-side.
+  const handleRefresh = useCallback(async () => {
+    reconnectWebSockets();
+    await refreshDevices();
+  }, [reconnectWebSockets, refreshDevices]);
 
   // Derive hour directly — changes at most once per session, no state needed
   const hour = new Date().getHours();
@@ -165,6 +176,7 @@ export default function Dashboard() {
   const systemLabel   = systemStatus === 'cooling' ? 'Cooling Active' : systemStatus === 'override' ? 'Override' : 'System Idle';
 
   return (
+    <PullToRefresh onRefresh={handleRefresh}>
     <div className="space-y-5">
 
       {/* Welcome Banner */}
@@ -439,5 +451,6 @@ export default function Dashboard() {
         <ControlPanel />
       </div>
     </div>
+    </PullToRefresh>
   );
 }

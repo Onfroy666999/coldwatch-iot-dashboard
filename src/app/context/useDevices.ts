@@ -260,25 +260,28 @@ export function useDevices({ addAlert, addToast }: UseDevicesOptions): UseDevice
   }, [addAlert]);
 
   // ── reconnectWebSockets ───────────────────────────────────────────────────
-  // Called by App.tsx when the app returns to foreground.
+  // Called by App.tsx when the app returns to foreground, and by the
+  // Dashboard's pull-to-refresh.
   // Must be declared AFTER openWebSocket.
   //
-  // A WebSocket's readyState can still read as OPEN even though the
-  // underlying connection is actually dead — this is the normal case right
-  // after a mobile app backgrounds/resumes or the phone's radio drops and
-  // regains signal, since no `close` event fires on this side when that
-  // happens. Gating reconnection on readyState === CLOSED trusted that
-  // stale signal, so the app kept listening on a dead socket and missed
-  // the backend's device_status broadcasts — showing stale (often wrongly
-  // "online") device state until the socket eventually died on its own or
-  // the app was force-closed and reopened. So on every resume,
-  // unconditionally drop whatever connection we have and open a fresh one
-  // rather than trusting readyState to tell us it's actually still good.
+  // Deliberately does NOT trust readyState to decide whether reconnecting is
+  // necessary. A "zombie" connection — dead after the app backgrounds, a
+  // network handoff, or a period of weak signal, with no TCP RST to trigger
+  // a close event — still reads as OPEN even though no data can flow.
+  // openWebSocket() itself no-ops for anything <= OPEN (CONNECTING or OPEN),
+  // so a readyState check here would silently do nothing for exactly the
+  // case this function exists to handle. Instead: always force-close
+  // whatever connection currently exists and open a fresh one.
   const reconnectWebSockets = useCallback(() => {
     const existing = wsRef.current;
     if (existing) {
-      existing.onclose = null; // avoid double-firing openWebSocket's own 5s-later reconnect path
-      existing.onerror = null;
+      // Null the handlers out before closing — otherwise this close also
+      // fires openWebSocket's own onclose handler, which schedules its own
+      // reconnect 5s later, racing with the fresh connection we're about to
+      // open immediately below.
+      existing.onclose   = null;
+      existing.onerror   = null;
+      existing.onmessage = null;
       existing.close();
       wsRef.current = null;
     }
